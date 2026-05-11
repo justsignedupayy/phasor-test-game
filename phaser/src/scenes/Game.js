@@ -42,7 +42,45 @@ export class Game extends Scene
 
         this.showHand();
 
+        this.createRegisterBallsButton();
+
         this.checkStage();
+    }
+
+    createRegisterBallsButton ()
+    {
+        const x = this.view.left + 90;
+        const y = this.view.top + 110;
+        const width = 156;
+        const height = 48;
+
+        const button = this.add.rectangle(x, y, width, height, 0x663b12)
+            .setDepth(100)
+            .setStrokeStyle(3, 0xf7d55f)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', (pointer, localX, localY, event) => {
+                event.stopPropagation();
+                this.requestMoreBalls();
+            })
+            .on('pointerover', () => {
+                button.setFillStyle(0x7d4b14);
+            })
+            .on('pointerout', () => {
+                button.setFillStyle(0x663b12);
+            });
+
+        this.add.text(x, y, 'More Balls', {
+            fontFamily: 'Arial Black',
+            fontSize: '18px',
+            color: '#fff7d6',
+            stroke: '#3d210e',
+            strokeThickness: 5,
+            align: 'center'
+        })
+            .setDepth(101)
+            .setOrigin(0.5, 0.5);
+
+        this.moreballsButton = button;
     }
 
     checkStage ()
@@ -121,6 +159,11 @@ export class Game extends Scene
             this.handCursor = null;
         }
 
+        if (this.moreballsButton && Phaser.Geom.Rectangle.Contains(this.moreballsButton.getBounds(), pointer.x, pointer.y))
+        {
+            return;
+        }
+
         const ball = Phaser.Utils.Array.GetFirst(this.balls, 'active', false);
 
         if (ball && this.registry.get('shots') > 0)
@@ -134,6 +177,17 @@ export class Game extends Scene
             this.checkStage();
 
             this.sound.play('throw');
+        }
+    }
+
+    async requestMoreBalls ()
+    {
+        const rewardGranted = await YouTubePlayables.requestRewardedAd();
+
+        if (rewardGranted)
+        {
+            this.registry.inc('shots', 5);
+            this.checkStage();
         }
     }
 

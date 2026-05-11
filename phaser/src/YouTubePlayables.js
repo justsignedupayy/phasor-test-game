@@ -406,6 +406,39 @@ export const YouTubePlayables = {
                 }
             }
         }
+    },
+
+    requestRewardedAd: function(rewardId = "21403813-2e22-4316-a8b2-7d4f52a6f6fb")
+    {
+        if (!this.isReady())
+        {
+            return Promise.resolve(false);
+        }
+
+        try
+        {
+            return this._ytgameRef?.ads.requestRewardedAd(rewardId)
+                .then(granted => {
+                    return Boolean(granted);
+                })
+                .catch(error => {
+                    if (error.errorType)
+                    {
+                        this.handleError(error.errorType);
+                    }
+
+                    return false;
+                });
+        }
+        catch (error)
+        {
+            if (error.errorType)
+            {
+                this.handleError(error.errorType);
+            }
+
+            return Promise.resolve(false);
+        }
     }
 
 };

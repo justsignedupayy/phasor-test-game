@@ -129,6 +129,21 @@ declare namespace ytgame.ads {
   export function requestInterstitialAd(): Promise<void>;
 
   /**
+   * Requests a rewarded ad to be shown.
+   * @experimental
+   *
+   * 🧪 PUBLIC PREVIEW API: SUBJECT TO CHANGE WITHOUT NOTICE.
+   *
+   * This request may resolve successfully even if an ad is not shown.
+   * On success the resolved value indicates whether the player earned the reward.
+   *
+   * @param rewardId - A unique identifier for the reward being offered.
+   * @returns A promise that resolves with `true` when the player earned the reward and `false` otherwise.
+   * @throws `ytgame.SdkError`
+   */
+  export function requestRewardedAd(rewardId: string): Promise<boolean>;
+
+  /**
    * The possible outcomes of a successful ad break.
    * @hidden
    */

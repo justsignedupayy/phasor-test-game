@@ -15,17 +15,46 @@ async function main() {
     backgroundColor: 0x23272a,
   });
 
-  // Example of loading an imported asset.
-  const cube = new Sprite(assetManager.load("/assets/sprites/cube.png"));
-  cube.eventMode = 'static';
-  cube.on('pointerup', (_) => {
-      ytgame.ads.requestInterstitialAd();
+  // Example of loading imported assets for ad test buttons.
+  const interstitialCube = new Sprite(assetManager.load("/assets/sprites/cube.png"));
+  interstitialCube.x = 0;
+  interstitialCube.eventMode = 'static';
+  interstitialCube.on('pointerup', async () => {
+      await requestInterstitialAd();
   });
-  app.stage.addChild(cube);
+  app.stage.addChild(interstitialCube);
+
+  const rewardedCube = new Sprite(assetManager.load("/assets/sprites/cube.png"));
+  rewardedCube.x = 150;
+  rewardedCube.eventMode = 'static';
+  rewardedCube.on('pointerup', async () => {
+      await requestRewardedAd();
+  });
+  app.stage.addChild(rewardedCube);
 
   // Do other setup work here, if needed. Then,
   // tell the SDK that the game is ready to be played.
   ytgame.game.gameReady();
+
+  async function requestInterstitialAd() {
+    try {
+      await ytgame.ads.requestInterstitialAd();
+      console.debug("Interstitial ad requested successfully.");
+    } catch (error) {
+      console.warn("Failed to request interstitial ad:", error);
+    }
+  }
+
+  async function requestRewardedAd() {
+    try {
+      const isRewardEarned = await ytgame.ads.requestRewardedAd(
+        "21403813-2e22-4316-a8b2-7d4f52a6f6fb"
+      );
+      console.debug(`Reward earned: ${isRewardEarned}`);
+    } catch (error) {
+      console.warn("Failed to request rewarded ad:", error);
+    }
+  }
 
   // Play music, for fun.
   const backgroundSound = assetManager.load("/assets/sounds/moonlight.mp3");

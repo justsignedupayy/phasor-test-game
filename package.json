@@ -1,6 +1,6 @@
 {
-    "name": "garage-idle",
-    "description": "A car-mechanic garage idle game. Phaser 3 + Vite, built for YouTube Playables.",
+    "name": "garage-idle-3d",
+    "description": "Isometric low-poly car-mechanic idle game. Three.js + Vite.",
     "version": "0.1.0",
     "type": "module",
     "license": "MIT",
@@ -9,8 +9,10 @@
         "build": "vite build --config vite/config.prod.mjs",
         "test": "node test/core.test.mjs"
     },
+    "dependencies": {
+        "three": "^0.169.0"
+    },
     "devDependencies": {
-        "phaser": "^3.86.0",
         "terser": "^5.34.1",
         "vite": "^6.3.6"
     }

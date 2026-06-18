@@ -1,50 +1,57 @@
-# Garage Idle — car-mechanic idle game (Phaser 3 + Vite)
+# Garage 3D — isometric low-poly idle (Three.js + Vite)
 
-Vertical slice: tap a broken car to repair it, get paid, next car rolls in. Built
-for YouTube Playables (via Playgama Bridge), but the game logic is fully
-framework-agnostic.
+Vertical slice: walk a low-poly character around an isometric 3D garage with an
+on-screen joystick. Movement-feel only — no gameplay yet. All geometry is
+primitives (boxes, cylinders, spheres, cones, planes); no model files or textures.
 
 ## Run
 ```bash
 npm install
 npm run dev      # http://localhost:8080
-npm test         # core logic tests, no Phaser needed
+npm test         # core logic tests, no Three.js needed
 npm run build    # -> /dist
 ```
 
 ## Architecture
 
-Game logic is pure and Phaser-free; Phaser only renders state and forwards input.
+Game logic is pure and Three.js-free; the render layer reads core state and
+forwards input. It never owns game logic.
 
 ```
 src/
 ├── config/
-│   └── balance.js     ← every tunable number (totalWork, payout, tapValue, mechanicRate…)
-├── core/              ← pure logic, NO Phaser imports (runnable/testable in Node)
-│   ├── Car.js         ← car model + createCar() factory
-│   ├── Bay.js         ← repair-bay model (holds one car)
-│   ├── GameState.js   ← cash + bays; createInitialState()
-│   └── simulation.js  ← tick(state, dt) + tapBay(state, bayId); returns events
-├── scenes/            ← Phaser; renders core state, forwards taps, owns no logic
-│   ├── Boot.js        ← Playgama Bridge init, then starts Game
-│   └── GameScene.js   ← HUD + bay rendering; calls tick()/tapBay(); reacts to events
-├── bridge/
-│   └── Bridge.js      ← Playgama Bridge wrapper (platform integration)
-└── main.js            ← Phaser game config (540×960 portrait, FIT scale)
+│   └── settings.js     ← every tunable: move speed, camera, world bounds, bob, colors
+├── core/               ← pure logic, NO Three.js (runnable/testable in Node)
+│   ├── GameState.js    ← cash, pits (later), player {position, rotation, moving}, input
+│   └── simulation.js   ← tick(state, dt): integrates movement, clamps to bounds
+├── scene/              ← Three.js; renders core state, owns no game logic
+│   ├── SceneManager.js ← renderer, isometric ortho camera, lights, resize, move-basis
+│   ├── Input.js        ← bottom-center virtual joystick (touch + mouse, Pointer Events)
+│   ├── Character.js    ← low-poly figure from primitives; idle/walk bob, facing
+│   ├── Garage.js       ← floor, grid, low walls, repair-pit patch
+│   └── BrokenCar.js    ← parked broken-car prop (set dressing)
+└── main.js             ← bootstrap + RAF loop: input → tick(state,dt) → render
 ```
 
 ### How the layers talk
-- `simulation.js` mutates `GameState` and **returns an event list** (`damageCleared`,
-  `carFixed`, `carSpawned`).
-- `GameScene` reads `GameState` each frame for persistent visuals (cash, car heal
-  color) and consumes events for transient effects (marker pop, slide-off, `+$15`).
-- `GameScene.update()` calls `tick(state, dt)` every frame. With `mechanic.rate = 0`
-  it does nothing yet — it's wired so auto-progress / mechanics drop in cleanly.
+- `Input` exposes a **screen-space** joystick vector (`{x, y}`, up = positive).
+- `main.js` maps it to a **camera-relative world** direction using the ground
+  basis from `SceneManager` (so "up" on the stick always means "up the screen"),
+  then writes it to `state.input`.
+- `simulation.tick(state, dt)` integrates `state.input` into `player.position`,
+  clamps to `world` bounds, and sets `player.rotation` to face movement.
+- `Character.update(dt, player)` reads that state and animates via transforms
+  (smoothed turn, idle/walk bob, limb swing). No skeletal rigging.
+
+### Camera
+Orthographic, positioned at equal x/y/z (≈35.26° down, 45° rotation = classic
+isometric), framed to a fixed vertical `viewSize` so it scales to any screen.
+Tune `settings.camera.viewSize` to zoom; `settings.world.half{X,Z}` for room size.
 
 ### Extending
-Add upgrades, more bays, or auto-mechanics by editing `core/` + `balance.js`; the
-renderer keeps working as long as it reads state and handles the same events.
+Add repairs/economy/pits in `core/` + `settings.js`; the renderer keeps working
+as long as it reads state. Drop new props into `scene/`.
 
-## SDK Docs
-- Playgama Bridge: https://wiki.playgama.com/playgama/bridge-sdk/getting-started
-- YouTube Playables: https://developers.google.com/youtube/gaming/playables
+## Note
+Camera framing and world size are tuned by eye in `settings.js` — adjust
+`camera.viewSize` and `world.halfX/halfZ` to taste.

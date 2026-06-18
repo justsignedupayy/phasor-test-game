@@ -1,25 +1,50 @@
-# YouTube Playables - Web game samples
+# Garage Idle — car-mechanic idle game (Phaser 3 + Vite)
 
-YouTube Playables are interactive games and experiences published to YouTube, accessed through our apps and website.
+Vertical slice: tap a broken car to repair it, get paid, next car rolls in. Built
+for YouTube Playables (via Playgama Bridge), but the game logic is fully
+framework-agnostic.
 
-* [Try YouTube Playables](https://www.youtube.com/playables)  
-* Learn more from the [YouTube Help Center](https://support.google.com/youtube/answer/14328604)  
-* Visit the [YouTube Playables developer documentation](https://developers.google.com/youtube/gaming/playables)
+## Run
+```bash
+npm install
+npm run dev      # http://localhost:8080
+npm test         # core logic tests, no Phaser needed
+npm run build    # -> /dist
+```
 
-YouTube Playables supports standard web platform APIs. Therefore, Playables supports games made with game engines that export builds for the web that use a standard rendering API (for example, WebGL and Canvas).
+## Architecture
 
-YouTube Playables SDK is a web SDK for connecting web games with the YouTube environment. The SDK features a robust API to support games in a variety of ways to create an excellent gaming experience on YouTube.
+Game logic is pure and Phaser-free; Phaser only renders state and forwards input.
 
-For additional information, visit the [YouTube Playables developer documentation](https://developers.google.com/youtube/gaming/playables).
+```
+src/
+├── config/
+│   └── balance.js     ← every tunable number (totalWork, payout, tapValue, mechanicRate…)
+├── core/              ← pure logic, NO Phaser imports (runnable/testable in Node)
+│   ├── Car.js         ← car model + createCar() factory
+│   ├── Bay.js         ← repair-bay model (holds one car)
+│   ├── GameState.js   ← cash + bays; createInitialState()
+│   └── simulation.js  ← tick(state, dt) + tapBay(state, bayId); returns events
+├── scenes/            ← Phaser; renders core state, forwards taps, owns no logic
+│   ├── Boot.js        ← Playgama Bridge init, then starts Game
+│   └── GameScene.js   ← HUD + bay rendering; calls tick()/tapBay(); reacts to events
+├── bridge/
+│   └── Bridge.js      ← Playgama Bridge wrapper (platform integration)
+└── main.js            ← Phaser game config (540×960 portrait, FIT scale)
+```
 
-## Community
+### How the layers talk
+- `simulation.js` mutates `GameState` and **returns an event list** (`damageCleared`,
+  `carFixed`, `carSpawned`).
+- `GameScene` reads `GameState` each frame for persistent visuals (cash, car heal
+  color) and consumes events for transient effects (marker pop, slide-off, `+$15`).
+- `GameScene.update()` calls `tick(state, dt)` every frame. With `mechanic.rate = 0`
+  it does nothing yet — it's wired so auto-progress / mechanics drop in cleanly.
 
-Join the [YouTube Discord server](https://discord.gg/eEFBtMswKT) to discuss with our Playables community.
+### Extending
+Add upgrades, more bays, or auto-mechanics by editing `core/` + `balance.js`; the
+renderer keeps working as long as it reads state and handles the same events.
 
-## Contributing
-
-We welcome contributions from the community! Whether it's bug reports, feature requests, documentation improvements, or code contributions, please view our **[Contributing doc](./docs/contributing.md)** to get started.
-
-## License
-
-This project is licensed under the Apache 2.0 License. View the **[LICENSE](LICENSE)** file for details.
+## SDK Docs
+- Playgama Bridge: https://wiki.playgama.com/playgama/bridge-sdk/getting-started
+- YouTube Playables: https://developers.google.com/youtube/gaming/playables

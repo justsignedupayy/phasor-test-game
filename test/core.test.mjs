@@ -18,7 +18,16 @@ import {
   requiredTicks,
   expandRoomCost,
   pitEquipmentCost,
+  ownedRightX,
+  allLandOwned,
 } from '../src/core/upgrades.js';
+import {
+  getEffectiveReputation,
+  buyAdvertising,
+  activateRepBoost,
+  adCost,
+} from '../src/core/reputation.js';
+import { formatMoney } from '../src/core/format.js';
 import settings from '../src/config/settings.js';
 
 let passed = 0;
@@ -31,27 +40,30 @@ function check(name, fn) {
 // --- movement -------------------------------------------------------------
 console.log('core simulation (3D movement)');
 
-check('initial state: $0, player at origin, not moving', () => {
+check('initial state: $0, player inside pit 0\'s owned bay, not moving', () => {
   const s = createInitialState();
   assert.equal(s.cash, 0);
-  assert.deepEqual(s.player.position, { x: 0, z: 0 });
+  assert.deepEqual(s.player.position, { x: -4, z: 0 });
   assert.equal(s.player.moving, false);
 });
 
 check('full input for 1s travels exactly `speed` units', () => {
   const s = createInitialState();
+  const z0 = s.player.position.z;
   s.input.z = 1;
   tick(s, 1);
-  assert.ok(Math.abs(s.player.position.z - settings.player.speed) < 1e-6);
+  assert.ok(Math.abs(s.player.position.z - z0 - settings.player.speed) < 1e-6);
 });
 
 check('diagonal input is not faster than cardinal', () => {
   const s = createInitialState();
+  const { x: x0, z: z0 } = s.player.position;
   s.input.x = 1;
   s.input.z = 1;
-  tick(s, 1);
-  const dist = Math.hypot(s.player.position.x, s.player.position.z);
-  assert.ok(Math.abs(dist - settings.player.speed) < 1e-6);
+  const dt = 0.05; // small step so the move doesn't reach the land fence or any wall
+  tick(s, dt);
+  const dist = Math.hypot(s.player.position.x - x0, s.player.position.z - z0);
+  assert.ok(Math.abs(dist - settings.player.speed * dt) < 1e-6);
 });
 
 check('player rotates to face movement (+x → PI/2)', () => {
@@ -61,12 +73,38 @@ check('player rotates to face movement (+x → PI/2)', () => {
   assert.ok(Math.abs(s.player.rotation - Math.PI / 2) < 1e-6);
 });
 
-check('position clamps to garage bounds', () => {
+check('in the lane, position clamps to the full (already-built) garage bounds', () => {
   const s = createInitialState();
+  s.player.position.z = settings.laneZ; // lane is never fenced by land ownership
   s.input.x = 1;
   for (let i = 0; i < 200; i++) tick(s, 0.1);
   const limX = settings.world.halfX - settings.player.radius;
   assert.ok(s.player.position.x <= limX + 1e-9 && s.player.position.x >= limX - 1e-6);
+});
+
+check('in the bay row, position clamps to owned land only (fenced off otherwise)', () => {
+  const s = createInitialState();
+  s.input.x = 1;
+  for (let i = 0; i < 200; i++) tick(s, 0.1); // z stays 0: bay territory the whole time
+  const limX = ownedRightX(s) - settings.player.radius;
+  assert.ok(s.player.position.x <= limX + 1e-9, 'should not cross the fence into unowned land');
+  assert.ok(s.player.position.x < settings.world.halfX - settings.player.radius, 'fence is well short of the outer wall with only pit 0 owned');
+});
+
+check('buying more land moves the fence (and the bay clamp) further right', () => {
+  const s = createInitialState();
+  const before = ownedRightX(s);
+  s.cash = 1e9;
+  buyExpandRoom(s);
+  const after = ownedRightX(s);
+  assert.ok(after > before);
+});
+
+check('once every pit is owned, the bay clamp matches the outer wall (no fence left)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  while (!allLandOwned(s)) buyExpandRoom(s);
+  assert.equal(ownedRightX(s), settings.world.halfX);
 });
 
 // --- pit setup ------------------------------------------------------------
@@ -126,13 +164,23 @@ check('locked/unequipped pits do NOT accept cars', () => {
 // --- randomized damage ----------------------------------------------------
 console.log('\ncore randomized damage');
 
+// Reputation at 0 forces every roll to the 'normal' tier, so these tests stay
+// deterministic about the base (non-reputation) formulas.
+const zeroRepState = () => {
+  const s = createInitialState();
+  s.permanentReputation = 0;
+  return s;
+};
+
 check('spawnCar: non-empty canonical subset; ticks + payout scale with parts', () => {
   const canon = ['tire', 'smoke', 'dent'];
+  const s = zeroRepState();
   for (let i = 0; i < 300; i++) {
-    const car = spawnCar();
+    const car = spawnCar(s);
     const n = car.damageParts.length;
     assert.ok(n >= 1 && n <= 3);
     assert.deepEqual(car.damageParts, canon.filter((p) => car.damageParts.includes(p)));
+    assert.equal(car.tier, 'normal');
     assert.equal(car.baseTicks, settings.repair.ticksPerPart * n);
     assert.equal(car.payout, settings.spawn.basePayoutPerPart * n);
     assert.equal(car.ticksDone, 0);
@@ -142,7 +190,8 @@ check('spawnCar: non-empty canonical subset; ticks + payout scale with parts', (
 
 check('spawnCar produces variety (1-, 2- and 3-damage cars appear)', () => {
   const counts = new Set();
-  for (let i = 0; i < 400; i++) counts.add(spawnCar().damageParts.length);
+  const s = zeroRepState();
+  for (let i = 0; i < 400; i++) counts.add(spawnCar(s).damageParts.length);
   assert.ok(counts.has(1) && counts.has(2) && counts.has(3));
 });
 
@@ -351,6 +400,116 @@ check('hurry is per-pit: hurrying one pit does not boost another', () => {
   hurry(s, 0);
   assert.ok(s.pits[0].hurryTimer > 0);
   assert.equal(s.pits[1].hurryTimer, 0);
+});
+
+// --- reputation + advertising ----------------------------------------------
+console.log('\ncore reputation + advertising');
+
+check('initial state: reputation starts at baseReputation, no boost, no ad purchases', () => {
+  const s = createInitialState();
+  assert.equal(s.permanentReputation, settings.reputation.baseReputation);
+  assert.equal(s.repBoostRemaining, 0);
+  assert.equal(s.adLevel, 0);
+});
+
+check('getEffectiveReputation: no boost = permanent rate; boosted = doubled, clamped to repCap', () => {
+  const s = createInitialState();
+  assert.equal(getEffectiveReputation(s), settings.reputation.baseReputation);
+
+  s.repBoostRemaining = settings.reputation.boostDurationSeconds;
+  assert.ok(Math.abs(getEffectiveReputation(s) - settings.reputation.baseReputation * settings.reputation.boostMultiplier) < 1e-9);
+
+  s.permanentReputation = 0.9; // ×2 would exceed repCap (1.0)
+  assert.equal(getEffectiveReputation(s), settings.reputation.repCap);
+});
+
+check('spawnCar: a maxed-out reputation always rolls the better tier, scaled by betterTicksMult/betterPayoutMult', () => {
+  const s = createInitialState();
+  s.permanentReputation = settings.reputation.repCap;
+  for (let i = 0; i < 50; i++) {
+    const car = spawnCar(s);
+    const n = car.damageParts.length;
+    assert.equal(car.tier, 'better');
+    assert.ok(Math.abs(car.baseTicks - settings.repair.ticksPerPart * n * settings.reputation.betterTicksMult) < 1e-9);
+    assert.equal(car.payout, settings.spawn.basePayoutPerPart * n * settings.reputation.betterPayoutMult);
+  }
+});
+
+check('buyAdvertising: deducts cost, adds repStep, bumps adLevel; fails when unaffordable', () => {
+  const s = createInitialState();
+  s.cash = 0;
+  assert.equal(buyAdvertising(s), false);
+  assert.equal(s.permanentReputation, settings.reputation.baseReputation);
+
+  s.cash = 1e9;
+  const before = s.permanentReputation;
+  const cost = adCost(s);
+  assert.equal(buyAdvertising(s), true);
+  assert.equal(s.cash, 1e9 - cost);
+  assert.ok(Math.abs(s.permanentReputation - (before + settings.reputation.repStep)) < 1e-9);
+  assert.equal(s.adLevel, 1);
+});
+
+check('adCost grows geometrically with adLevel', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  const c0 = adCost(s);
+  buyAdvertising(s);
+  const c1 = adCost(s);
+  assert.ok(c1 > c0);
+  assert.equal(c1, Math.round(c0 * settings.reputation.adGrowth));
+});
+
+check('buyAdvertising refuses once reputation is already at repCap', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
+  assert.equal(buyAdvertising(s), false);
+  assert.equal(s.permanentReputation, settings.reputation.repCap);
+});
+
+check('activateRepBoost arms the timer and refuses to stack while one is active', () => {
+  const s = createInitialState();
+  activateRepBoost(s);
+  assert.equal(s.repBoostRemaining, settings.reputation.boostDurationSeconds);
+
+  tick(s, 10);
+  const remaining = s.repBoostRemaining;
+  assert.ok(remaining < settings.reputation.boostDurationSeconds);
+
+  activateRepBoost(s); // no-op: a boost is already running
+  assert.equal(s.repBoostRemaining, remaining);
+});
+
+check('tick decrements repBoostRemaining toward 0 and never goes negative', () => {
+  const s = createInitialState();
+  activateRepBoost(s);
+  for (let i = 0; i < 1000; i++) tick(s, 1); // far longer than boostDurationSeconds
+  assert.equal(s.repBoostRemaining, 0);
+});
+
+// --- number formatting -------------------------------------------------------
+console.log('\ncore number formatting');
+
+check('formatMoney: plain integers under 1000, no suffix', () => {
+  assert.equal(formatMoney(0), '0');
+  assert.equal(formatMoney(1), '1');
+  assert.equal(formatMoney(999), '999');
+});
+
+check('formatMoney: K/M/B/T at 3 significant figures', () => {
+  assert.equal(formatMoney(12000), '12.0K');
+  assert.equal(formatMoney(1543200), '1.54M');
+  assert.equal(formatMoney(2_500_000_000), '2.50B');
+  assert.equal(formatMoney(7_000_000_000_000), '7.00T');
+});
+
+check('formatMoney: rounding never leaves a stray "1000" in the old unit', () => {
+  assert.equal(formatMoney(999996), '1.00M'); // would mis-round to "1000K" without the bump
+});
+
+check('formatMoney: negative numbers keep the sign', () => {
+  assert.equal(formatMoney(-12000), '-12.0K');
 });
 
 console.log(`\n${passed} passed`);

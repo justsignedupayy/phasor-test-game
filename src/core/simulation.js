@@ -8,12 +8,14 @@
  */
 import settings from '../config/settings.js';
 import { spawnCar } from './Car.js';
-import { workerSpeed, requiredTicks } from './upgrades.js';
+import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z } from './upgrades.js';
+import { updateReputationTimer } from './reputation.js';
 
 export function tick(state, dt) {
   updatePlayer(state, dt);
   updateYard(state, dt);
   for (const pit of state.pits) updatePit(state, pit, dt);
+  updateReputationTimer(state, dt);
 }
 
 /**
@@ -62,8 +64,16 @@ function applyRepair(state, pit, ticks) {
 function updateYard(state, dt) {
   state.spawnTimer += dt;
   if (state.spawnTimer >= settings.spawn.interval && state.carQueue.length < settings.spawn.maxQueue) {
-    state.carQueue.push(spawnCar());
+    state.carQueue.push(spawnCar(state));
     state.spawnTimer = 0;
+  }
+
+  // Demand top-up: a free, equipped pit must never wait on the spawn timer.
+  // Always keep at least one queued car per currently-free pit so the slowest
+  // (highest-index) pit gets fed exactly as reliably as the others.
+  const freePits = state.pits.filter((p) => p.equipped && !p.car).length;
+  while (state.carQueue.length < freePits) {
+    state.carQueue.push(spawnCar(state));
   }
 
   // Assign the front queued car to the lowest-index free equipped pit.
@@ -86,7 +96,7 @@ function updatePlayer(state, dt) {
 
     player.position.x += dirX * settings.player.speed * m * dt;
     player.position.z += dirZ * settings.player.speed * m * dt;
-    clampToBounds(player.position);
+    clampToBounds(state, player.position);
 
     player.rotation = Math.atan2(dirX, dirZ);
     player.moving = true;
@@ -95,9 +105,11 @@ function updatePlayer(state, dt) {
   }
 }
 
-function clampToBounds(pos) {
+/** In bay territory, the right edge is fenced to whatever land is owned; the lane is always open. */
+function clampToBounds(state, pos) {
   const limX = settings.world.halfX - settings.player.radius;
   const limZ = settings.world.halfZ - settings.player.radius;
-  pos.x = Math.max(-limX, Math.min(limX, pos.x));
+  const rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : settings.world.halfX) - settings.player.radius;
+  pos.x = Math.max(-limX, Math.min(rightLim, pos.x));
   pos.z = Math.max(-limZ, Math.min(limZ, pos.z));
 }

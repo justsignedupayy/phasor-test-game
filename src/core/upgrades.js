@@ -1,17 +1,19 @@
 /**
- * upgrades.js — pure upgrade logic + the view model the DOM menu renders. No Three.
+ * upgrades.js — pure upgrade logic + the view model the Upgrades DOM menu
+ * renders (see scene/UpgradeMenu.js). No Three.
  *
- * Two-stage room unlock (garage-wide):
+ * Two-stage room unlock (garage-wide, "Garage" section):
  *   Expand Room      reveal the next empty lot (roomUnlocked)
  *   Buy Pit Equipment install the repair station on a lot (equipped)
- * Per-pit upgrades (once equipped):
+ * Per-pit upgrades (once equipped, "Workers" section):
  *   Hire Worker      one-time -> hasMechanic (auto-repair + remote hurry)
- *   Worker Speed     ticks/sec the worker auto-adds
+ *   Worker Speed     ticks/sec the worker auto-adds (shown once hired)
  *   Fixing Time      lowers fixTimeFactor -> fewer required ticks
  *
  * All costs are geometric: cost = baseCost × costGrowth^level.
  */
 import settings from '../config/settings.js';
+import { formatMoney } from './format.js';
 
 const U = settings.upgrades;
 
@@ -39,6 +41,35 @@ export function fixTimeFactor(pit) {
 /** Ticks this pit actually needs to finish a given car. */
 export function requiredTicks(car, pit) {
   return car.baseTicks * fixTimeFactor(pit);
+}
+
+// --- room footprint (Expand Room actually grows the room) -----------------
+//
+// The bay row sits behind a fence that slides right as land is bought, so an
+// unpurchased pit is physically unreachable, not just visually hidden. The
+// shared lane (z <= BAY_ZONE_Z) is already-built infrastructure and is never
+// fenced. Pit positions are fixed (settings.pit.positions); only the fence's
+// own x position is derived from how much land is currently owned.
+
+const LOT_HALF_WIDTH = 2.1; // half of PitView's lot/station plane width (4.2)
+const BAY_MARGIN = 1.0; // gap from an owned lot's outer edge to the fence
+export const BAY_ZONE_Z = -0.75; // z beyond this is bay territory (fenced); below it is the open lane
+
+/** True once every pit's land has been bought (no fence left to show). */
+export function allLandOwned(state) {
+  return state.pits.every((p) => p.roomUnlocked);
+}
+
+/**
+ * Rightmost X currently owned in the bay row (where the fence sits). Grows
+ * each time Expand Room is bought; capped at the room's outer wall once all
+ * land is owned.
+ */
+export function ownedRightX(state) {
+  const unlockedCount = state.pits.filter((p) => p.roomUnlocked).length;
+  const lastIndex = Math.max(0, unlockedCount - 1);
+  const raw = settings.pit.positions[lastIndex].x + LOT_HALF_WIDTH + BAY_MARGIN;
+  return Math.min(raw, settings.world.halfX);
 }
 
 // --- costs ----------------------------------------------------------------
@@ -120,16 +151,28 @@ export function buyFixingTime(state, pitIndex) {
   return true;
 }
 
-// --- view model for the DOM menu -----------------------------------------
+// --- view model for the Upgrades DOM menu ---------------------------------
+//
+// Two sections: Garage (Expand Room + Buy Pit Equipment for any
+// roomUnlocked-but-unequipped pit) and Workers (one sub-block per *equipped*
+// pit — Hire Worker until hired, then Worker Speed; Fixing Time always shows).
 
 /** Reference car for showing Fixing Time as a concrete tick count (3 parts). */
 const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 
 export function getMenuModel(state) {
   return {
-    expand: expandView(state),
-    pits: state.pits.filter((p) => p.roomUnlocked).map((p) => pitBlock(state, p)),
+    garage: garageRows(state),
+    workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
   };
+}
+
+function garageRows(state) {
+  const rows = [expandView(state)];
+  for (const pit of state.pits) {
+    if (pit.roomUnlocked && !pit.equipped) rows.push(equipmentView(state, pit));
+  }
+  return rows;
 }
 
 function expandView(state) {
@@ -142,43 +185,47 @@ function expandView(state) {
     kind: 'expand',
     label: 'Expand Room',
     effect: `Open lot ${letter(next.index)}`,
-    cost: `$${cost}`,
+    cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };
 }
 
-function pitBlock(state, pit) {
-  const L = letter(pit.index);
-  const block = { index: pit.index, title: `Pit ${L} / Worker ${L}`, equipped: pit.equipped, rows: [] };
+function equipmentView(state, pit) {
+  const cost = pitEquipmentCost(state, pit.index);
+  return {
+    kind: 'equipment',
+    pitIndex: pit.index,
+    label: `Equip Pit ${letter(pit.index)}`,
+    effect: 'Install repair station',
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
 
-  if (!pit.equipped) {
-    const cost = pitEquipmentCost(state, pit.index);
-    block.rows.push({
-      kind: 'equipment',
-      pitIndex: pit.index,
-      label: 'Buy Pit Equipment',
-      effect: 'Install repair station',
-      cost: `$${cost}`,
-      disabled: state.cash < cost,
-    });
-    return block;
-  }
+function workerBlock(state, pit) {
+  const L = letter(pit.index);
+  const rows = [];
 
   if (!pit.hasMechanic) {
-    const cost = hireCost(state, pit.index);
-    block.rows.push({
-      kind: 'hire',
-      pitIndex: pit.index,
-      label: 'Hire Worker',
-      effect: 'Auto-repairs this pit',
-      cost: `$${cost}`,
-      disabled: state.cash < cost,
-    });
+    rows.push(hireView(state, pit));
+  } else {
+    rows.push(workerSpeedRow(state, pit));
   }
+  rows.push(fixingTimeRow(state, pit));
 
-  block.rows.push(workerSpeedRow(state, pit));
-  block.rows.push(fixingTimeRow(state, pit));
-  return block;
+  return { index: pit.index, title: `Worker ${L}`, rows };
+}
+
+function hireView(state, pit) {
+  const cost = hireCost(state, pit.index);
+  return {
+    kind: 'hire',
+    pitIndex: pit.index,
+    label: 'Hire Worker',
+    effect: 'Auto-repairs this pit',
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
 }
 
 function workerSpeedRow(state, pit) {
@@ -200,7 +247,7 @@ function workerSpeedRow(state, pit) {
     pitIndex: pit.index,
     label: 'Worker Speed',
     effect: `${fmtRate(cur)} → ${fmtRate(next)}/s`,
-    cost: `$${cost}`,
+    cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };
 }
@@ -224,7 +271,7 @@ function fixingTimeRow(state, pit) {
     pitIndex: pit.index,
     label: 'Fixing Time',
     effect: `Fix time: ${cur} → ${next}`,
-    cost: `$${cost}`,
+    cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };
 }

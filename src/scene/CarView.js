@@ -12,9 +12,12 @@ import settings from '../config/settings.js';
  *
  * Render-only: driven by setProgress() / shake() / driveTo(), advanced by
  * update(dt). It holds a reference to its core car for `damageParts` + `payout`.
+ * A car.tier === 'better' (reputation-attracted, higher payout) reuses this same
+ * build but in blue paint, plus a brief spawn pulse so it stands out in the queue.
  */
 const FIX_LERP = 6;
 const SHAKE_TIME = 0.22;
+const PULSE_TIME = 0.5;
 
 function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -31,6 +34,7 @@ export class CarView {
     this.fixTarget = {}; // partName -> 0..1
     this.applyFns = {}; // partName -> (v) => void
     this.shakeT = 0;
+    this.pulseT = car.tier === 'better' ? PULSE_TIME : 0; // brief spawn highlight
     this.smokeT = 0;
     this.drive = null; // { t, dur, from, to, onDone }
     this.targetSlot = -1; // used by CarYard to avoid re-tweening to the same slot
@@ -43,13 +47,15 @@ export class CarView {
     const mat = (col, extra = {}) =>
       new THREE.MeshStandardMaterial({ color: col, flatShading: true, ...extra });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 1.6), mat(c.carBody));
+    const isBetter = this.car.tier === 'better';
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 1.6), mat(isBetter ? c.carBodyBetter : c.carBody));
     body.position.y = 0.7;
     body.castShadow = true;
     body.receiveShadow = true;
     this.bodyGroup.add(body);
 
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 1.4), mat(c.carCabin));
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 1.4), mat(isBetter ? c.carCabinBetter : c.carCabin));
     cabin.position.set(-0.2, 1.25, 0);
     cabin.castShadow = true;
     this.bodyGroup.add(cabin);
@@ -172,12 +178,18 @@ export class CarView {
       this.applyFns[name](this.fix[name]);
     }
 
-    // Tap shake + scale pop, decaying over SHAKE_TIME.
+    // Tap shake + scale pop, decaying over SHAKE_TIME; else a one-shot spawn
+    // pulse for "better" cars (no rotation, just a brief scale-up).
     if (this.shakeT > 0) {
       this.shakeT = Math.max(0, this.shakeT - dt);
       const f = this.shakeT / SHAKE_TIME;
       this.bodyGroup.rotation.z = Math.sin(this.shakeT * 70) * 0.1 * f;
       this.bodyGroup.scale.setScalar(1 + 0.06 * f);
+    } else if (this.pulseT > 0) {
+      this.pulseT = Math.max(0, this.pulseT - dt);
+      const f = this.pulseT / PULSE_TIME;
+      this.bodyGroup.rotation.z = 0;
+      this.bodyGroup.scale.setScalar(1 + 0.16 * f);
     } else {
       this.bodyGroup.rotation.z = 0;
       this.bodyGroup.scale.setScalar(1);

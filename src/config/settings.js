@@ -28,13 +28,30 @@ export const settings = {
     far: 200,
   },
 
-  // Transform-only character animation.
-  bob: {
-    idleFreq: 2.2,
-    idleAmp: 0.04,
-    walkFreq: 9.0,
-    walkAmp: 0.12,
-    armSwing: 0.5,
+  // The rigged glTF character (player + every worker clone it). modelScale and
+  // modelYRotationOffset correct for a glb that imports at the wrong size/facing
+  // — tune both once the model is visible in-scene. animationMap maps the
+  // logical states driven from existing flags (moving/repairing/yell) to the
+  // model's actual clip names — the loader console.logs the real clip names on
+  // load, and characterAnim.js's buildActionMap falls back to the model's
+  // first clip (with a console.warn) for any name that doesn't match, so a
+  // wrong guess here never freezes the character.
+  //
+  // CURRENT MODEL: /models/character.glb is a single-animation Mixamo export,
+  // which names its one clip "mixamo.com" — every state below points at it as
+  // a placeholder. Once distinct Walk/Repair/Yell clips exist, repoint the
+  // matching entries at their real names.
+  character: {
+    modelScale: 1,
+    modelYRotationOffset: 0, // radians, added on top of the movement-facing rotation
+    animationMap: {
+      idle: 'mixamo.com',
+      walk: 'mixamo.com',
+      repair: 'mixamo.com',
+      yell: 'mixamo.com',
+    },
+    crossfadeDuration: 0.25, // seconds, used for every state transition
+    workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
   },
 
   joystick: {
@@ -60,24 +77,28 @@ export const settings = {
   // Two-stage room unlock + the per-pit upgrades. All costs are geometric
   // (cost = baseCost × costGrowth^level); see upgrades.js for the level used.
   upgrades: {
+    // TESTING: all baseCosts slashed to $1 for cheap iteration (costGrowth left
+    // intact so cost still climbs per level — flattening both broke the
+    // geometric-growth invariant via Math.round). Restore the commented
+    // baseCost values below before shipping.
     // Stage 1: add empty floor space (reveals the next lot).
     expandRoom: {
-      baseCost: 300,
+      baseCost: 1, // was 300
       costGrowth: 1.6,
     },
     // Stage 2: install the repair station on a roomUnlocked lot. Scales by pit index.
     pitEquipment: {
-      baseCost: 150,
+      baseCost: 1, // was 150
       costGrowth: 1.6,
     },
     // One-time worker hire per pit (enables auto-repair + remote hurry). Scales by index.
     mechanic: {
-      baseCost: 60,
+      baseCost: 1, // was 60
       costGrowth: 1.5,
     },
     // Per-pit worker speed (ticks/sec).
     workerSpeed: {
-      baseCost: 50,
+      baseCost: 1, // was 50
       costGrowth: 1.6,
       maxLevel: 8,
       baseRate: 1, // ticks/sec at level 0 → a 15-tick car takes ~15s
@@ -85,7 +106,7 @@ export const settings = {
     },
     // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
     fixingTime: {
-      baseCost: 75,
+      baseCost: 1, // was 75
       costGrowth: 1.5,
       maxLevel: 5,
       factorPerLevel: 0.15, // each level: factor -0.15 (15-tick car → ~13, ~11, ...)
@@ -99,16 +120,51 @@ export const settings = {
     multiplier: 2.5,
   },
 
+  // Reputation: the probability an incoming car is a higher-paying "better"
+  // car (see Car.js spawnCar). Raised permanently via the computer's Buy
+  // Advertising upgrade, or doubled temporarily by watching a rewarded ad
+  // (the boost refuses to re-arm while one is already running — no stacking).
+  reputation: {
+    baseReputation: 0.05, // starting/permanent reputation at game start
+    repStep: 0.01, // +1% permanent reputation per Buy Advertising purchase
+    repCap: 1.0,
+    adBaseCost: 1, // TESTING: cheap for iteration, like upgrades.* above
+    adGrowth: 1.5,
+    boostMultiplier: 2, // rewarded-ad: multiplies effective reputation while active
+    boostDurationSeconds: 300,
+    betterPayoutMult: 3, // a "better" car's payout = basePayoutPerPart × numParts × this
+    betterTicksMult: 1.5, // a "better" car's baseTicks = ticksPerPart × numParts × this
+  },
+
+  // The garage's advertising terminal: tap while standing within `radius` to
+  // open the Advertising panel.
+  computer: {
+    x: -6,
+    z: 2.5,
+    radius: 1.6,
+  },
+
+  // Save/load (src/platform/storage.js). No offline-earnings catch-up — a
+  // reload just restores the state as it was at the last save.
+  persistence: {
+    autoSaveInterval: 5, // seconds between auto-saves, on top of after-purchase saves
+  },
+
   // The pits: shared geometry plus a world position per pit. radius = how close
   // the player must stand to manually tap an unmanned pit.
+  //
+  // z steps opposite to x (z = -x/2 + 4) so the row reads as side-by-side on
+  // screen: this isometric camera (equal x/y/z) maps a pure-x row to a diagonal
+  // line (each pit appears to recede further back). Offsetting z the other way
+  // cancels half that drift while staying clear of the lane and back wall.
   pit: {
     radius: 1.7,
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out)
     positions: [
-      { x: -5.4, z: 2.0 },
-      { x: -1.8, z: 2.0 },
-      { x: 1.8, z: 2.0 },
-      { x: 5.4, z: 2.0 },
+      { x: -5.4, z: 6.7 },
+      { x: -1.8, z: 4.9 },
+      { x: 1.8, z: 3.1 },
+      { x: 5.4, z: 1.3 },
     ],
   },
 
@@ -139,27 +195,25 @@ export const settings = {
     gate: 0x6b7787, // door pillars / lintels
     lot: 0x2f3845, // an empty (roomUnlocked, unequipped) lot patch
     lotEdge: 0x6b7787, // outline of an empty lot
+    fence: 0xd9a13b, // boundary of not-yet-purchased land (Expand Room)
+    landLocked: 0x242b36, // unpurchased land tint, beyond the fence
     pit: 0x5a4a36, // an equipped pit station floor
     pitGlow: 0xffe08a, // highlight ring when the player can repair
     toolbox: 0xc0392b, // a small toolbox marking an equipped pit
     label: '#ffe08a', // pit/worker label text (CSS color string for the sprite)
-    // player character
-    body: 0x2e86de,
-    head: 0xf6c177,
-    limb: 0x1f5fae,
-    accent: 0xffd23f,
-    exclaim: 0xff5252, // the "!" yell marker
-    // mechanic NPC (distinct colour)
-    mechBody: 0xe07b39,
-    mechHead: 0xf6c177,
-    mechLimb: 0xb5602a,
-    spark: 0xffd23f,
     // broken car
     carBody: 0xb0433a,
     carCabin: 0x8c352e,
     carDent: 0x7a2f28,
     wheel: 0x1a1a1a,
     smoke: 0x9aa0a6,
+    // "better" (higher-paying) car, attracted by reputation — same parts, blue paint
+    carBodyBetter: 0x2f6fd6,
+    carCabinBetter: 0x1f4f9e,
+    // advertising computer
+    deskWood: 0x6b4a2f,
+    computerCase: 0x23262b,
+    screenGlow: 0x49d2ff,
   },
 };
 

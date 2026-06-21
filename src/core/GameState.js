@@ -28,6 +28,13 @@ export class GameState {
   constructor() {
     this.cash = 0;
 
+    // Reputation: chance an incoming car is a higher-paying "better" car (see
+    // core/reputation.js). permanentReputation rises via Buy Advertising;
+    // repBoostRemaining counts down a temporary rewarded-ad multiplier.
+    this.permanentReputation = settings.reputation.baseReputation;
+    this.repBoostRemaining = 0;
+    this.adLevel = 0; // Buy Advertising purchase count (drives its geometric cost)
+
     // Parallel pits, lowest index first.
     this.pits = Array.from({ length: settings.maxPits }, (_, i) => createPit(i));
 
@@ -36,8 +43,10 @@ export class GameState {
     this.carQueue = [];
     this.spawnTimer = settings.spawn.interval;
 
+    // Starts inside pit 0's own bay (the only owned land at game start; see
+    // upgrades.js ownedRightX), not at the world origin.
     this.player = {
-      position: { x: 0, z: 0 },
+      position: { x: -4, z: 0 },
       rotation: 0, // radians around Y; 0 faces +z
       moving: false,
     };

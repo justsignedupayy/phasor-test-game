@@ -6,47 +6,136 @@ import {
   buyWorkerSpeed,
   buyFixingTime,
 } from '../core/upgrades.js';
+import { saveGame } from '../platform/storage.js';
 
 /**
- * UpgradeMenu — DOM overlay with a Garage block (Expand Room) followed by one
- * block per roomUnlocked pit ("Pit A / Worker A", ...). An unequipped pit shows
- * only Buy Pit Equipment; once equipped it shows Hire Worker (until hired),
- * Worker Speed and Fixing Time. Each row has a buy button calling the matching
- * per-pit function.
+ * UpgradeMenu — every progression purchase in one DOM overlay, opened by its
+ * own corner button (top-left). Two sections: Garage (Expand Room + Buy Pit
+ * Equipment for any roomUnlocked-but-unequipped pit) and Workers (one
+ * "Worker X" card per equipped pit — Hire Worker until hired, then Worker
+ * Speed, plus Fixing Time). The Advertising panel at the computer is the only
+ * purchase UI that stays outside this menu.
  *
- * The panel's structure changes at runtime (lots open, pits get equipped/hired),
- * so update() rebuilds the DOM when the structure's signature changes and only
- * refreshes text/disabled state otherwise. It's a separate overlay, so taps on it
- * never reach the canvas.
+ * Hidden until open(); the structure can change while open (lots open, pits
+ * get equipped/hired) so update() rebuilds the DOM when the row signature
+ * changes and only refreshes text/disabled state otherwise.
  */
 export class UpgradeMenu {
   constructor(state) {
     this.state = state;
+    this.isOpen = false;
     this.rowEls = new Map(); // rowKey -> { effect, button }
     this.sig = '';
 
+    this.#buildButton();
+    this.#buildPanel();
+  }
+
+  #buildButton() {
+    const btn = document.createElement('button');
+    btn.textContent = '⚙ Upgrades';
+    Object.assign(btn.style, {
+      position: 'fixed',
+      left: '14px',
+      top: '14px',
+      padding: '10px 14px',
+      borderRadius: '10px',
+      border: 'none',
+      background: '#ffd23f',
+      color: '#1a1400',
+      fontWeight: '800',
+      fontSize: '14px',
+      fontFamily: 'Arial, sans-serif',
+      cursor: 'pointer',
+      zIndex: '17',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+    });
+    btn.addEventListener('click', () => this.toggle());
+    document.body.appendChild(btn);
+    this.button = btn;
+  }
+
+  #buildPanel() {
     const panel = document.createElement('div');
     Object.assign(panel.style, {
       position: 'fixed',
       right: '10px',
       top: '50%',
       transform: 'translateY(-50%)',
+      display: 'none',
+      flexDirection: 'column',
+      width: '198px',
+      maxHeight: '92vh',
+      background: 'rgba(18,22,28,0.92)',
+      border: '1px solid rgba(255,255,255,0.14)',
+      borderRadius: '12px',
+      padding: '12px',
+      zIndex: '16',
+      fontFamily: 'Arial, sans-serif',
+      color: '#e7ecf2',
+    });
+
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '8px',
+      flexShrink: '0',
+    });
+    const title = document.createElement('div');
+    title.textContent = 'Upgrades';
+    Object.assign(title.style, { fontWeight: '800', fontSize: '17px' });
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    Object.assign(closeBtn.style, {
+      width: '26px',
+      height: '26px',
+      borderRadius: '6px',
+      border: 'none',
+      background: '#3a434f',
+      color: '#e7ecf2',
+      fontWeight: '800',
+      cursor: 'pointer',
+    });
+    closeBtn.addEventListener('click', () => this.close());
+    header.append(title, closeBtn);
+    panel.appendChild(header);
+
+    const content = document.createElement('div');
+    Object.assign(content.style, {
       display: 'flex',
       flexDirection: 'column',
       gap: '8px',
-      width: '178px',
-      maxHeight: '92vh',
       overflowY: 'auto',
-      zIndex: '16',
-      fontFamily: 'Arial, sans-serif',
+      userSelect: 'none',
     });
+    panel.appendChild(content);
+    this.content = content;
+
     document.body.appendChild(panel);
     this.panel = panel;
-
-    this.update(state);
   }
 
+  open() {
+    this.isOpen = true;
+    this.panel.style.display = 'flex';
+    this.update(this.state);
+  }
+
+  close() {
+    this.isOpen = false;
+    this.panel.style.display = 'none';
+  }
+
+  toggle() {
+    if (this.isOpen) this.close();
+    else this.open();
+  }
+
+  /** Called every frame from main.js; cheap no-op while closed. */
   update(state) {
+    if (!this.isOpen) return;
     const model = getMenuModel(state);
     const sig = structureSignature(model);
     if (sig !== this.sig) {
@@ -60,35 +149,49 @@ export class UpgradeMenu {
   // --- DOM building --------------------------------------------------------
 
   #rebuild(model) {
-    this.panel.replaceChildren();
+    this.content.replaceChildren();
     this.rowEls.clear();
 
-    // Garage block (Expand Room).
-    this.panel.appendChild(this.#block('Garage', [model.expand]));
+    this.content.appendChild(this.#sectionHeader('Garage'));
+    this.content.appendChild(this.#card(null, model.garage));
 
-    // One block per roomUnlocked pit.
-    for (const pit of model.pits) {
-      this.panel.appendChild(this.#block(pit.title, pit.rows));
+    this.content.appendChild(this.#sectionHeader('Workers'));
+    for (const worker of model.workers) {
+      this.content.appendChild(this.#card(worker.title, worker.rows));
     }
 
     this.#refresh(model);
   }
 
-  #block(title, rows) {
+  #sectionHeader(text) {
+    const h = document.createElement('div');
+    h.textContent = text.toUpperCase();
+    Object.assign(h.style, {
+      fontSize: '11px',
+      fontWeight: '800',
+      letterSpacing: '1px',
+      color: '#9fb0c0',
+      borderBottom: '1px solid rgba(255,255,255,0.18)',
+      paddingBottom: '3px',
+    });
+    return h;
+  }
+
+  #card(title, rows) {
     const card = document.createElement('div');
     Object.assign(card.style, {
-      background: 'rgba(18,22,28,0.82)',
-      border: '1px solid rgba(255,255,255,0.12)',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.10)',
       borderRadius: '10px',
       padding: '8px 10px',
-      color: '#e7ecf2',
-      userSelect: 'none',
     });
 
-    const heading = document.createElement('div');
-    heading.textContent = title;
-    Object.assign(heading.style, { fontWeight: '800', fontSize: '15px', marginBottom: '6px' });
-    card.appendChild(heading);
+    if (title) {
+      const heading = document.createElement('div');
+      heading.textContent = title;
+      Object.assign(heading.style, { fontWeight: '800', fontSize: '15px', marginBottom: '6px' });
+      card.appendChild(heading);
+    }
 
     for (const row of rows) card.appendChild(this.#row(row));
     return card;
@@ -125,8 +228,8 @@ export class UpgradeMenu {
   // --- live refresh --------------------------------------------------------
 
   #refresh(model) {
-    this.#refreshRow(model.expand);
-    for (const pit of model.pits) for (const row of pit.rows) this.#refreshRow(row);
+    for (const row of model.garage) this.#refreshRow(row);
+    for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
   }
 
   #refreshRow(row) {
@@ -162,7 +265,10 @@ export class UpgradeMenu {
         ok = buyFixingTime(this.state, pitIndex);
         break;
     }
-    if (ok) this.update(this.state);
+    if (ok) {
+      this.update(this.state);
+      saveGame(this.state);
+    }
   }
 }
 
@@ -171,9 +277,9 @@ function rowKey(row) {
   return row.pitIndex === undefined ? row.kind : `${row.kind}:${row.pitIndex}`;
 }
 
-// Changes whenever the set/shape of blocks changes (lots open, equip, hire).
+// Changes whenever the set/shape of rows changes (lots open, equip, hire).
 function structureSignature(model) {
-  const expand = model.expand.disabled && model.expand.cost === 'MAX' ? 'x' : 'o';
-  const pits = model.pits.map((p) => `${p.index}${p.equipped ? 'E' : 'r'}${p.rows.map((r) => r.kind).join('')}`);
-  return `${expand}|${pits.join('|')}`;
+  const garage = model.garage.map(rowKey).join(',');
+  const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
+  return `G[${garage}]W[${workers}]`;
 }

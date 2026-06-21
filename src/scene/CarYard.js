@@ -4,6 +4,7 @@ import { CarView } from './CarView.js';
 import { PitView } from './PitView.js';
 import { showCashPopup } from './popup.js';
 import { requiredTicks } from '../core/upgrades.js';
+import { formatMoney } from '../core/format.js';
 
 /**
  * CarYard — render-side owner of the whole car flow across every pit: the shared
@@ -18,14 +19,14 @@ import { requiredTicks } from '../core/upgrades.js';
  *   - drive-off:     a pit car is fixed (id leaves) -> fully heal + drive out + "+$"
  */
 export class CarYard {
-  constructor(sceneManager) {
+  constructor(sceneManager, gltf) {
     this.sm = sceneManager;
 
     this.pitViews = []; // PitView per pit (static furniture + worker + ring)
     this.pitCars = []; // CarView currently in each pit (or null)
     this.pitIds = []; // core car id currently in each pit (or null)
     for (let i = 0; i < settings.maxPits; i++) {
-      this.pitViews.push(new PitView(sceneManager, i));
+      this.pitViews.push(new PitView(sceneManager, i, gltf));
       this.pitCars.push(null);
       this.pitIds.push(null);
     }
@@ -159,6 +160,6 @@ export class CarYard {
     const rect = this.sm.renderer.domElement.getBoundingClientRect();
     const x = (v.x * 0.5 + 0.5) * rect.width + rect.left;
     const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
-    showCashPopup(`+$${amount}`, x, y);
+    showCashPopup(`+$${formatMoney(amount)}`, x, y);
   }
 }

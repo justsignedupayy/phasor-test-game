@@ -16,10 +16,11 @@ import { Mechanic } from './Mechanic.js';
  * Driven by update(dt, pit); reads the core pit's booleans, never mutates them.
  */
 export class PitView {
-  constructor(sceneManager, index) {
+  constructor(sceneManager, index, gltf) {
     this.sm = sceneManager;
     this.index = index;
     this.pos = settings.pit.positions[index];
+    this.gltf = gltf; // shared character model + clips, passed to this pit's Mechanic when hired
 
     this.mechanic = null;
     this.highlightT = 0;
@@ -115,7 +116,7 @@ export class PitView {
 
     // Spawn this pit's worker the moment one is hired.
     if (pit.hasMechanic && !this.mechanic) {
-      this.mechanic = new Mechanic(this.pos);
+      this.mechanic = new Mechanic(this.pos, this.gltf);
       this.sm.add(this.mechanic.root);
     }
     if (this.mechanic) {

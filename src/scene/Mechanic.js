@@ -35,7 +35,7 @@ export class Mechanic {
     const px = pitPos.x + settings.mechanic.offsetX;
     const pz = pitPos.z + settings.mechanic.offsetZ;
     this.root.position.set(px, 0, pz);
-    this.root.rotation.y = Math.atan2(pitPos.x - px, pitPos.z - pz);
+    this.root.rotation.y = Math.atan2(pitPos.x - px, pitPos.z - pz) + settings.mechanic.facingOffset;
 
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);

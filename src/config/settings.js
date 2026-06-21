@@ -32,26 +32,34 @@ export const settings = {
   // modelYRotationOffset correct for a glb that imports at the wrong size/facing
   // — tune both once the model is visible in-scene. animationMap maps the
   // logical states driven from existing flags (moving/repairing/yell) to the
-  // model's actual clip names — the loader console.logs the real clip names on
-  // load, and characterAnim.js's buildActionMap falls back to the model's
-  // first clip (with a console.warn) for any name that doesn't match, so a
-  // wrong guess here never freezes the character.
+  // model's actual clip names — characterAnim.js's buildActionMap falls back
+  // to the model's first clip (with a console.warn) for any name that doesn't
+  // match, so a wrong guess here never freezes the character.
   //
-  // CURRENT MODEL: /models/character.glb is a single-animation Mixamo export,
-  // which names its one clip "mixamo.com" — every state below points at it as
-  // a placeholder. Once distinct Walk/Repair/Yell clips exist, repoint the
-  // matching entries at their real names.
+  // CURRENT MODEL: CharacterModel.js merges character_idle.glb +
+  // character_run.glb + character_repair.glb + character_yell.glb and renames
+  // their clips to 'idle' / 'walk' / 'repair' / 'yell'.
   character: {
     modelScale: 1,
     modelYRotationOffset: 0, // radians, added on top of the movement-facing rotation
     animationMap: {
-      idle: 'mixamo.com',
-      walk: 'mixamo.com',
-      repair: 'mixamo.com',
-      yell: 'mixamo.com',
+      idle: 'idle',
+      walk: 'walk',
+      repair: 'repair',
+      yell: 'yell',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
+  },
+
+  // The car glTF model (cartoon_low_poly_car.glb), loaded once via
+  // CarView.preloadCarModel() and cloned per car. modelScale and
+  // modelYRotationOffset correct for a glb that imports at the wrong
+  // size/facing — tune both once the model is visible in-scene.
+  car: {
+    modelScale: 0.01, // the source glb exports at ~100x scale (modeled in cm)
+    modelYRotationOffset: Math.PI / 2, // radians — the model's long axis is local Z, but cars drive along world X
+    betterTintColor: 0x88aaff, // multiplied into a "better" car's material colors (tune toward blue without going too dark)
   },
 
   joystick: {
@@ -172,6 +180,7 @@ export const settings = {
   mechanic: {
     offsetX: 2.1,
     offsetZ: 0.2,
+    facingOffset: Math.PI, // radians, added on top of the atan2 facing calc — flip 180° if facing is wrong
   },
 
   // Cars appear at the entrance (outside the right gate) and leave past the exit

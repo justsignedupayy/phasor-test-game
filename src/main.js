@@ -14,6 +14,7 @@ import { Computer } from './scene/Computer.js';
 import { AdvertisingMenu } from './scene/AdvertisingMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
+import { preloadCarModel } from './scene/CarView.js';
 
 const container = document.getElementById('app');
 
@@ -41,6 +42,7 @@ async function main() {
   sceneManager.render();
   const loadingEl = showLoading();
   const gltf = await loadCharacterModel();
+  await preloadCarModel();
   loadingEl.remove();
 
   const character = new Character(gltf);

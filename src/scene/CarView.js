@@ -1,23 +1,39 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import settings from '../config/settings.js';
+import { groundModel } from './characterAnim.js';
 
 /**
- * CarView — a low-poly car (primitives only) built from its car's actual
- * damageParts, so a 1-, 2-, or 3-damage car looks different. Each present part
- * heals independently; the car also has a tap shake/pop and drive tweens.
+ * CarView — wraps a clone of the shared cartoon_low_poly_car.glb model (see
+ * preloadCarModel() below). The model has no skeleton, so a plain
+ * scene.clone() per car is correct (no SkeletonUtils needed). It has no
+ * separate damage-part meshes either, so it just drives in broken and out
+ * fixed, with the tap shake/scale pop still working; per-part heal visuals
+ * are gone since there's nothing on the model to heal independently.
  *
- *   tire  -> a flat, tilted wheel that rights and inflates
- *   smoke -> grey cones that fade and shrink away
- *   dent  -> a sunken, tilted hood panel that pops flush
+ * A car.tier === 'better' (reputation-attracted, higher payout) tints its
+ * cloned materials blue, plus a brief spawn pulse so it stands out in queue.
  *
  * Render-only: driven by setProgress() / shake() / driveTo(), advanced by
  * update(dt). It holds a reference to its core car for `damageParts` + `payout`.
- * A car.tier === 'better' (reputation-attracted, higher payout) reuses this same
- * build but in blue paint, plus a brief spawn pulse so it stands out in the queue.
  */
 const FIX_LERP = 6;
 const SHAKE_TIME = 0.22;
 const PULSE_TIME = 0.5;
+
+let carModelPromise = null;
+let carModelGltf = null;
+
+/** Loads cartoon_low_poly_car.glb exactly once; call (and await) before creating any CarView. */
+export function preloadCarModel() {
+  if (!carModelPromise) {
+    carModelPromise = new GLTFLoader().loadAsync('/models/cartoon_low_poly_car.glb').then((gltf) => {
+      carModelGltf = gltf;
+      return gltf;
+    });
+  }
+  return carModelPromise;
+}
 
 function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -30,12 +46,10 @@ export class CarView {
     this.bodyGroup = new THREE.Group(); // shaken/popped as one unit
     this.root.add(this.bodyGroup);
 
-    this.fix = {}; // partName -> current heal 0..1
+    this.fix = {}; // partName -> current heal 0..1 (kept for setProgress/fixAll compatibility)
     this.fixTarget = {}; // partName -> 0..1
-    this.applyFns = {}; // partName -> (v) => void
     this.shakeT = 0;
     this.pulseT = car.tier === 'better' ? PULSE_TIME : 0; // brief spawn highlight
-    this.smokeT = 0;
     this.drive = null; // { t, dur, from, to, onDone }
     this.targetSlot = -1; // used by CarYard to avoid re-tweening to the same slot
 
@@ -43,101 +57,45 @@ export class CarView {
   }
 
   #build() {
-    const c = settings.colors;
-    const mat = (col, extra = {}) =>
-      new THREE.MeshStandardMaterial({ color: col, flatShading: true, ...extra });
+    if (!carModelGltf) {
+      throw new Error('CarView: car model not preloaded — call preloadCarModel() before creating any CarView');
+    }
 
-    const isBetter = this.car.tier === 'better';
+    const cfg = settings.car;
+    const model = carModelGltf.scene.clone();
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 1.6), mat(isBetter ? c.carBodyBetter : c.carBody));
-    body.position.y = 0.7;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this.bodyGroup.add(body);
+    // The source scene also exports a large ground-plane mesh alongside the
+    // car itself ("Floor_..."); strip it so it doesn't blow out the model's
+    // bounding box (used below for grounding) or get raycast/tinted as part
+    // of the car.
+    const floorNodes = [];
+    model.traverse((o) => {
+      if (o.name.startsWith('Floor')) floorNodes.push(o);
+    });
+    for (const o of floorNodes) o.parent.remove(o);
 
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 1.4), mat(isBetter ? c.carCabinBetter : c.carCabin));
-    cabin.position.set(-0.2, 1.25, 0);
-    cabin.castShadow = true;
-    this.bodyGroup.add(cabin);
-
-    const hasTire = this.car.damageParts.includes('tire');
-
-    // Four wheels; index 0 is the damaged one if this car has tire damage.
-    const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.35, 16);
-    const wheelMat = mat(c.wheel);
-    const positions = [
-      [1.1, 0.45, 0.8],
-      [1.1, 0.45, -0.8],
-      [-1.1, 0.45, 0.8],
-      [-1.1, 0.45, -0.8],
-    ];
-    positions.forEach(([x, y, z], i) => {
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-      wheel.rotation.z = Math.PI / 2;
-      wheel.castShadow = true;
-      if (i === 0 && hasTire) {
-        const g = new THREE.Group();
-        g.position.set(x, 0.3, z);
-        g.add(wheel);
-        this.bodyGroup.add(g);
-        this.#registerTire(g);
-      } else {
-        wheel.position.set(x, y, z);
-        this.bodyGroup.add(wheel);
+    model.scale.setScalar(cfg.modelScale);
+    model.rotation.y = cfg.modelYRotationOffset;
+    model.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
       }
     });
 
-    if (this.car.damageParts.includes('dent')) this.#registerDent(mat(c.carDent));
-    if (this.car.damageParts.includes('smoke')) {
-      this.#registerSmoke(mat(c.smoke, { transparent: true, opacity: 0.85 }));
+    if (this.car.tier === 'better') {
+      tintBlue(model, cfg.betterTintColor);
     }
-  }
 
-  #registerPart(name, applyFn) {
-    this.fix[name] = 0;
-    this.fixTarget[name] = 0;
-    this.applyFns[name] = applyFn;
-    applyFn(0);
-  }
+    this.bodyGroup.add(model);
+    groundModel(model); // the model's mesh origin isn't at floor level — sit it on y=0
 
-  #registerTire(group) {
-    this.#registerPart('tire', (v) => {
-      group.scale.y = 0.55 + 0.45 * v;
-      group.rotation.x = 0.35 * (1 - v);
-      group.position.y = 0.3 + 0.15 * v;
-    });
-  }
-
-  #registerDent(mat) {
-    const baseY = 1.06;
-    const dent = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 1.3), mat);
-    dent.position.set(0.85, baseY, 0);
-    dent.castShadow = true;
-    this.bodyGroup.add(dent);
-    this.#registerPart('dent', (v) => {
-      dent.position.y = baseY - 0.16 * (1 - v);
-      dent.rotation.z = 0.18 * (1 - v);
-    });
-  }
-
-  #registerSmoke(mat) {
-    this.smokeMat = mat;
-    const meshes = [];
-    [[0.35, 1.55], [0.3, 1.95], [0.24, 2.3]].forEach(([r, py]) => {
-      const m = new THREE.Mesh(new THREE.ConeGeometry(r, r * 1.6, 8), mat);
-      m.position.set(1.2, py, 0);
-      this.bodyGroup.add(m);
-      meshes.push(m);
-    });
-    this.#registerPart('smoke', (v) => {
-      mat.opacity = 0.85 * (1 - v);
-      const visible = v < 0.99;
-      meshes.forEach((m, i) => {
-        const wob = 1 + Math.sin(this.smokeT * 3 + i) * 0.05;
-        m.scale.setScalar((1 - v) * wob);
-        m.visible = visible;
-      });
-    });
+    // No damage-part meshes on this model — register a no-op target per part
+    // so setProgress()/fixAll() (driven by core repair progress) stay valid.
+    for (const name of this.car.damageParts) {
+      this.fix[name] = 0;
+      this.fixTarget[name] = 0;
+    }
   }
 
   /** Fix parts whose threshold has been passed: part i of n clears at (i+1)/n. */
@@ -169,13 +127,10 @@ export class CarView {
   }
 
   update(dt) {
-    this.smokeT += dt;
-
-    // Heal lerps.
+    // Heal lerps (no visual effect now, but kept so progress tracking stays correct).
     const k = Math.min(1, FIX_LERP * dt);
     for (const name in this.fix) {
       this.fix[name] += (this.fixTarget[name] - this.fix[name]) * k;
-      this.applyFns[name](this.fix[name]);
     }
 
     // Tap shake + scale pop, decaying over SHAKE_TIME; else a one-shot spawn
@@ -220,4 +175,21 @@ export class CarView {
       }
     });
   }
+}
+
+// Clones (so instances don't share/mutate color state) and multiplies a
+// cloned model's mesh material colors toward `color` (used for "better" cars).
+function tintBlue(model, color) {
+  const tint = new THREE.Color(color);
+  model.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const wasArray = Array.isArray(o.material);
+    const materials = wasArray ? o.material : [o.material];
+    const tinted = materials.map((m) => {
+      const t = m.clone();
+      if (t.color) t.color.multiply(tint);
+      return t;
+    });
+    o.material = wasArray ? tinted : tinted[0];
+  });
 }

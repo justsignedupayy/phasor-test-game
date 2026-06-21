@@ -1,16 +1,23 @@
 /**
- * Zero-dependency core tests. Proves movement + spawning + the repair/queue
- * logic run and are correct entirely without Three.js. Run with: npm test
+ * Zero-dependency core tests. Proves movement + spawning + the multi-pit tick
+ * repair/queue logic run and are correct entirely without Three.js.
+ * Run with: npm test
  */
 import assert from 'node:assert/strict';
 import { createInitialState } from '../src/core/GameState.js';
 import { tick, tapRepair, hurry } from '../src/core/simulation.js';
 import { spawnCar } from '../src/core/Car.js';
 import {
-  buyUpgrade,
-  upgradeAvailable,
-  mechanicRate,
-  fixingWorkMult,
+  buyExpandRoom,
+  buyPitEquipment,
+  hireMechanic,
+  buyWorkerSpeed,
+  buyFixingTime,
+  workerSpeed,
+  fixTimeFactor,
+  requiredTicks,
+  expandRoomCost,
+  pitEquipmentCost,
 } from '../src/core/upgrades.js';
 import settings from '../src/config/settings.js';
 
@@ -62,27 +69,41 @@ check('position clamps to garage bounds', () => {
   assert.ok(s.player.position.x <= limX + 1e-9 && s.player.position.x >= limX - 1e-6);
 });
 
+// --- pit setup ------------------------------------------------------------
+console.log('\ncore pit setup');
+
+check('initial state: pit 0 unlocked + equipped, the rest locked', () => {
+  const s = createInitialState();
+  assert.equal(s.pits.length, settings.maxPits);
+  assert.equal(s.pits[0].roomUnlocked, true);
+  assert.equal(s.pits[0].equipped, true);
+  for (let i = 1; i < s.pits.length; i++) {
+    assert.equal(s.pits[i].roomUnlocked, false);
+    assert.equal(s.pits[i].equipped, false);
+  }
+});
+
 // --- spawning + queue -----------------------------------------------------
 console.log('\ncore spawning + queue');
 
-check('initial state: empty pit, empty queue, spawn seeded', () => {
+check('initial state: empty pits, empty queue, spawn seeded', () => {
   const s = createInitialState();
-  assert.equal(s.pit.car, null);
+  assert.equal(s.pits[0].car, null);
   assert.equal(s.carQueue.length, 0);
   assert.equal(s.spawnTimer, settings.spawn.interval);
 });
 
-check('first tick puts a car straight into the pit', () => {
+check('first tick puts a car straight into pit 0', () => {
   const s = createInitialState();
   tick(s, settings.spawn.interval);
-  assert.ok(s.pit.car);
+  assert.ok(s.pits[0].car);
   assert.equal(s.carQueue.length, 0);
 });
 
 check('spawning is automatic and stalls at maxQueue (pit + full lane)', () => {
   const s = createInitialState();
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval); // nobody repairs
-  assert.ok(s.pit.car); // pit holds one
+  assert.ok(s.pits[0].car); // pit 0 holds one
   assert.equal(s.carQueue.length, settings.spawn.maxQueue); // lane full, spawning stalled
 });
 
@@ -90,25 +111,31 @@ check('pit refills from the front of the queue after a fix', () => {
   const s = createInitialState();
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval);
   const front = s.carQueue[0];
-  s.pit.car = null; // simulate the pit car being finished
+  s.pits[0].car = null; // simulate the pit car being finished
   tick(s, 0.001);
-  assert.equal(s.pit.car.id, front.id);
+  assert.equal(s.pits[0].car.id, front.id);
   assert.equal(s.carQueue.length, settings.spawn.maxQueue - 1);
+});
+
+check('locked/unequipped pits do NOT accept cars', () => {
+  const s = createInitialState();
+  for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval);
+  for (let i = 1; i < s.pits.length; i++) assert.equal(s.pits[i].car, null);
 });
 
 // --- randomized damage ----------------------------------------------------
 console.log('\ncore randomized damage');
 
-check('spawnCar: non-empty canonical subset; work + payout scale with parts', () => {
+check('spawnCar: non-empty canonical subset; ticks + payout scale with parts', () => {
   const canon = ['tire', 'smoke', 'dent'];
   for (let i = 0; i < 300; i++) {
     const car = spawnCar();
     const n = car.damageParts.length;
     assert.ok(n >= 1 && n <= 3);
     assert.deepEqual(car.damageParts, canon.filter((p) => car.damageParts.includes(p)));
-    assert.equal(car.totalWork, settings.spawn.baseWorkPerPart * n);
+    assert.equal(car.baseTicks, settings.repair.ticksPerPart * n);
     assert.equal(car.payout, settings.spawn.basePayoutPerPart * n);
-    assert.equal(car.repairWork, 0);
+    assert.equal(car.ticksDone, 0);
     assert.equal(car.fixed, false);
   }
 });
@@ -119,11 +146,10 @@ check('spawnCar produces variety (1-, 2- and 3-damage cars appear)', () => {
   assert.ok(counts.has(1) && counts.has(2) && counts.has(3));
 });
 
-check('value density (payout / work) is constant across damage counts', () => {
-  const r = [1, 2, 3].map(
-    (n) => (settings.spawn.basePayoutPerPart * n) / (settings.spawn.baseWorkPerPart * n)
-  );
-  assert.ok(r.every((x) => Math.abs(x - r[0]) < 1e-9));
+check('a standard 3-damage car needs ~15 ticks at base fixing time', () => {
+  const s = createInitialState();
+  const car = { baseTicks: settings.repair.ticksPerPart * 3 };
+  assert.equal(requiredTicks(car, s.pits[0]), 15);
 });
 
 // --- repair loop ----------------------------------------------------------
@@ -131,149 +157,200 @@ console.log('\ncore repair loop');
 
 check('tapRepair needs a present player and a car in the pit', () => {
   const s = createInitialState();
-  tick(s, settings.spawn.interval); // car now in the pit
-  s.pit.playerPresent = false;
-  tapRepair(s);
-  assert.equal(s.pit.car.repairWork, 0);
-  s.pit.playerPresent = true;
-  tapRepair(s);
-  assert.equal(s.pit.car.repairWork, settings.tap.tapValue);
+  tick(s, settings.spawn.interval); // car now in pit 0
+  s.pits[0].playerPresent = false;
+  tapRepair(s, 0);
+  assert.equal(s.pits[0].car.ticksDone, 0);
+  s.pits[0].playerPresent = true;
+  tapRepair(s, 0);
+  assert.equal(s.pits[0].car.ticksDone, settings.repair.tapTicks);
 });
 
 check('finishing a car pays its own payout and empties the pit', () => {
   const s = createInitialState();
   tick(s, settings.spawn.interval);
-  s.pit.playerPresent = true;
-  const car = s.pit.car;
-  const expectedTaps = Math.ceil(car.totalWork / settings.tap.tapValue);
+  s.pits[0].playerPresent = true;
+  const car = s.pits[0].car;
+  const expectedTaps = Math.ceil(requiredTicks(car, s.pits[0]) / settings.repair.tapTicks);
   let taps = 0;
-  while (s.pit.car === car && taps < 100) {
-    tapRepair(s);
+  while (s.pits[0].car === car && taps < 1000) {
+    tapRepair(s, 0);
     taps += 1;
   }
   assert.equal(taps, expectedTaps);
   assert.equal(s.cash, car.payout);
-  assert.equal(s.pit.car, null);
+  assert.equal(s.pits[0].car, null);
 });
 
 check('full flow: fix several cars, cash accrues by each payout', () => {
   const s = createInitialState();
-  s.pit.playerPresent = true;
+  s.pits[0].playerPresent = true;
   let expected = 0;
   for (let r = 0; r < 5; r++) {
     tick(s, settings.spawn.interval); // ensure a car is present
-    const car = s.pit.car;
+    const car = s.pits[0].car;
     if (!car) continue;
     expected += car.payout;
-    while (s.pit.car === car) tapRepair(s);
+    while (s.pits[0].car === car) tapRepair(s, 0);
   }
   assert.equal(s.cash, expected);
   assert.ok(expected > 0);
 });
 
-// --- upgrades -------------------------------------------------------------
-console.log('\ncore upgrades');
+// --- two-stage room unlock ------------------------------------------------
+console.log('\ncore room unlock (expand + equip)');
 
-check('buyUpgrade fails without cash; deducts and applies on success', () => {
+check('buyExpandRoom unlocks the next lot only (not equipped)', () => {
   const s = createInitialState();
-  s.cash = 10;
-  assert.equal(buyUpgrade(s, 'mechanic'), false);
-  assert.equal(s.cash, 10);
-  s.cash = 100;
-  assert.equal(buyUpgrade(s, 'mechanic'), true);
-  assert.equal(s.cash, 100 - settings.upgrades.mechanic.cost);
-  assert.equal(s.upgrades.hasMechanic, true);
+  s.cash = 1e9;
+  assert.equal(buyExpandRoom(s), true);
+  assert.equal(s.pits[1].roomUnlocked, true);
+  assert.equal(s.pits[1].equipped, false);
 });
 
-check('worker speed is locked until a mechanic is hired', () => {
+check('expand fails without cash and leaves lot locked', () => {
   const s = createInitialState();
-  s.cash = 1000;
-  assert.equal(upgradeAvailable(s, 'workerSpeed'), false);
-  assert.equal(buyUpgrade(s, 'workerSpeed'), false);
+  s.cash = 0;
+  assert.equal(buyExpandRoom(s), false);
+  assert.equal(s.pits[1].roomUnlocked, false);
+});
 
-  buyUpgrade(s, 'mechanic');
-  assert.equal(upgradeAvailable(s, 'workerSpeed'), true);
-  const r0 = mechanicRate(s);
-  assert.equal(buyUpgrade(s, 'workerSpeed'), true);
-  assert.ok(mechanicRate(s) > r0);
+check('buyPitEquipment needs a roomUnlocked lot, then equips it', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(buyPitEquipment(s, 1), false); // not roomUnlocked yet
+  buyExpandRoom(s);
+  assert.equal(buyPitEquipment(s, 1), true);
+  assert.equal(s.pits[1].equipped, true);
+});
+
+check('a freshly equipped pit starts accepting cars', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyExpandRoom(s);
+  buyPitEquipment(s, 1);
+  for (let i = 0; i < 10; i++) tick(s, settings.spawn.interval);
+  assert.ok(s.pits[0].car);
+  assert.ok(s.pits[1].car); // second pit now pulls from the shared queue
+});
+
+check('expand cost grows geometrically per opened lot', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  const c0 = expandRoomCost(s);
+  buyExpandRoom(s);
+  const c1 = expandRoomCost(s);
+  assert.ok(c1 > c0);
+  assert.equal(c1, Math.round(c0 * settings.upgrades.expandRoom.costGrowth));
+});
+
+check('pit equipment cost scales with pit index', () => {
+  const s = createInitialState();
+  assert.ok(pitEquipmentCost(s, 2) > pitEquipmentCost(s, 1));
+});
+
+// --- per-pit upgrades -----------------------------------------------------
+console.log('\ncore per-pit upgrades');
+
+check('hireMechanic requires an equipped pit', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyExpandRoom(s); // pit 1 roomUnlocked but not equipped
+  assert.equal(hireMechanic(s, 1), false);
+  buyPitEquipment(s, 1);
+  assert.equal(hireMechanic(s, 1), true);
+  assert.equal(s.pits[1].hasMechanic, true);
+});
+
+check('worker speed raises only its own pit rate', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  const r0 = workerSpeed(s.pits[0]);
+  assert.equal(buyWorkerSpeed(s, 0), true);
+  assert.ok(workerSpeed(s.pits[0]) > r0);
+  assert.equal(workerSpeed(s.pits[1]), r0); // untouched
+});
+
+check('fixing time lowers required ticks for its own pit (with a floor)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  const car = { baseTicks: settings.repair.ticksPerPart * 3 };
+  const before = requiredTicks(car, s.pits[0]);
+  buyFixingTime(s, 0);
+  assert.ok(requiredTicks(car, s.pits[0]) < before);
+  for (let i = 0; i < 50; i++) buyFixingTime(s, 0); // hit max
+  assert.ok(fixTimeFactor(s.pits[0]) >= settings.upgrades.fixingTime.factorFloor - 1e-9);
 });
 
 check('upgrade cost grows with level', () => {
   const s = createInitialState();
   s.cash = 1e9;
   const c0 = settings.upgrades.fixingTime.baseCost;
-  buyUpgrade(s, 'fixingTime');
-  const c1 = Math.round(c0 * settings.upgrades.fixingTime.costGrowth);
-  // after one purchase, the next costs more
+  buyFixingTime(s, 0);
   const before = s.cash;
-  buyUpgrade(s, 'fixingTime');
-  assert.equal(before - s.cash, c1);
+  buyFixingTime(s, 0);
+  assert.equal(before - s.cash, Math.round(c0 * settings.upgrades.fixingTime.costGrowth));
 });
 
-check('fixing time reduces the work on newly spawned cars', () => {
+// --- worker + hurry -------------------------------------------------------
+console.log('\ncore worker + hurry');
+
+check('a hired worker earns money hands-free (no player)', () => {
   const s = createInitialState();
   s.cash = 1e9;
-  const basePerPart = (() => {
-    const car = spawnCar(fixingWorkMult(s));
-    return car.totalWork / car.damageParts.length;
-  })();
-  buyUpgrade(s, 'fixingTime');
-  buyUpgrade(s, 'fixingTime');
-  const upPerPart = (() => {
-    const car = spawnCar(fixingWorkMult(s));
-    return car.totalWork / car.damageParts.length;
-  })();
-  assert.ok(upPerPart < basePerPart);
-});
-
-// --- mechanic + hurry -----------------------------------------------------
-console.log('\ncore mechanic + hurry');
-
-check('a hired mechanic earns money hands-free (no player)', () => {
-  const s = createInitialState();
-  s.cash = 500;
-  buyUpgrade(s, 'mechanic');
+  hireMechanic(s, 0);
   const after = s.cash;
   for (let i = 0; i < 1500; i++) tick(s, 0.016); // ~24s, no input, no taps
-  assert.ok(s.cash > after, 'mechanic should auto-repair and earn');
+  assert.ok(s.cash > after, 'worker should auto-repair and earn');
 });
 
-check('pre-mechanic, the pit does NOT repair on its own', () => {
+check('pre-worker, an unmanned pit does NOT repair on its own', () => {
   const s = createInitialState();
-  tick(s, settings.spawn.interval); // car arrives in the pit
-  const car = s.pit.car;
-  const before = car.repairWork;
-  for (let i = 0; i < 600; i++) tick(s, 0.016); // ~10s, still no mechanic, no taps
-  // same car, unchanged work (it only advanced via spawning, not repair)
-  if (s.pit.car === car) assert.equal(s.pit.car.repairWork, before);
+  tick(s, settings.spawn.interval); // car arrives in pit 0
+  const car = s.pits[0].car;
+  const before = car.ticksDone;
+  for (let i = 0; i < 600; i++) tick(s, 0.016); // ~10s, no worker, no taps
+  if (s.pits[0].car === car) assert.equal(s.pits[0].car.ticksDone, before);
 });
 
-check('hurry only works with a mechanic and multiplies the work rate', () => {
-  // no mechanic -> no-op
+check('hurry only works on a manned pit and multiplies the work rate', () => {
+  // no worker -> no-op
   const s0 = createInitialState();
-  hurry(s0);
-  assert.equal(s0.hurryTimer, 0);
+  hurry(s0, 0);
+  assert.equal(s0.pits[0].hurryTimer, 0);
 
   // controlled pit car big enough not to finish in one step
   const make = () => {
     const s = createInitialState();
-    s.cash = 1000;
-    buyUpgrade(s, 'mechanic');
-    s.pit.car = { id: 999, totalWork: 1e6, repairWork: 0, damageParts: ['tire'], payout: 5, fixed: false };
+    s.cash = 1e9;
+    hireMechanic(s, 0);
+    s.pits[0].car = { id: 999, baseTicks: 1e6, ticksDone: 0, damageParts: ['tire'], payout: 5, fixed: false };
     return s;
   };
   const base = make();
   tick(base, 0.1);
-  const baseWork = base.pit.car.repairWork;
+  const baseWork = base.pits[0].car.ticksDone;
 
   const fast = make();
-  hurry(fast);
-  assert.ok(fast.hurryTimer > 0);
+  hurry(fast, 0);
+  assert.ok(fast.pits[0].hurryTimer > 0);
   tick(fast, 0.1);
-  const fastWork = fast.pit.car.repairWork;
+  const fastWork = fast.pits[0].car.ticksDone;
 
   assert.ok(fastWork > baseWork);
   assert.ok(Math.abs(fastWork / baseWork - settings.hurry.multiplier) < 0.05);
+});
+
+check('hurry is per-pit: hurrying one pit does not boost another', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyExpandRoom(s);
+  buyPitEquipment(s, 1);
+  hireMechanic(s, 0);
+  hireMechanic(s, 1);
+  hurry(s, 0);
+  assert.ok(s.pits[0].hurryTimer > 0);
+  assert.equal(s.pits[1].hurryTimer, 0);
 });
 
 console.log(`\n${passed} passed`);

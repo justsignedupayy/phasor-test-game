@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import settings from '../config/settings.js';
 
 /**
- * createGarage — the static environment: floor, subtle grid, the queue lane, the
- * repair-pit patch, and low walls with door gaps on the left/right (entrance and
- * exit) marked by pillars + lintels. Cars (queue + pit) are dynamic and owned by
- * CarYard, not built here.
+ * createGarage — the static environment: floor, subtle grid, the queue lane, and
+ * low walls with door gaps on the left/right (entrance and exit) marked by pillars
+ * + lintels. The pit lots/stations and all cars are dynamic and owned by
+ * CarYard/PitView, not built here.
  */
 export function createGarage() {
   const group = new THREE.Group();
@@ -16,7 +16,7 @@ export function createGarage() {
   const floorD = W.halfZ * 2;
   const h = W.wallHeight;
   const t = W.wallThickness;
-  const gz = settings.pit.z; // gates are centred on the lane
+  const gz = settings.laneZ; // gates are centred on the shared lane
   const g = W.gateHalf;
 
   // Floor.
@@ -35,27 +35,15 @@ export function createGarage() {
   grid.material.opacity = 0.25;
   group.add(grid);
 
-  // Queue lane strip, from the pit out to the entrance gate.
-  const laneX0 = settings.pit.x;
-  const laneX1 = W.halfX;
+  // Shared queue lane strip, running the full width along the gates.
   const lane = new THREE.Mesh(
-    new THREE.PlaneGeometry(laneX1 - laneX0 + 1, 2.4),
+    new THREE.PlaneGeometry(floorW, 2.4),
     new THREE.MeshStandardMaterial({ color: c.lane })
   );
   lane.rotation.x = -Math.PI / 2;
-  lane.position.set((laneX0 + laneX1) / 2, 0.012, gz);
+  lane.position.set(0, 0.012, gz);
   lane.receiveShadow = true;
   group.add(lane);
-
-  // Repair-pit patch (floor marker). The car on it is added by CarYard.
-  const pit = new THREE.Mesh(
-    new THREE.PlaneGeometry(5, 4),
-    new THREE.MeshStandardMaterial({ color: c.pit })
-  );
-  pit.rotation.x = -Math.PI / 2;
-  pit.position.set(settings.pit.x, 0.02, gz);
-  pit.receiveShadow = true;
-  group.add(pit);
 
   // Walls.
   const wallMat = new THREE.MeshStandardMaterial({ color: c.wall, flatShading: true });

@@ -3,6 +3,9 @@
  * Colors are plain hex ints so this file stays framework-agnostic.
  */
 export const settings = {
+  // How many parallel pits can ever exist. Pit 0 starts unlocked + equipped.
+  maxPits: 4,
+
   // Garage interior bounds (character is clamped inside these on the x/z plane).
   world: {
     halfX: 7,
@@ -19,7 +22,7 @@ export const settings = {
   },
 
   camera: {
-    viewSize: 22, // world units visible vertically (smaller = more zoomed in)
+    viewSize: 24, // world units visible vertically (smaller = more zoomed in)
     distance: 40, // ortho position scale; does NOT change apparent size
     near: 0.1,
     far: 200,
@@ -39,64 +42,89 @@ export const settings = {
     deadzone: 0.12,
   },
 
-  tap: {
-    tapValue: 13, // work per manual repair tap
+  // Repair is measured in ticks. A car needs baseTicks = ticksPerPart × numParts,
+  // so a standard 3-damage car ≈ 15 ticks. A pit's required ticks shrink with its
+  // fixing-time upgrade (car.baseTicks × pit.fixTimeFactor).
+  repair: {
+    ticksPerPart: 5, // 3-damage car → 15 ticks
+    tapTicks: 1, // ticks added per manual repair tap (≈ a worker's base rate)
   },
 
-  // Automatic spawning + the waiting queue.
+  // Automatic spawning + the shared waiting queue.
   spawn: {
     interval: 3.0, // seconds between spawns
-    maxQueue: 4, // cars waiting in the lane (the pit car is separate)
-    baseWorkPerPart: 34, // totalWork = baseWorkPerPart × numParts (× fixing-time mult)
-    basePayoutPerPart: 5, // payout   = basePayoutPerPart × numParts (3-damage car = $15)
+    maxQueue: 4, // cars waiting in the lane (pit cars are separate)
+    basePayoutPerPart: 5, // payout = basePayoutPerPart × numParts (3-damage car = $15)
   },
 
-  // Upgrades (progression). Mechanic is a one-time hire; the others are leveled.
+  // Two-stage room unlock + the per-pit upgrades. All costs are geometric
+  // (cost = baseCost × costGrowth^level); see upgrades.js for the level used.
   upgrades: {
-    mechanic: {
-      cost: 60,
-    },
-    workerSpeed: {
-      baseCost: 40,
+    // Stage 1: add empty floor space (reveals the next lot).
+    expandRoom: {
+      baseCost: 300,
       costGrowth: 1.6,
-      maxLevel: 6,
-      baseRate: 16, // mechanic work/sec at level 0
-      ratePerLevel: 10, // +work/sec per level
     },
-    fixingTime: {
-      baseCost: 30,
+    // Stage 2: install the repair station on a roomUnlocked lot. Scales by pit index.
+    pitEquipment: {
+      baseCost: 150,
+      costGrowth: 1.6,
+    },
+    // One-time worker hire per pit (enables auto-repair + remote hurry). Scales by index.
+    mechanic: {
+      baseCost: 60,
       costGrowth: 1.5,
-      maxLevel: 6,
-      workMultPerLevel: 0.12, // each level: repair speed +12% (work-per-car shrinks)
+    },
+    // Per-pit worker speed (ticks/sec).
+    workerSpeed: {
+      baseCost: 50,
+      costGrowth: 1.6,
+      maxLevel: 8,
+      baseRate: 1, // ticks/sec at level 0 → a 15-tick car takes ~15s
+      ratePerLevel: 0.5, // +ticks/sec per level
+    },
+    // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
+    fixingTime: {
+      baseCost: 75,
+      costGrowth: 1.5,
+      maxLevel: 5,
+      factorPerLevel: 0.15, // each level: factor -0.15 (15-tick car → ~13, ~11, ...)
+      factorFloor: 0.4, // factor never drops below this
     },
   },
 
-  // Remote "hurry up": a temporary boost to the mechanic's rate.
+  // Remote "hurry up": a temporary boost to a worker's rate (per pit).
   hurry: {
     duration: 1.2, // seconds
     multiplier: 2.5,
   },
 
-  // The single repair pit (world position + how close counts as "present").
+  // The pits: shared geometry plus a world position per pit. radius = how close
+  // the player must stand to manually tap an unmanned pit.
   pit: {
-    x: -4,
-    z: -3,
-    radius: 3.0,
+    radius: 1.7,
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out)
+    positions: [
+      { x: -5.4, z: 2.0 },
+      { x: -1.8, z: 2.0 },
+      { x: 1.8, z: 2.0 },
+      { x: 5.4, z: 2.0 },
+    ],
   },
 
-  // Mechanic NPC stands beside the pit (offset from the pit centre, faces the car).
+  // Each worker NPC stands beside its pit (offset from the pit centre, faces the car).
   mechanic: {
-    offsetX: 0.2,
-    offsetZ: 1.9,
+    offsetX: 2.1,
+    offsetZ: 0.2,
   },
 
   // Cars appear at the entrance (outside the right gate) and leave past the exit
-  // (outside the left gate). The queue lane runs along x between them.
+  // (outside the left gate). The shared queue lane runs along x at z = laneZ.
+  laneZ: -3,
   entrance: { x: 9, z: -3 },
   exit: { x: -12, z: -3 },
   queue: {
-    frontX: -1, // slot 0 (nearest the pit)
+    frontX: 4.5, // slot 0 (nearest the entrance side, before routing up to a pit)
     frontZ: -3,
     slotDX: 2.4, // each further slot steps this toward the entrance
     slotDZ: 0,
@@ -109,8 +137,12 @@ export const settings = {
     grid: 0x2a3340,
     wall: 0x4b5563,
     gate: 0x6b7787, // door pillars / lintels
-    pit: 0x5a4a36,
+    lot: 0x2f3845, // an empty (roomUnlocked, unequipped) lot patch
+    lotEdge: 0x6b7787, // outline of an empty lot
+    pit: 0x5a4a36, // an equipped pit station floor
     pitGlow: 0xffe08a, // highlight ring when the player can repair
+    toolbox: 0xc0392b, // a small toolbox marking an equipped pit
+    label: '#ffe08a', // pit/worker label text (CSS color string for the sprite)
     // player character
     body: 0x2e86de,
     head: 0xf6c177,

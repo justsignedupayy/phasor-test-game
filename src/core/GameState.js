@@ -4,27 +4,35 @@
  */
 import settings from '../config/settings.js';
 
+/**
+ * One repair pit. Two-stage unlock: roomUnlocked (empty floor) then equipped
+ * (accepts cars + allows hiring). `car` is null between cars; `playerPresent` is
+ * written by the scene each frame (proximity) and only read by core. Derived
+ * workerSpeed / fixTimeFactor live in upgrades.js (computed from the levels).
+ */
+function createPit(index) {
+  return {
+    index,
+    roomUnlocked: index === 0, // pit 0 starts open...
+    equipped: index === 0, // ...and equipped; the rest start both false
+    car: null,
+    hasMechanic: false,
+    workerSpeedLevel: 0,
+    fixingTimeLevel: 0,
+    playerPresent: false,
+    hurryTimer: 0, // seconds of remaining worker speed boost (per pit)
+  };
+}
+
 export class GameState {
   constructor() {
     this.cash = 0;
 
-    // Progression.
-    this.upgrades = {
-      hasMechanic: false,
-      workerSpeed: 0,
-      fixingTime: 0,
-    };
-    this.hurryTimer = 0; // seconds of remaining mechanic speed boost
+    // Parallel pits, lowest index first.
+    this.pits = Array.from({ length: settings.maxPits }, (_, i) => createPit(i));
 
-    // Single repair pit. car may be null between cars; `playerPresent` is written
-    // by the scene each frame (proximity) and only read by core.
-    this.pit = {
-      car: null,
-      playerPresent: false,
-    };
-
-    // Cars waiting in the lane (capped at settings.spawn.maxQueue) and the
-    // countdown to the next spawn. Seeded so the first car arrives immediately.
+    // One shared queue (capped at settings.spawn.maxQueue) and the countdown to
+    // the next spawn. Seeded so the first car arrives immediately.
     this.carQueue = [];
     this.spawnTimer = settings.spawn.interval;
 

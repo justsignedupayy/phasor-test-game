@@ -1,67 +1,77 @@
 /**
  * simulation.js — all game-logic mutation lives here. No Three.js.
  *
- *   tick(state, dt)    advance the world: movement, spawning, queue→pit, and the
- *                      mechanic's automatic repair (once hired).
- *   tapRepair(state)   manual repair tap (pre-mechanic loop: needs the player at
- *                      the pit and a car present).
- *   hurry(state)       remote boost: temporarily speeds the mechanic up.
+ *   tick(state, dt)              advance the world: movement, spawning, queue→pits,
+ *                                and each hired worker's automatic repair.
+ *   tapRepair(state, pitIndex)   manual repair tap on one pit (adds tapTicks).
+ *   hurry(state, pitIndex)       remote boost: temporarily speeds that pit's worker.
  */
 import settings from '../config/settings.js';
 import { spawnCar } from './Car.js';
-import { mechanicRate, fixingWorkMult } from './upgrades.js';
+import { workerSpeed, requiredTicks } from './upgrades.js';
 
 export function tick(state, dt) {
   updatePlayer(state, dt);
   updateYard(state, dt);
-  updateMechanic(state, dt);
+  for (const pit of state.pits) updatePit(state, pit, dt);
 }
 
-/** Manual repair (no mechanic needed). Requires the player at the pit. */
-export function tapRepair(state) {
-  const pit = state.pit;
+/**
+ * Manual repair on one pit. Allowed if the pit is equipped and either the player
+ * is standing there or a worker is hired. Adds tapTicks of progress.
+ */
+export function tapRepair(state, pitIndex) {
+  const pit = state.pits[pitIndex];
+  if (!pit || !pit.equipped) return;
+  if (!pit.playerPresent && !pit.hasMechanic) return;
   const car = pit.car;
-  if (!pit.playerPresent || !car || car.fixed) return;
-  applyRepair(state, settings.tap.tapValue);
+  if (!car || car.fixed) return;
+  applyRepair(state, pit, settings.repair.tapTicks);
 }
 
-/** Remote hurry: only meaningful with a mechanic; refreshes the boost window. */
-export function hurry(state) {
-  if (!state.upgrades.hasMechanic) return;
-  state.hurryTimer = settings.hurry.duration;
+/** Remote hurry: only meaningful with a worker; refreshes that pit's boost window. */
+export function hurry(state, pitIndex) {
+  const pit = state.pits[pitIndex];
+  if (!pit || !pit.hasMechanic) return;
+  pit.hurryTimer = settings.hurry.duration;
 }
 
-function updateMechanic(state, dt) {
-  if (state.hurryTimer > 0) state.hurryTimer = Math.max(0, state.hurryTimer - dt);
-  if (!state.upgrades.hasMechanic) return;
+function updatePit(state, pit, dt) {
+  if (pit.hurryTimer > 0) pit.hurryTimer = Math.max(0, pit.hurryTimer - dt);
+  if (!pit.hasMechanic) return;
 
-  const car = state.pit.car;
+  const car = pit.car;
   if (!car || car.fixed) return;
 
-  const mult = state.hurryTimer > 0 ? settings.hurry.multiplier : 1;
-  applyRepair(state, mechanicRate(state) * mult * dt);
+  const mult = pit.hurryTimer > 0 ? settings.hurry.multiplier : 1;
+  applyRepair(state, pit, workerSpeed(pit) * mult * dt);
 }
 
-/** Shared completion path for both manual taps and the mechanic. */
-function applyRepair(state, amount) {
-  const car = state.pit.car;
-  car.repairWork = Math.min(car.totalWork, car.repairWork + amount);
-  if (car.repairWork >= car.totalWork) {
+/** Shared completion path for both manual taps and the worker. */
+function applyRepair(state, pit, ticks) {
+  const car = pit.car;
+  const required = requiredTicks(car, pit);
+  car.ticksDone = Math.min(required, car.ticksDone + ticks);
+  if (car.ticksDone >= required) {
     car.fixed = true;
     state.cash += car.payout;
-    state.pit.car = null; // tick refills from the queue
+    pit.car = null; // updateYard refills from the queue
   }
 }
 
 function updateYard(state, dt) {
   state.spawnTimer += dt;
   if (state.spawnTimer >= settings.spawn.interval && state.carQueue.length < settings.spawn.maxQueue) {
-    state.carQueue.push(spawnCar(fixingWorkMult(state)));
+    state.carQueue.push(spawnCar());
     state.spawnTimer = 0;
   }
 
-  if (!state.pit.car && state.carQueue.length > 0) {
-    state.pit.car = state.carQueue.shift();
+  // Assign the front queued car to the lowest-index free equipped pit.
+  for (const pit of state.pits) {
+    if (state.carQueue.length === 0) break;
+    if (pit.equipped && !pit.car) {
+      pit.car = state.carQueue.shift();
+    }
   }
 }
 

@@ -12,7 +12,8 @@ const SPARK_LIFE = 0.4;
 const MAX_SPARKS = 40;
 
 export class Mechanic {
-  constructor() {
+  /** @param {{x:number,z:number}} pitPos world position of the pit this worker serves */
+  constructor(pitPos) {
     this.root = new THREE.Group();
     this.body = new THREE.Group(); // bobs while working
     this.root.add(this.body);
@@ -23,10 +24,10 @@ export class Mechanic {
     this.sparks = [];
 
     // Stand beside the pit, facing the car.
-    const px = settings.pit.x + settings.mechanic.offsetX;
-    const pz = settings.pit.z + settings.mechanic.offsetZ;
+    const px = pitPos.x + settings.mechanic.offsetX;
+    const pz = pitPos.z + settings.mechanic.offsetZ;
     this.root.position.set(px, 0, pz);
-    this.root.rotation.y = Math.atan2(settings.pit.x - px, settings.pit.z - pz);
+    this.root.rotation.y = Math.atan2(pitPos.x - px, pitPos.z - pz);
 
     this.#build();
   }

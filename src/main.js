@@ -7,7 +7,6 @@ import { Input } from './scene/Input.js';
 import { Character } from './scene/Character.js';
 import { createGarage } from './scene/Garage.js';
 import { CarYard } from './scene/CarYard.js';
-import { Mechanic } from './scene/Mechanic.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
 
@@ -27,18 +26,28 @@ sceneManager.add(character.root);
 
 const carYard = new CarYard(sceneManager);
 
-let mechanic = null; // spawned when the player hires one
+// Canvas taps only (the joystick and DOM menu are separate overlays, so their
+// taps never reach here). A tap raycasts the pit cars and applies to the touched
+// car's pit: a manned pit's car = remote hurry (from anywhere); an unmanned
+// equipped pit's car = manual repair, but only while the player stands there.
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+sceneManager.renderer.domElement.addEventListener('pointerdown', (e) => {
+  const rect = sceneManager.renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(ndc, sceneManager.camera);
 
-// Canvas taps only (the joystick and the DOM menu are separate overlays, so their
-// taps never reach here). With a mechanic, any such tap is a remote "hurry";
-// before hiring, it's the in-pit manual repair.
-sceneManager.renderer.domElement.addEventListener('pointerdown', () => {
-  if (state.upgrades.hasMechanic) {
-    hurry(state);
+  const i = carYard.raycast(raycaster);
+  if (i < 0) return;
+  const pit = state.pits[i];
+
+  if (pit.hasMechanic) {
+    hurry(state, i);
     character.yell();
-  } else if (state.pit.playerPresent && state.pit.car && !state.pit.car.fixed) {
-    tapRepair(state);
-    carYard.onTap();
+  } else if (pit.playerPresent && pit.car && !pit.car.fixed) {
+    tapRepair(state, i);
+    carYard.onTap(i);
   }
 });
 
@@ -54,24 +63,22 @@ function frame() {
   state.input.x = basis.right.x * ix + basis.forward.x * iy;
   state.input.z = basis.right.z * ix + basis.forward.z * iy;
 
-  tick(state, dt); // movement + spawning + queue→pit + mechanic auto-repair
+  tick(state, dt); // movement + spawning + queue→pits + workers' auto-repair
 
-  // Scene sets proximity each frame; core only reads playerPresent.
-  const dx = state.player.position.x - settings.pit.x;
-  const dz = state.player.position.z - settings.pit.z;
-  state.pit.playerPresent = Math.hypot(dx, dz) <= settings.pit.radius;
-
-  // Spawn the mechanic NPC the moment one is hired.
-  if (state.upgrades.hasMechanic && !mechanic) {
-    mechanic = new Mechanic();
-    sceneManager.add(mechanic.root);
+  // Scene sets per-pit proximity each frame; core only reads playerPresent.
+  for (const pit of state.pits) {
+    if (!pit.equipped) {
+      pit.playerPresent = false;
+      continue;
+    }
+    const p = settings.pit.positions[pit.index];
+    const dx = state.player.position.x - p.x;
+    const dz = state.player.position.z - p.z;
+    pit.playerPresent = Math.hypot(dx, dz) <= settings.pit.radius;
   }
 
   character.update(dt, state.player);
   carYard.update(dt, state);
-  if (mechanic) {
-    mechanic.update(dt, { carPresent: !!state.pit.car, hurrying: state.hurryTimer > 0 });
-  }
   hud.update(state.cash);
   menu.update(state);
 

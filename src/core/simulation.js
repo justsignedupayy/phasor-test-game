@@ -63,26 +63,38 @@ function applyRepair(state, pit, ticks) {
 
 function updateYard(state, dt) {
   state.spawnTimer += dt;
-  if (state.spawnTimer >= settings.spawn.interval && state.carQueue.length < settings.spawn.maxQueue) {
-    state.carQueue.push(spawnCar(state));
-    state.spawnTimer = 0;
+  if (state.spawnTimer >= settings.spawn.interval) {
+    // Spawn one car to the shortest pit queue. If nothing could be placed
+    // (every equipped pit's queue is full), hold the timer so the car arrives
+    // the moment a slot frees — i.e. spawning stalls rather than dropping cars.
+    if (spawnToShortestQueue(state)) state.spawnTimer = 0;
   }
 
-  // Demand top-up: a free, equipped pit must never wait on the spawn timer.
-  // Always keep at least one queued car per currently-free pit so the slowest
-  // (highest-index) pit gets fed exactly as reliably as the others.
-  const freePits = state.pits.filter((p) => p.equipped && !p.car).length;
-  while (state.carQueue.length < freePits) {
-    state.carQueue.push(spawnCar(state));
-  }
-
-  // Assign the front queued car to the lowest-index free equipped pit.
+  // Per-pit routing: a free equipped pit pulls the front of its OWN queue.
   for (const pit of state.pits) {
-    if (state.carQueue.length === 0) break;
-    if (pit.equipped && !pit.car) {
-      pit.car = state.carQueue.shift();
+    if (pit.equipped && !pit.car && pit.queue.length > 0) {
+      pit.car = pit.queue.shift();
     }
   }
+}
+
+/**
+ * Spawn one car into the equipped pit with the shortest queue, ties broken
+ * randomly. Returns false (spawning nothing) when no equipped pit has room left
+ * under maxQueuePerPit — including the degenerate case of no equipped pits at
+ * all, which simply discards the car by never creating it.
+ */
+function spawnToShortestQueue(state) {
+  const candidates = state.pits.filter(
+    (p) => p.equipped && p.queue.length < settings.spawn.maxQueuePerPit
+  );
+  if (candidates.length === 0) return false;
+
+  const min = Math.min(...candidates.map((p) => p.queue.length));
+  const shortest = candidates.filter((p) => p.queue.length === min);
+  const pit = shortest[Math.floor(Math.random() * shortest.length)];
+  pit.queue.push(spawnCar(state));
+  return true;
 }
 
 function updatePlayer(state, dt) {

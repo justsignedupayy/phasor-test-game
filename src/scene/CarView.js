@@ -4,15 +4,16 @@ import settings from '../config/settings.js';
 import { groundModel } from './characterAnim.js';
 
 /**
- * CarView — wraps a clone of the shared cartoon_low_poly_car.glb model (see
- * preloadCarModel() below). The model has no skeleton, so a plain
- * scene.clone() per car is correct (no SkeletonUtils needed). It has no
- * separate damage-part meshes either, so it just drives in broken and out
- * fixed, with the tap shake/scale pop still working; per-part heal visuals
- * are gone since there's nothing on the model to heal independently.
+ * CarView — wraps a clone of the glb model for its car's reputation tier (one
+ * model per tier; see settings.carTiers + preloadCarModels() below). The models
+ * have no skeleton, so a plain scene.clone() per car is correct (no
+ * SkeletonUtils needed). They have no separate damage-part meshes either, so a
+ * car just drives in broken and out fixed, with the tap shake/scale pop still
+ * working; per-part heal visuals are gone since there's nothing on the model to
+ * heal independently.
  *
- * A car.tier === 'better' (reputation-attracted, higher payout) tints its
- * cloned materials blue, plus a brief spawn pulse so it stands out in queue.
+ * Tiers above the base one get a brief spawn pulse so the better-paying cars
+ * stand out in queue (a scale animation, independent of which model is used).
  *
  * Render-only: driven by setProgress() / shake() / driveTo(), advanced by
  * update(dt). It holds a reference to its core car for `damageParts` + `payout`.
@@ -21,18 +22,26 @@ const FIX_LERP = 6;
 const SHAKE_TIME = 0.22;
 const PULSE_TIME = 0.5;
 
-let carModelPromise = null;
-let carModelGltf = null;
+let carModelsPromise = null;
+const carModels = new Map(); // tier name -> THREE.Object3D base scene to clone
 
-/** Loads cartoon_low_poly_car.glb exactly once; call (and await) before creating any CarView. */
-export function preloadCarModel() {
-  if (!carModelPromise) {
-    carModelPromise = new GLTFLoader().loadAsync('/models/cartoon_low_poly_car.glb').then((gltf) => {
-      carModelGltf = gltf;
-      return gltf;
-    });
+/**
+ * Loads every tier's glb exactly once, in parallel, keying each resolved scene
+ * by its tier name (settings.carTiers is the source of truth for the mapping).
+ * Call (and await) before creating any CarView.
+ */
+export function preloadCarModels() {
+  if (!carModelsPromise) {
+    const loader = new GLTFLoader();
+    carModelsPromise = Promise.all(
+      settings.carTiers.map((tier) =>
+        loader.loadAsync(`/models/${tier.model}`).then((gltf) => {
+          carModels.set(tier.name, gltf.scene);
+        })
+      )
+    );
   }
-  return carModelPromise;
+  return carModelsPromise;
 }
 
 function easeInOut(t) {
@@ -49,7 +58,8 @@ export class CarView {
     this.fix = {}; // partName -> current heal 0..1 (kept for setProgress/fixAll compatibility)
     this.fixTarget = {}; // partName -> 0..1
     this.shakeT = 0;
-    this.pulseT = car.tier === 'better' ? PULSE_TIME : 0; // brief spawn highlight
+    this.tierIndex = settings.carTiers.findIndex((t) => t.name === car.tier);
+    this.pulseT = this.tierIndex > 0 ? PULSE_TIME : 0; // brief spawn highlight for above-base tiers
     this.drive = null; // { t, dur, from, to, onDone }
     this.targetSlot = -1; // used by CarYard to avoid re-tweening to the same slot
 
@@ -57,17 +67,19 @@ export class CarView {
   }
 
   #build() {
-    if (!carModelGltf) {
-      throw new Error('CarView: car model not preloaded — call preloadCarModel() before creating any CarView');
+    const base = carModels.get(this.car.tier);
+    if (!base) {
+      throw new Error(
+        `CarView: no preloaded model for tier "${this.car.tier}" — call preloadCarModels() before creating any CarView`
+      );
     }
 
     const cfg = settings.car;
-    const model = carModelGltf.scene.clone();
+    const model = base.clone();
 
-    // The source scene also exports a large ground-plane mesh alongside the
+    // The source scenes also export a large ground-plane mesh alongside the
     // car itself ("Floor_..."); strip it so it doesn't blow out the model's
-    // bounding box (used below for grounding) or get raycast/tinted as part
-    // of the car.
+    // bounding box (used below for grounding) or get raycast as part of the car.
     const floorNodes = [];
     model.traverse((o) => {
       if (o.name.startsWith('Floor')) floorNodes.push(o);
@@ -77,15 +89,28 @@ export class CarView {
     model.scale.setScalar(cfg.modelScale);
     model.rotation.y = cfg.modelYRotationOffset;
     model.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
-    });
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
+      if (!o.material) return;
 
-    if (this.car.tier === 'better') {
-      tintBlue(model, cfg.betterTintColor);
-    }
+      // Clone materials per instance: THREE's clone() shares material objects by
+      // reference, and dispose() frees them — so without this, sending one fixed
+      // car off would dispose the materials every other car still uses. We also
+      // force the clones opaque: these glbs export every material with
+      // baseColorFactor alpha 0 + alphaMode MASK, which three.js maps to
+      // opacity 0 / alphaTest 0.5, discarding all colour fragments (the cars go
+      // invisible while their depth-based shadows still render). No tint.
+      const wasArray = Array.isArray(o.material);
+      const fixed = (wasArray ? o.material : [o.material]).map((m) => {
+        const c = m.clone();
+        c.transparent = false;
+        c.opacity = 1;
+        c.alphaTest = 0;
+        return c;
+      });
+      o.material = wasArray ? fixed : fixed[0];
+    });
 
     this.bodyGroup.add(model);
     groundModel(model); // the model's mesh origin isn't at floor level — sit it on y=0
@@ -134,7 +159,7 @@ export class CarView {
     }
 
     // Tap shake + scale pop, decaying over SHAKE_TIME; else a one-shot spawn
-    // pulse for "better" cars (no rotation, just a brief scale-up).
+    // pulse for above-base-tier cars (no rotation, just a brief scale-up).
     if (this.shakeT > 0) {
       this.shakeT = Math.max(0, this.shakeT - dt);
       const f = this.shakeT / SHAKE_TIME;
@@ -175,21 +200,4 @@ export class CarView {
       }
     });
   }
-}
-
-// Clones (so instances don't share/mutate color state) and multiplies a
-// cloned model's mesh material colors toward `color` (used for "better" cars).
-function tintBlue(model, color) {
-  const tint = new THREE.Color(color);
-  model.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
-    const wasArray = Array.isArray(o.material);
-    const materials = wasArray ? o.material : [o.material];
-    const tinted = materials.map((m) => {
-      const t = m.clone();
-      if (t.color) t.color.multiply(tint);
-      return t;
-    });
-    o.material = wasArray ? tinted : tinted[0];
-  });
 }

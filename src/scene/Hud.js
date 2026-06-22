@@ -6,39 +6,51 @@ import { formatMoney } from '../core/format.js';
  */
 export class Hud {
   constructor() {
-    const el = document.createElement('div');
-    Object.assign(el.style, {
+    // Top-center column: the cash counter with the boost badge flowing directly
+    // beneath it. Stacking in a flex column (rather than two fixed elements with
+    // hardcoded `top` values) keeps the badge correctly placed even as the cash
+    // font scales with viewport width.
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
       position: 'fixed',
-      top: '22px',
+      top: 'calc(env(safe-area-inset-top, 0px) + 14px)',
       left: '50%',
       transform: 'translateX(-50%)',
-      font: '800 56px Arial, sans-serif',
-      color: '#3ad06a',
-      textShadow: '0 3px 0 #06310f, 0 0 14px rgba(0,0,0,0.5)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '4px',
+      maxWidth: '100vw',
       pointerEvents: 'none',
       userSelect: 'none',
       zIndex: '15',
     });
-    document.body.appendChild(el);
+
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      // Scales with viewport width so it never overruns the corner buttons on a
+      // narrow portrait screen, capped at the original landscape size.
+      font: '800 clamp(28px, 8vw, 56px) Arial, sans-serif',
+      color: '#3ad06a',
+      textShadow: '0 3px 0 #06310f, 0 0 14px rgba(0,0,0,0.5)',
+      whiteSpace: 'nowrap',
+    });
+    wrap.appendChild(el);
     this.el = el;
     this._cash = null;
 
     const badge = document.createElement('div');
     Object.assign(badge.style, {
-      position: 'fixed',
-      top: '88px',
-      left: '50%',
-      transform: 'translateX(-50%)',
       font: '800 15px Arial, sans-serif',
       color: '#ffd23f',
       textShadow: '0 2px 0 #3a2a00, 0 0 8px rgba(0,0,0,0.5)',
-      pointerEvents: 'none',
-      userSelect: 'none',
-      zIndex: '15',
       display: 'none',
     });
-    document.body.appendChild(badge);
+    wrap.appendChild(badge);
     this.badge = badge;
+
+    document.body.appendChild(wrap);
+    this.wrap = wrap;
 
     this.update(0, 0);
   }

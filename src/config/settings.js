@@ -4,12 +4,14 @@
  */
 export const settings = {
   // How many parallel pits can ever exist. Pit 0 starts unlocked + equipped.
-  maxPits: 4,
+  maxPits: 5,
 
   // Garage interior bounds (character is clamped inside these on the x/z plane).
+  // halfX is wide enough for the left lobby (clear of all pits) plus the five-pit
+  // row to its right.
   world: {
-    halfX: 7,
-    halfZ: 9,
+    halfX: 15,
+    halfZ: 10,
     wallHeight: 1.6,
     wallThickness: 0.4,
     gateHalf: 1.8, // half-width of the door gaps in the left/right walls
@@ -22,10 +24,11 @@ export const settings = {
   },
 
   camera: {
-    viewSize: 24, // world units visible vertically (smaller = more zoomed in)
+    viewSize: 30, // world units visible vertically (smaller = more zoomed in)
     distance: 40, // ortho position scale; does NOT change apparent size
     near: 0.1,
     far: 200,
+    followLerp: 5, // how fast the camera eases toward the player each second (higher = snappier)
   },
 
   // The rigged glTF character (player + every worker clone it). modelScale and
@@ -52,15 +55,27 @@ export const settings = {
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
   },
 
-  // The car glTF model (cartoon_low_poly_car.glb), loaded once via
-  // CarView.preloadCarModel() and cloned per car. modelScale and
-  // modelYRotationOffset correct for a glb that imports at the wrong
-  // size/facing — tune both once the model is visible in-scene.
+  // Shared transform applied to every car glb when cloned (see CarView.js).
+  // modelScale and modelYRotationOffset correct for glbs that import at the
+  // wrong size/facing — tune once the models are visible in-scene.
   car: {
-    modelScale: 0.01, // the source glb exports at ~100x scale (modeled in cm)
-    modelYRotationOffset: Math.PI / 2, // radians — the model's long axis is local Z, but cars drive along world X
-    betterTintColor: 0x88aaff, // multiplied into a "better" car's material colors (tune toward blue without going too dark)
+    modelScale: 1, // the per-tier glbs already bake their own ~0.01 scale; don't re-scale
+    modelYRotationOffset: Math.PI, // ≈1.56 rad — cars now drive -z (door→pit); flip ±π if reversed
   },
+
+  // The five reputation tiers, ascending (index 0 = worst, index 4 = best).
+  // Higher reputation attracts higher-index cars (see Car.js spawnCar's weighted
+  // roll). Each tier scales a car's repair time and payout, and has its own glb
+  // model (in public/models/, preloaded + cloned per car by CarView.js).
+  // baseTicks = ticksPerPart × parts × ticksMult; payout =
+  // basePayoutPerPart × parts × payoutMult. STARTING VALUES — tune later.
+  carTiers: [
+    { name: 'rusty', ticksMult: 0.7, payoutMult: 0.6, model: 'normalcar.glb' },
+    { name: 'normal', ticksMult: 1.0, payoutMult: 1.0, model: 'taxi.glb' },
+    { name: 'decent', ticksMult: 1.3, payoutMult: 1.8, model: 'SUV.glb' },
+    { name: 'premium', ticksMult: 1.7, payoutMult: 2.8, model: 'sports.glb' },
+    { name: 'luxury', ticksMult: 2.2, payoutMult: 4.5, model: 'cop.glb' },
+  ],
 
   joystick: {
     radius: 70, // px
@@ -75,10 +90,11 @@ export const settings = {
     tapTicks: 1, // ticks added per manual repair tap (≈ a worker's base rate)
   },
 
-  // Automatic spawning + the shared waiting queue.
+  // Automatic spawning. Each pit owns its own waiting queue (no shared lane);
+  // a spawned car is routed to the equipped pit with the shortest queue.
   spawn: {
     interval: 3.0, // seconds between spawns
-    maxQueue: 4, // cars waiting in the lane (pit cars are separate)
+    maxQueuePerPit: 3, // max cars waiting per pit's own queue
     basePayoutPerPart: 5, // payout = basePayoutPerPart × numParts (3-damage car = $15)
   },
 
@@ -128,8 +144,8 @@ export const settings = {
     multiplier: 2.5,
   },
 
-  // Reputation: the probability an incoming car is a higher-paying "better"
-  // car (see Car.js spawnCar). Raised permanently via the computer's Buy
+  // Reputation: biases the incoming-car roll toward higher tiers (see Car.js
+  // spawnCar + settings.carTiers). Raised permanently via the computer's Buy
   // Advertising upgrade, or doubled temporarily by watching a rewarded ad
   // (the boost refuses to re-arm while one is already running — no stacking).
   reputation: {
@@ -140,15 +156,15 @@ export const settings = {
     adGrowth: 1.5,
     boostMultiplier: 2, // rewarded-ad: multiplies effective reputation while active
     boostDurationSeconds: 300,
-    betterPayoutMult: 3, // a "better" car's payout = basePayoutPerPart × numParts × this
-    betterTicksMult: 1.5, // a "better" car's baseTicks = ticksPerPart × numParts × this
   },
 
   // The garage's advertising terminal: tap while standing within `radius` to
-  // open the Advertising panel.
+  // open the Advertising panel. Lives in the left lobby (x left of pit 0's lot,
+  // which starts at x ≈ -8.1) — clear of every pit lot and car lane, always
+  // within owned land, reachable without crossing any lane.
   computer: {
-    x: -6,
-    z: 2.5,
+    x: -12,
+    z: 4,
     radius: 1.6,
   },
 
@@ -161,18 +177,24 @@ export const settings = {
   // The pits: shared geometry plus a world position per pit. radius = how close
   // the player must stand to manually tap an unmanned pit.
   //
-  // z steps opposite to x (z = -x/2 + 4) so the row reads as side-by-side on
-  // screen: this isometric camera (equal x/y/z) maps a pure-x row to a diagonal
-  // line (each pit appears to recede further back). Offsetting z the other way
-  // cancels half that drift while staying clear of the lane and back wall.
+  // All five pits sit at the same z (a straight side-by-side row), spaced evenly
+  // along x. The row starts at x = -6 (leaving the left lobby clear) and fills
+  // out to the right as Expand Room is bought.
   pit: {
     radius: 1.7,
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out)
+    // Cars drive straight THROUGH the garage (decreasing z the whole time):
+    // in through a BACK-wall door (z = +halfZ) at the pit's x, and, once fixed,
+    // out through a FRONT-wall door (z = -halfZ) at the same x.
+    doorZ: 11.5, // entry: = world.halfZ + 1.5, just outside the back wall
+    exitDoorZ: -11.5, // exit: = -(world.halfZ + 1.5), just outside the front wall
+    queueSlotDepth: 5.0, // each waiting car steps this much further out (toward +z); > car length (~4.2), no overlap
     positions: [
-      { x: -5.4, z: 6.7 },
-      { x: -1.8, z: 4.9 },
-      { x: 1.8, z: 3.1 },
-      { x: 5.4, z: 1.3 },
+      { x: -6, z: 4 },
+      { x: -1.5, z: 4 },
+      { x: 3, z: 4 },
+      { x: 7.5, z: 4 },
+      { x: 12, z: 4 },
     ],
   },
 
@@ -180,25 +202,13 @@ export const settings = {
   mechanic: {
     offsetX: 2.1,
     offsetZ: 0.2,
-    facingOffset: Math.PI, // radians, added on top of the atan2 facing calc — flip 180° if facing is wrong
-  },
-
-  // Cars appear at the entrance (outside the right gate) and leave past the exit
-  // (outside the left gate). The shared queue lane runs along x at z = laneZ.
-  laneZ: -3,
-  entrance: { x: 9, z: -3 },
-  exit: { x: -12, z: -3 },
-  queue: {
-    frontX: 4.5, // slot 0 (nearest the entrance side, before routing up to a pit)
-    frontZ: -3,
-    slotDX: 2.4, // each further slot steps this toward the entrance
-    slotDZ: 0,
+    facingOffset: 0, // radians, added on top of the atan2 facing calc — flip 180° if facing is wrong
   },
 
   colors: {
     background: 0x12161c,
     floor: 0x3a4250,
-    lane: 0x454e5d, // the queue lane strip
+    lobby: 0x474f43, // the left lobby floor patch (distinct from the shop floor)
     grid: 0x2a3340,
     wall: 0x4b5563,
     gate: 0x6b7787, // door pillars / lintels
@@ -216,9 +226,6 @@ export const settings = {
     carDent: 0x7a2f28,
     wheel: 0x1a1a1a,
     smoke: 0x9aa0a6,
-    // "better" (higher-paying) car, attracted by reputation — same parts, blue paint
-    carBodyBetter: 0x2f6fd6,
-    carCabinBetter: 0x1f4f9e,
     // advertising computer
     deskWood: 0x6b4a2f,
     computerCase: 0x23262b,

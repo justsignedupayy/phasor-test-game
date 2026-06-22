@@ -14,7 +14,7 @@ import { Computer } from './scene/Computer.js';
 import { AdvertisingMenu } from './scene/AdvertisingMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
-import { preloadCarModel } from './scene/CarView.js';
+import { preloadCarModels } from './scene/CarView.js';
 
 const container = document.getElementById('app');
 
@@ -42,7 +42,7 @@ async function main() {
   sceneManager.render();
   const loadingEl = showLoading();
   const gltf = await loadCharacterModel();
-  await preloadCarModel();
+  await preloadCarModels();
   loadingEl.remove();
 
   const character = new Character(gltf);
@@ -115,6 +115,7 @@ async function main() {
     hud.update(state.cash, state.repBoostRemaining);
     menu.update(state);
 
+    sceneManager.follow(state.player.position.x, state.player.position.z, dt);
     sceneManager.render();
     requestAnimationFrame(frame);
   }

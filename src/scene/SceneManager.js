@@ -39,6 +39,21 @@ export class SceneManager {
     return cam;
   }
 
+  /**
+   * Smoothly track a ground target (the player). Keeps the fixed isometric
+   * offset (d, d, d) — only the look-at point translates — so the angle, zoom,
+   * and moveBasis are unchanged; the view just pans across the larger garage.
+   */
+  follow(x, z, dt) {
+    const d = settings.camera.distance;
+    if (!this.camTarget) this.camTarget = new THREE.Vector3(x, 0, z); // snap on first frame
+    const k = Math.min(1, settings.camera.followLerp * dt);
+    this.camTarget.x += (x - this.camTarget.x) * k;
+    this.camTarget.z += (z - this.camTarget.z) * k;
+    this.camera.position.set(this.camTarget.x + d, d, this.camTarget.z + d);
+    this.camera.lookAt(this.camTarget);
+  }
+
   #addLights() {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
 
@@ -75,11 +90,22 @@ export class SceneManager {
     const h = this.container.clientHeight || window.innerHeight;
     const aspect = w / h;
     const half = settings.camera.viewSize / 2;
-    // Fit a fixed world height; width follows aspect so it scales to any screen.
-    this.camera.left = -half * aspect;
-    this.camera.right = half * aspect;
-    this.camera.top = half;
-    this.camera.bottom = -half;
+    // "Contain" fit: viewSize is the span of whichever axis is the binding
+    // constraint. Landscape anchors the vertical span (width grows with aspect,
+    // as before). Portrait anchors the same span horizontally so the wide
+    // isometric world still fits across a narrow screen (height grows instead),
+    // rather than cropping the leftmost pits off the side.
+    if (aspect >= 1) {
+      this.camera.left = -half * aspect;
+      this.camera.right = half * aspect;
+      this.camera.top = half;
+      this.camera.bottom = -half;
+    } else {
+      this.camera.left = -half;
+      this.camera.right = half;
+      this.camera.top = half / aspect;
+      this.camera.bottom = -half / aspect;
+    }
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
   }

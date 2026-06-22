@@ -26,7 +26,10 @@ export class Input {
     Object.assign(base.style, {
       position: 'fixed',
       left: '50%',
-      bottom: '90px',
+      // Viewport-relative offset that scales with screen height, clamped to a
+      // sensible minimum, plus the device safe-area inset (iPhone home
+      // indicator). Keeps the stick reachable at the bottom in any orientation.
+      bottom: 'calc(env(safe-area-inset-bottom, 0px) + max(7vh, 64px))',
       transform: 'translateX(-50%)',
       width: `${this.radius * 2}px`,
       height: `${this.radius * 2}px`,

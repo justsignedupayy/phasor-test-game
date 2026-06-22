@@ -8,8 +8,9 @@
  * scales with the number of parts so value-per-tick stays ~constant.
  *
  * Reputation (state.permanentReputation / repBoostRemaining) biases the roll
- * toward a higher-paying "better" tier: same damage-part logic, but baseTicks
- * and payout are scaled up by betterTicksMult / betterPayoutMult.
+ * across the five ascending tiers in settings.carTiers: each tier scales
+ * baseTicks and payout by its own ticksMult / payoutMult. Higher reputation
+ * attracts higher-index (better-paying) cars.
  */
 import settings from '../config/settings.js';
 import { getEffectiveReputation } from './reputation.js';
@@ -20,9 +21,32 @@ let nextId = 1;
 /** After loading a save, keep new ids past whatever the restored cars already used. */
 export function seedIdCounter(state) {
   let max = 0;
-  for (const pit of state.pits) if (pit.car) max = Math.max(max, pit.car.id);
-  for (const car of state.carQueue) max = Math.max(max, car.id);
+  for (const pit of state.pits) {
+    if (pit.car) max = Math.max(max, pit.car.id);
+    for (const car of pit.queue) max = Math.max(max, car.id);
+  }
   if (max + 1 > nextId) nextId = max + 1;
+}
+
+/**
+ * Pick a tier index 0..N-1 from a reputation-weighted roll. The weight for tier
+ * i is a triangular bump centred on rep×(N-1): weight = max(0, 1 - |i - peak|).
+ * This generalizes the old two-endpoint interpolation — rep 0 puts all weight on
+ * the lowest tier, rep 1 on the highest, mid reputations spread across neighbors.
+ */
+function rollTierIndex(state) {
+  const tiers = settings.carTiers;
+  const peak = getEffectiveReputation(state) * (tiers.length - 1);
+
+  const weights = tiers.map((_, i) => Math.max(0, 1 - Math.abs(i - peak)));
+  const total = weights.reduce((a, w) => a + w, 0);
+
+  let r = Math.random() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r < 0) return i;
+  }
+  return weights.length - 1; // float-rounding fallback
 }
 
 export function spawnCar(state) {
@@ -32,19 +56,15 @@ export function spawnCar(state) {
   }
   const n = parts.length;
 
-  const isBetter = Math.random() < getEffectiveReputation(state);
-  const tier = isBetter ? 'better' : 'normal';
-  const R = settings.reputation;
-  const ticksMult = isBetter ? R.betterTicksMult : 1;
-  const payoutMult = isBetter ? R.betterPayoutMult : 1;
+  const tier = settings.carTiers[rollTierIndex(state)];
 
   return {
     id: nextId++,
-    tier,
-    baseTicks: settings.repair.ticksPerPart * n * ticksMult, // before the pit's fixTimeFactor
+    tier: tier.name,
+    baseTicks: settings.repair.ticksPerPart * n * tier.ticksMult, // before the pit's fixTimeFactor
     ticksDone: 0,
     damageParts: parts, // subset of ALL_PARTS, canonical order
-    payout: settings.spawn.basePayoutPerPart * n * payoutMult,
+    payout: settings.spawn.basePayoutPerPart * n * tier.payoutMult,
     fixed: false,
   };
 }

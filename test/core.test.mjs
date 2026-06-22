@@ -43,7 +43,7 @@ console.log('core simulation (3D movement)');
 check('initial state: $0, player inside pit 0\'s owned bay, not moving', () => {
   const s = createInitialState();
   assert.equal(s.cash, 0);
-  assert.deepEqual(s.player.position, { x: -4, z: 0 });
+  assert.deepEqual(s.player.position, { x: -6, z: 0 });
   assert.equal(s.player.moving, false);
 });
 
@@ -73,9 +73,9 @@ check('player rotates to face movement (+x → PI/2)', () => {
   assert.ok(Math.abs(s.player.rotation - Math.PI / 2) < 1e-6);
 });
 
-check('in the lane, position clamps to the full (already-built) garage bounds', () => {
+check('in the open (front) zone, position clamps to the full garage bounds', () => {
   const s = createInitialState();
-  s.player.position.z = settings.laneZ; // lane is never fenced by land ownership
+  s.player.position.z = -5; // z <= BAY_ZONE_Z: open floor, never fenced by land ownership
   s.input.x = 1;
   for (let i = 0; i < 200; i++) tick(s, 0.1);
   const limX = settings.world.halfX - settings.player.radius;
@@ -124,10 +124,10 @@ check('initial state: pit 0 unlocked + equipped, the rest locked', () => {
 // --- spawning + queue -----------------------------------------------------
 console.log('\ncore spawning + queue');
 
-check('initial state: empty pits, empty queue, spawn seeded', () => {
+check('initial state: empty pits, empty queues, spawn seeded', () => {
   const s = createInitialState();
   assert.equal(s.pits[0].car, null);
-  assert.equal(s.carQueue.length, 0);
+  for (const pit of s.pits) assert.equal(pit.queue.length, 0);
   assert.equal(s.spawnTimer, settings.spawn.interval);
 });
 
@@ -135,54 +135,85 @@ check('first tick puts a car straight into pit 0', () => {
   const s = createInitialState();
   tick(s, settings.spawn.interval);
   assert.ok(s.pits[0].car);
-  assert.equal(s.carQueue.length, 0);
+  assert.equal(s.pits[0].queue.length, 0); // routed straight in, nothing left waiting
 });
 
-check('spawning is automatic and stalls at maxQueue (pit + full lane)', () => {
+check("spawning is automatic and stalls at maxQueuePerPit (pit's car + full queue)", () => {
   const s = createInitialState();
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval); // nobody repairs
   assert.ok(s.pits[0].car); // pit 0 holds one
-  assert.equal(s.carQueue.length, settings.spawn.maxQueue); // lane full, spawning stalled
+  assert.equal(s.pits[0].queue.length, settings.spawn.maxQueuePerPit); // its queue is full, spawning stalled
 });
 
-check('pit refills from the front of the queue after a fix', () => {
+check('pit refills from the front of its own queue after a fix', () => {
   const s = createInitialState();
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval);
-  const front = s.carQueue[0];
+  const front = s.pits[0].queue[0];
   s.pits[0].car = null; // simulate the pit car being finished
   tick(s, 0.001);
   assert.equal(s.pits[0].car.id, front.id);
-  assert.equal(s.carQueue.length, settings.spawn.maxQueue - 1);
+  assert.equal(s.pits[0].queue.length, settings.spawn.maxQueuePerPit - 1);
 });
 
-check('locked/unequipped pits do NOT accept cars', () => {
+check('locked/unequipped pits never get a car or a queue', () => {
   const s = createInitialState();
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval);
-  for (let i = 1; i < s.pits.length; i++) assert.equal(s.pits[i].car, null);
+  for (let i = 1; i < s.pits.length; i++) {
+    assert.equal(s.pits[i].car, null);
+    assert.equal(s.pits[i].queue.length, 0);
+  }
+});
+
+check('spawns distribute to the shortest pit queue (2 equipped pits, 4 cars → 2 each)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyExpandRoom(s);
+  buyPitEquipment(s, 1); // pits 0 and 1 now equipped
+  // Occupy both pits so routing never drains their queues during this test.
+  s.pits[0].car = spawnCar(s);
+  s.pits[1].car = spawnCar(s);
+  for (let i = 0; i < 4; i++) tick(s, settings.spawn.interval);
+  assert.equal(s.pits[0].queue.length, 2);
+  assert.equal(s.pits[1].queue.length, 2);
+});
+
+check('spawns distribute across all 5 equipped pits (10 cars → 2 each)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  for (let i = 1; i < settings.maxPits; i++) {
+    buyExpandRoom(s); // unlocks pits in order (1, 2, 3, 4)
+    buyPitEquipment(s, i);
+  }
+  assert.equal(s.pits.length, 5);
+  // Occupy every pit so routing never drains their queues during this test.
+  for (const pit of s.pits) pit.car = spawnCar(s);
+  for (let i = 0; i < 10; i++) tick(s, settings.spawn.interval);
+  for (const pit of s.pits) assert.equal(pit.queue.length, 2);
 });
 
 // --- randomized damage ----------------------------------------------------
 console.log('\ncore randomized damage');
 
-// Reputation at 0 forces every roll to the 'normal' tier, so these tests stay
-// deterministic about the base (non-reputation) formulas.
+// Reputation at 0 forces every roll to the lowest tier ('rusty'), so these
+// tests stay deterministic about the per-part formulas.
 const zeroRepState = () => {
   const s = createInitialState();
   s.permanentReputation = 0;
   return s;
 };
 
-check('spawnCar: non-empty canonical subset; ticks + payout scale with parts', () => {
+check('spawnCar: non-empty canonical subset; ticks + payout scale with parts and the rolled tier', () => {
   const canon = ['tire', 'smoke', 'dent'];
+  const rusty = settings.carTiers[0];
   const s = zeroRepState();
   for (let i = 0; i < 300; i++) {
     const car = spawnCar(s);
     const n = car.damageParts.length;
     assert.ok(n >= 1 && n <= 3);
     assert.deepEqual(car.damageParts, canon.filter((p) => car.damageParts.includes(p)));
-    assert.equal(car.tier, 'normal');
-    assert.equal(car.baseTicks, settings.repair.ticksPerPart * n);
-    assert.equal(car.payout, settings.spawn.basePayoutPerPart * n);
+    assert.equal(car.tier, 'rusty');
+    assert.ok(Math.abs(car.baseTicks - settings.repair.ticksPerPart * n * rusty.ticksMult) < 1e-9);
+    assert.ok(Math.abs(car.payout - settings.spawn.basePayoutPerPart * n * rusty.payoutMult) < 1e-9);
     assert.equal(car.ticksDone, 0);
     assert.equal(car.fixed, false);
   }
@@ -280,7 +311,7 @@ check('a freshly equipped pit starts accepting cars', () => {
   buyPitEquipment(s, 1);
   for (let i = 0; i < 10; i++) tick(s, settings.spawn.interval);
   assert.ok(s.pits[0].car);
-  assert.ok(s.pits[1].car); // second pit now pulls from the shared queue
+  assert.ok(s.pits[1].car); // second pit now pulls from its own queue
 });
 
 check('expand cost grows geometrically per opened lot', () => {
@@ -423,15 +454,16 @@ check('getEffectiveReputation: no boost = permanent rate; boosted = doubled, cla
   assert.equal(getEffectiveReputation(s), settings.reputation.repCap);
 });
 
-check('spawnCar: a maxed-out reputation always rolls the better tier, scaled by betterTicksMult/betterPayoutMult', () => {
+check('spawnCar: a maxed-out reputation always rolls the top tier, scaled by its ticksMult/payoutMult', () => {
+  const luxury = settings.carTiers[settings.carTiers.length - 1];
   const s = createInitialState();
   s.permanentReputation = settings.reputation.repCap;
   for (let i = 0; i < 50; i++) {
     const car = spawnCar(s);
     const n = car.damageParts.length;
-    assert.equal(car.tier, 'better');
-    assert.ok(Math.abs(car.baseTicks - settings.repair.ticksPerPart * n * settings.reputation.betterTicksMult) < 1e-9);
-    assert.equal(car.payout, settings.spawn.basePayoutPerPart * n * settings.reputation.betterPayoutMult);
+    assert.equal(car.tier, 'luxury');
+    assert.ok(Math.abs(car.baseTicks - settings.repair.ticksPerPart * n * luxury.ticksMult) < 1e-9);
+    assert.ok(Math.abs(car.payout - settings.spawn.basePayoutPerPart * n * luxury.payoutMult) < 1e-9);
   }
 });
 

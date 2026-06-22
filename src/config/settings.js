@@ -53,6 +53,7 @@ export const settings = {
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
+    cashierTint: 0x3ad06a, // green tint for the cashier clone (see scene/Cashier.js)
   },
 
   // Shared transform applied to every car glb when cloned (see CarView.js).
@@ -136,6 +137,11 @@ export const settings = {
       factorPerLevel: 0.15, // each level: factor -0.15 (15-tick car → ~13, ~11, ...)
       factorFloor: 0.4, // factor never drops below this
     },
+    // One-time, garage-wide cashier hire: payouts then skip the per-pit waiting
+    // pile and land straight in cash. Flat cost (no growth — it's bought once).
+    cashier: {
+      baseCost: 1, // TESTING: cheap for iteration (was 500)
+    },
   },
 
   // Remote "hurry up": a temporary boost to a worker's rate (per pit).
@@ -168,25 +174,31 @@ export const settings = {
     radius: 1.6,
   },
 
+  // Where the hired cashier NPC stands (see scene/Cashier.js). Kept separate
+  // from `computer` so the character can sit beside the desk rather than on it.
+  // rotation is the Y-axis facing in radians.
+  cashier: {
+    x: -12.0,
+    z: 5,
+    rotation: Math.PI,
+  },
+
   // Save/load (src/platform/storage.js). No offline-earnings catch-up — a
   // reload just restores the state as it was at the last save.
   persistence: {
     autoSaveInterval: 5, // seconds between auto-saves, on top of after-purchase saves
   },
 
-  // Cash from finished repairs piles up as visible bills at the computer
-  // (see scene/MoneyStack.js) instead of landing straight in state.cash. The
-  // stack has a capacity (upgradeable via buyStackLimit); a full stack blocks
-  // further repair completion until the player walks up and collects.
+  // Pay from finished cars waits at its own pit as a small stack of bills (see
+  // scene/PitMoney.js) until the player walks up to collect (core banks it on
+  // proximity). A hired cashier banks every payout straight to cash instead, so
+  // no bills ever appear. Bill count shown ≈ pendingCash / cashPerBill (capped).
   money: {
-    defaultMaxStack: 5,
-    stackLimitStep: 3,
-    stackLimitBaseCost: 200,
-    stackLimitGrowth: 1.6,
-    billSpacing: 0.04, // y gap between stacked bills
+    cashPerBill: 15, // pending dollars represented by each visible bill at a pit
+    maxBills: 8, // cap on bills shown stacked at one pit
+    billSpacing: 0.05, // y gap between stacked bills
     billScale: 0.5, // scale Money.glb down to fit scene
-    collectRadius: 2.0, // how close player must be to auto-collect
-    flyDuration: 0.4, // seconds for bill to fly to player
+    flyDuration: 0.4, // seconds for bills to fly to the player on collection
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close

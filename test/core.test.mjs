@@ -13,6 +13,8 @@ import {
   hireMechanic,
   buyWorkerSpeed,
   buyFixingTime,
+  buyCashier,
+  cashierCost,
   workerSpeed,
   fixTimeFactor,
   requiredTicks,
@@ -246,7 +248,7 @@ check('tapRepair needs a present player and a car in the pit', () => {
   assert.equal(s.pits[0].car.ticksDone, settings.repair.tapTicks);
 });
 
-check('finishing a car pays its own payout and empties the pit', () => {
+check('finishing a car parks its payout at the pit, collected on the next tick', () => {
   const s = createInitialState();
   tick(s, settings.spawn.interval);
   s.pits[0].playerPresent = true;
@@ -258,22 +260,30 @@ check('finishing a car pays its own payout and empties the pit', () => {
     taps += 1;
   }
   assert.equal(taps, expectedTaps);
-  assert.equal(s.cash, car.payout);
   assert.equal(s.pits[0].car, null);
+  // No cashier: the pay waits at the pit, not yet in cash.
+  assert.equal(s.cash, 0);
+  assert.equal(s.pits[0].pendingCash, car.payout);
+  // Player is standing here, so the next tick banks it.
+  tick(s, 0);
+  assert.equal(s.cash, car.payout);
+  assert.equal(s.pits[0].pendingCash, 0);
 });
 
-check('full flow: fix several cars, cash accrues by each payout', () => {
+check('full flow: fix several cars, cash accrues by each payout (collected at the pit)', () => {
   const s = createInitialState();
-  s.pits[0].playerPresent = true;
+  s.pits[0].playerPresent = true; // player stands here, so each tick banks waiting pay
   let expected = 0;
   for (let r = 0; r < 5; r++) {
-    tick(s, settings.spawn.interval); // ensure a car is present
+    tick(s, settings.spawn.interval); // ensure a car is present (and bank prior round's pay)
     const car = s.pits[0].car;
     if (!car) continue;
     expected += car.payout;
     while (s.pits[0].car === car) tapRepair(s, 0);
   }
+  tick(s, 0); // bank the final round's pay
   assert.equal(s.cash, expected);
+  assert.equal(s.pits[0].pendingCash, 0);
   assert.ok(expected > 0);
 });
 
@@ -375,13 +385,20 @@ check('upgrade cost grows with level', () => {
 // --- worker + hurry -------------------------------------------------------
 console.log('\ncore worker + hurry');
 
-check('a hired worker earns money hands-free (no player)', () => {
+check('a hired worker auto-repairs; with no cashier the pay waits at the pit', () => {
   const s = createInitialState();
   s.cash = 1e9;
   hireMechanic(s, 0);
-  const after = s.cash;
+  s.cash = 0; // isolate earnings; the player is never near a pit
   for (let i = 0; i < 1500; i++) tick(s, 0.016); // ~24s, no input, no taps
-  assert.ok(s.cash > after, 'worker should auto-repair and earn');
+  assert.equal(s.cash, 0, 'nothing banked without a cashier or the player nearby');
+  assert.ok(s.pits[0].pendingCash > 0, 'worker pay piles up at the pit');
+  // Walk up: the next tick banks everything waiting there.
+  const waiting = s.pits[0].pendingCash;
+  s.pits[0].playerPresent = true;
+  tick(s, 0.016);
+  assert.ok(s.cash >= waiting, 'walking up collects the waiting pay');
+  assert.equal(s.pits[0].pendingCash, 0);
 });
 
 check('pre-worker, an unmanned pit does NOT repair on its own', () => {
@@ -431,6 +448,73 @@ check('hurry is per-pit: hurrying one pit does not boost another', () => {
   hurry(s, 0);
   assert.ok(s.pits[0].hurryTimer > 0);
   assert.equal(s.pits[1].hurryTimer, 0);
+});
+
+// --- payout collection: pending vs cashier --------------------------------
+console.log('\ncore payout collection');
+
+check('initial state: no cashier, no pit holds waiting pay', () => {
+  const s = createInitialState();
+  assert.equal(s.hasCashier, false);
+  for (const pit of s.pits) assert.equal(pit.pendingCash, 0);
+});
+
+check('no cashier: pay waits at the pit, banked only when the player is near', () => {
+  const s = createInitialState();
+  tick(s, settings.spawn.interval);
+  const car = s.pits[0].car;
+  s.pits[0].playerPresent = true; // present so we can tap-repair to completion
+  while (s.pits[0].car === car) tapRepair(s, 0);
+  assert.equal(s.pits[0].pendingCash, car.payout);
+  assert.equal(s.cash, 0);
+
+  // Player walks away: a tick does NOT bank the waiting pay.
+  s.pits[0].playerPresent = false;
+  tick(s, 0);
+  assert.equal(s.cash, 0);
+  assert.equal(s.pits[0].pendingCash, car.payout);
+
+  // Player comes back: it's collected on proximity.
+  s.pits[0].playerPresent = true;
+  tick(s, 0);
+  assert.equal(s.cash, car.payout);
+  assert.equal(s.pits[0].pendingCash, 0);
+});
+
+check('a pit keeps accepting and repairing the next car while pay is waiting', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.pits[0].pendingCash = 500; // money already waiting, uncollected
+  s.pits[0].playerPresent = false; // nobody to collect it
+  const car = spawnCar(s);
+  s.pits[0].car = car;
+  tick(s, 1); // worker makes progress on the new car
+  assert.ok(s.pits[0].car && s.pits[0].car.ticksDone > 0, 'repair proceeds despite waiting pay');
+  assert.equal(s.pits[0].pendingCash, 500, 'waiting pay is untouched while uncollected');
+});
+
+check('cashier: every payout banks straight to cash, nothing waits at any pit', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(buyCashier(s), true);
+  hireMechanic(s, 0);
+  const before = s.cash;
+  for (let i = 0; i < 2000; i++) tick(s, 0.016); // player never near a pit
+  assert.ok(s.cash > before, 'cashier banks payouts hands-free');
+  for (const pit of s.pits) assert.equal(pit.pendingCash, 0, 'nothing waits at any pit');
+});
+
+check('hiring the cashier sweeps already-waiting pit pay into cash (one-time)', () => {
+  const s = createInitialState();
+  const cost = cashierCost(s);
+  s.cash = 100 + cost;
+  s.pits[0].pendingCash = 30;
+  assert.equal(buyCashier(s), true);
+  assert.equal(s.hasCashier, true);
+  assert.equal(s.cash, 100 + 30, 'cost paid, waiting pay swept in');
+  assert.equal(s.pits[0].pendingCash, 0);
+  assert.equal(buyCashier(s), false, 'cashier is a one-time hire');
 });
 
 // --- reputation + advertising ----------------------------------------------
@@ -516,7 +600,8 @@ check('activateRepBoost arms the timer and refuses to stack while one is active'
 check('tick decrements repBoostRemaining toward 0 and never goes negative', () => {
   const s = createInitialState();
   activateRepBoost(s);
-  for (let i = 0; i < 1000; i++) tick(s, 1); // far longer than boostDurationSeconds
+  const steps = Math.ceil(settings.reputation.boostDurationSeconds) + 5; // run past the full boost
+  for (let i = 0; i < steps; i++) tick(s, 1);
   assert.equal(s.repBoostRemaining, 0);
 });
 

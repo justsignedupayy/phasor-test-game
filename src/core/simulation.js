@@ -12,9 +12,15 @@ import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z } from './upgrades.
 import { updateReputationTimer } from './reputation.js';
 
 export function tick(state, dt) {
+  // collectedThisTick is a one-tick render signal (the scene pops "+$" / flies
+  // bills when it's > 0); clear it before any collection can set it this tick.
+  for (const pit of state.pits) pit.collectedThisTick = 0;
   updatePlayer(state, dt);
   updateYard(state, dt);
   for (const pit of state.pits) updatePit(state, pit, dt);
+  // Collect after every pit has run, so pay a worker produces THIS tick is
+  // banked the same tick when the player is standing there.
+  for (const pit of state.pits) collectPending(state, pit);
   updateReputationTimer(state, dt);
 }
 
@@ -50,29 +56,34 @@ function updatePit(state, pit, dt) {
 }
 
 /**
- * Shared completion path for both manual taps and the worker. A finished car
- * only actually completes if the computer's bill stack has room — otherwise
- * it sits fully repaired-but-stuck in the pit (ticksDone stays clamped at
- * required, so this just re-checks every tick) until collectMoney() frees a slot.
+ * Shared completion path for both manual taps and the worker. The payout routes
+ * by cashier: with a cashier hired it lands in spendable cash immediately;
+ * otherwise it parks at the pit (pit.pendingCash) for the player to collect on
+ * proximity. Either way the car leaves so the pit can take the next one.
  */
 function applyRepair(state, pit, ticks) {
   const car = pit.car;
   const required = requiredTicks(car, pit);
   car.ticksDone = Math.min(required, car.ticksDone + ticks);
   if (car.ticksDone >= required) {
-    if (state.computerStackCount >= state.maxStackCount) return;
     car.fixed = true;
-    state.computerCash += car.payout;
-    state.computerStackCount += 1;
+    if (state.hasCashier) state.cash += car.payout;
+    else pit.pendingCash += car.payout;
     pit.car = null; // updateYard refills from the queue
   }
 }
 
-/** Collect every bill waiting at the computer into spendable cash. */
-export function collectMoney(state) {
-  state.cash += state.computerCash;
-  state.computerCash = 0;
-  state.computerStackCount = 0;
+/**
+ * Bank a pit's waiting pay. Triggered by proximity (scene writes playerPresent,
+ * core only reads it), same pattern as manual repair. A cashier collects from
+ * anywhere; otherwise the player must be standing at the pit.
+ */
+function collectPending(state, pit) {
+  if (pit.pendingCash <= 0) return;
+  if (!state.hasCashier && !pit.playerPresent) return;
+  state.cash += pit.pendingCash;
+  pit.collectedThisTick = pit.pendingCash; // render signal for the "+$" popup
+  pit.pendingCash = 0;
 }
 
 function updateYard(state, dt) {

@@ -16,7 +16,6 @@ import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
 
 const U = settings.upgrades;
-const M = settings.money;
 
 const geoCost = (cfg, level) => Math.round(cfg.baseCost * Math.pow(cfg.costGrowth, level));
 const letter = (i) => String.fromCharCode(65 + i); // 0 -> "A"
@@ -97,9 +96,9 @@ export function fixingTimeCost(state, pit) {
   return geoCost(U.fixingTime, pit.fixingTimeLevel);
 }
 
-/** Cost of the next bill-stack capacity increase (Cash Register). */
-export function stackLimitCost(state) {
-  return Math.round(M.stackLimitBaseCost * Math.pow(M.stackLimitGrowth, state.stackLimitLevel));
+/** Flat, one-time cost of the garage-wide cashier hire. */
+export function cashierCost(state) {
+  return U.cashier.baseCost;
 }
 
 // --- purchases ------------------------------------------------------------
@@ -157,13 +156,23 @@ export function buyFixingTime(state, pitIndex) {
   return true;
 }
 
-/** Grow the computer's bill-stack capacity (uncapped). */
-export function buyStackLimit(state) {
-  const cost = stackLimitCost(state);
+/**
+ * Hire the garage-wide cashier (one-time). Future payouts skip the per-pit
+ * waiting pile and land straight in cash; any money already waiting at pits is
+ * swept in on hire so nothing is left stranded.
+ */
+export function buyCashier(state) {
+  if (state.hasCashier) return false;
+  const cost = cashierCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
-  state.maxStackCount += M.stackLimitStep;
-  state.stackLimitLevel += 1;
+  state.hasCashier = true;
+  for (const pit of state.pits) {
+    if (pit.pendingCash > 0) {
+      state.cash += pit.pendingCash;
+      pit.pendingCash = 0;
+    }
+  }
   return true;
 }
 
@@ -179,7 +188,7 @@ const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 export function getMenuModel(state) {
   return {
     garage: garageRows(state),
-    cashRegister: [stackLimitRow(state)],
+    cashier: [cashierRow(state)],
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
   };
 }
@@ -207,13 +216,22 @@ function expandView(state) {
   };
 }
 
-/** Cash Register section: grows the computer's bill-stack capacity. */
-function stackLimitRow(state) {
-  const cost = stackLimitCost(state);
+/** Cashier section: the one-time garage-wide hire that auto-banks every payout. */
+function cashierRow(state) {
+  if (state.hasCashier) {
+    return {
+      kind: 'cashier',
+      label: 'Cashier',
+      effect: 'Auto-banks every payout',
+      cost: 'HIRED',
+      disabled: true,
+    };
+  }
+  const cost = cashierCost(state);
   return {
-    kind: 'stackLimit',
-    label: 'Stack Limit',
-    effect: `${state.maxStackCount} → ${state.maxStackCount + M.stackLimitStep} bills`,
+    kind: 'cashier',
+    label: 'Hire Cashier',
+    effect: 'Payouts skip the pit, go straight to cash',
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { buildActionMap, crossfadeTo, groundModel, updateMixer } from './characterAnim.js';
+import { buildActionMap, crossfadeTo, groundModel, tintMesh, updateMixer } from './characterAnim.js';
 
 /**
  * Mechanic — a worker NPC: the same rigged glTF model as the player (see
@@ -52,19 +52,4 @@ export class Mechanic {
 
     updateMixer(this.mixer, dt, 'Mechanic');
   }
-}
-
-// Clones (so workers don't share/mutate the player's or each other's material) and
-// recolors a mesh's material(s). Materials without a `.color` (e.g. some custom
-// shaders) are left as-is — see PitView/Mechanic callers for the ring-marker fallback.
-function tintMesh(mesh, color) {
-  if (!mesh.material) return;
-  const wasArray = Array.isArray(mesh.material);
-  const materials = wasArray ? mesh.material : [mesh.material];
-  const tinted = materials.map((m) => {
-    const t = m.clone();
-    if (t.color) t.color.set(color);
-    return t;
-  });
-  mesh.material = wasArray ? tinted : tinted[0];
 }

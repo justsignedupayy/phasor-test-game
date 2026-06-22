@@ -6,6 +6,7 @@ import { seedIdCounter } from './core/Car.js';
 import { SceneManager } from './scene/SceneManager.js';
 import { Input } from './scene/Input.js';
 import { Character } from './scene/Character.js';
+import { Cashier } from './scene/Cashier.js';
 import { Garage } from './scene/Garage.js';
 import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
@@ -15,7 +16,7 @@ import { AdvertisingMenu } from './scene/AdvertisingMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
 import { preloadCarModels } from './scene/CarView.js';
-import { preloadMoneyModel, MoneyStack } from './scene/MoneyStack.js';
+import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
 
 const container = document.getElementById('app');
 
@@ -51,7 +52,8 @@ async function main() {
   sceneManager.add(character.root);
 
   const carYard = new CarYard(sceneManager, gltf);
-  const moneyStack = new MoneyStack(sceneManager);
+  const pitMoney = new PitMoney(sceneManager);
+  let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
   // taps never reach here). A tap raycasts the pit cars and applies to the touched
@@ -110,11 +112,18 @@ async function main() {
       pit.playerPresent = Math.hypot(dx, dz) <= settings.pit.radius;
     }
 
+    // Cashier NPC: appears at the desk the moment one is hired, then idles forever.
+    if (state.hasCashier && !cashier) {
+      cashier = new Cashier(gltf);
+      sceneManager.add(cashier.root);
+    }
+    if (cashier) cashier.update(dt);
+
     character.update(dt, state.player);
     garage.update(dt, state);
     carYard.update(dt, state);
     computer.update(dt, state);
-    moneyStack.update(dt, state, state.player.position);
+    pitMoney.update(dt, state, state.player.position);
     adMenu.update();
     hud.update(state.cash, state.repBoostRemaining);
     menu.update(state);

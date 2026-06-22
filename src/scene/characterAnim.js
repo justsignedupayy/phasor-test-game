@@ -61,3 +61,21 @@ export function updateMixer(mixer, dt, label) {
   }
   mixer.update(dt);
 }
+
+/**
+ * Clones a mesh's material(s) — so a tinted clone never mutates the shared
+ * source materials — and recolors them. Materials without a `.color` (some
+ * custom shaders) are left as-is. Used to make worker/cashier clones read as
+ * distinct from the player (settings.character.workerTint / cashierTint).
+ */
+export function tintMesh(mesh, color) {
+  if (!mesh.material) return;
+  const wasArray = Array.isArray(mesh.material);
+  const materials = wasArray ? mesh.material : [mesh.material];
+  const tinted = materials.map((m) => {
+    const t = m.clone();
+    if (t.color) t.color.set(color);
+    return t;
+  });
+  mesh.material = wasArray ? tinted : tinted[0];
+}

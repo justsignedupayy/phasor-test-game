@@ -108,7 +108,9 @@ export class CarYard {
       const exit = { x: pos.x, z: settings.pit.exitDoorZ - 45 };
       out.driveTo({ x: pos.x, z: pos.z }, exit, settings.pit.driveDuration * 3);
       this.outgoing.push(out);
-      this.#popup(out.car.payout, pos);
+      // Pop "+$" here only when the cashier banks the pay instantly. Without a
+      // cashier the money waits at the pit; PitMoney pops it on collection.
+      if (state.hasCashier) this.#popup(out.car.payout, pos);
       this.pitCars[i] = null;
     }
 

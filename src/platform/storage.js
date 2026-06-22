@@ -5,7 +5,7 @@
  * future format change can migrate or safely discard old saves.
  */
 const SAVE_KEY = 'garageIdleSave';
-const SAVE_VERSION = 3; // v3: 5 pits + new pit layout (was 2: per-pit queues)
+const SAVE_VERSION = 4; // v4: per-pit pendingCash + cashier (replaced computer money stack); v3: 5 pits
 
 const backend = {
   read() {

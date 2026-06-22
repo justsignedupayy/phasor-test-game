@@ -9,6 +9,11 @@ import settings from '../config/settings.js';
  * (accepts cars + allows hiring). `car` is null between cars; `playerPresent` is
  * written by the scene each frame (proximity) and only read by core. Derived
  * workerSpeed / fixTimeFactor live in upgrades.js (computed from the levels).
+ *
+ * `pendingCash` is pay from finished cars waiting at this pit to be collected:
+ * without a cashier it sits here until the player walks up (playerPresent), then
+ * tick() banks it into state.cash. With a cashier hired, payouts skip this and
+ * land in state.cash directly, so pendingCash stays 0. It is part of the save.
  */
 function createPit(index) {
   return {
@@ -22,6 +27,8 @@ function createPit(index) {
     fixingTimeLevel: 0,
     playerPresent: false,
     hurryTimer: 0, // seconds of remaining worker speed boost (per pit)
+    pendingCash: 0, // pay from finished cars waiting here for the player to collect
+    collectedThisTick: 0, // one-tick render signal: $ banked this tick (scene pops "+$")
   };
 }
 
@@ -29,14 +36,11 @@ export class GameState {
   constructor() {
     this.cash = 0;
 
-    // Cash from finished repairs piles up here as visible bills (see
-    // scene/MoneyStack.js) until the player collects it into state.cash.
-    // maxStackCount grows via upgrades.js buyStackLimit (stackLimitLevel
-    // tracks its geometric cost).
-    this.computerCash = 0;
-    this.computerStackCount = 0;
-    this.maxStackCount = settings.money.defaultMaxStack;
-    this.stackLimitLevel = 0;
+    // Cashier: a single garage-wide, one-time hire (see upgrades.js buyCashier).
+    // Without it, finished cars park their pay at their pit (pit.pendingCash)
+    // until the player walks up to collect; once hired, every payout lands in
+    // state.cash directly and no money ever waits at a pit.
+    this.hasCashier = false;
 
     // Reputation: chance an incoming car is a higher-paying "better" car (see
     // core/reputation.js). permanentReputation rises via Buy Advertising;

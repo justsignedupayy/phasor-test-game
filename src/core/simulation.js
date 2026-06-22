@@ -49,16 +49,30 @@ function updatePit(state, pit, dt) {
   applyRepair(state, pit, workerSpeed(pit) * mult * dt);
 }
 
-/** Shared completion path for both manual taps and the worker. */
+/**
+ * Shared completion path for both manual taps and the worker. A finished car
+ * only actually completes if the computer's bill stack has room — otherwise
+ * it sits fully repaired-but-stuck in the pit (ticksDone stays clamped at
+ * required, so this just re-checks every tick) until collectMoney() frees a slot.
+ */
 function applyRepair(state, pit, ticks) {
   const car = pit.car;
   const required = requiredTicks(car, pit);
   car.ticksDone = Math.min(required, car.ticksDone + ticks);
   if (car.ticksDone >= required) {
+    if (state.computerStackCount >= state.maxStackCount) return;
     car.fixed = true;
-    state.cash += car.payout;
+    state.computerCash += car.payout;
+    state.computerStackCount += 1;
     pit.car = null; // updateYard refills from the queue
   }
+}
+
+/** Collect every bill waiting at the computer into spendable cash. */
+export function collectMoney(state) {
+  state.cash += state.computerCash;
+  state.computerCash = 0;
+  state.computerStackCount = 0;
 }
 
 function updateYard(state, dt) {

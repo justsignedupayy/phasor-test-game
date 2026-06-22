@@ -29,6 +29,15 @@ export class GameState {
   constructor() {
     this.cash = 0;
 
+    // Cash from finished repairs piles up here as visible bills (see
+    // scene/MoneyStack.js) until the player collects it into state.cash.
+    // maxStackCount grows via upgrades.js buyStackLimit (stackLimitLevel
+    // tracks its geometric cost).
+    this.computerCash = 0;
+    this.computerStackCount = 0;
+    this.maxStackCount = settings.money.defaultMaxStack;
+    this.stackLimitLevel = 0;
+
     // Reputation: chance an incoming car is a higher-paying "better" car (see
     // core/reputation.js). permanentReputation rises via Buy Advertising;
     // repBoostRemaining counts down a temporary rewarded-ad multiplier.

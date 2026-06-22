@@ -93,8 +93,8 @@ export const settings = {
   // Automatic spawning. Each pit owns its own waiting queue (no shared lane);
   // a spawned car is routed to the equipped pit with the shortest queue.
   spawn: {
-    interval: 3.0, // seconds between spawns
-    maxQueuePerPit: 3, // max cars waiting per pit's own queue
+    interval: 0.1, // seconds between spawns
+    maxQueuePerPit: 10, // max cars waiting per pit's own queue
     basePayoutPerPart: 5, // payout = basePayoutPerPart × numParts (3-damage car = $15)
   },
 
@@ -154,8 +154,8 @@ export const settings = {
     repCap: 1.0,
     adBaseCost: 1, // TESTING: cheap for iteration, like upgrades.* above
     adGrowth: 1.5,
-    boostMultiplier: 2, // rewarded-ad: multiplies effective reputation while active
-    boostDurationSeconds: 300,
+    boostMultiplier: 4, // rewarded-ad: multiplies effective reputation while active
+    boostDurationSeconds: 3000,
   },
 
   // The garage's advertising terminal: tap while standing within `radius` to
@@ -172,6 +172,21 @@ export const settings = {
   // reload just restores the state as it was at the last save.
   persistence: {
     autoSaveInterval: 5, // seconds between auto-saves, on top of after-purchase saves
+  },
+
+  // Cash from finished repairs piles up as visible bills at the computer
+  // (see scene/MoneyStack.js) instead of landing straight in state.cash. The
+  // stack has a capacity (upgradeable via buyStackLimit); a full stack blocks
+  // further repair completion until the player walks up and collects.
+  money: {
+    defaultMaxStack: 5,
+    stackLimitStep: 3,
+    stackLimitBaseCost: 200,
+    stackLimitGrowth: 1.6,
+    billSpacing: 0.04, // y gap between stacked bills
+    billScale: 0.5, // scale Money.glb down to fit scene
+    collectRadius: 2.0, // how close player must be to auto-collect
+    flyDuration: 0.4, // seconds for bill to fly to player
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close
@@ -206,19 +221,23 @@ export const settings = {
   },
 
   colors: {
-    background: 0x12161c,
-    floor: 0x3a4250,
+    background: 0xf0ece4,
+    floor: 0xc8c4bc, // light concrete
     lobby: 0x474f43, // the left lobby floor patch (distinct from the shop floor)
-    grid: 0x2a3340,
-    wall: 0x4b5563,
-    gate: 0x6b7787, // door pillars / lintels
-    lot: 0x2f3845, // an empty (roomUnlocked, unequipped) lot patch
-    lotEdge: 0x6b7787, // outline of an empty lot
-    fence: 0xd9a13b, // boundary of not-yet-purchased land (Expand Room)
-    landLocked: 0x242b36, // unpurchased land tint, beyond the fence
-    pit: 0x5a4a36, // an equipped pit station floor
+    lane: 0xb8b4ac, // slightly darker concrete strip
+    grid: 0xa8a49c, // subtle grid
+    wall: 0xdedad4, // off-white walls
+    gate: 0xc0bbb4, // gate pillars / lintels
+    lot: 0xbcb8b0, // an empty (roomUnlocked, unequipped) lot patch
+    lotEdge: 0x8a8680, // outline of an empty lot
+    fence: 0xe8a020, // boundary of not-yet-purchased land (Expand Room)
+    landLocked: 0xb0aca4, // unpurchased land tint, beyond the fence
+    pit: 0x7a6e5e, // an equipped pit station floor, darker for contrast
     pitGlow: 0xffe08a, // highlight ring when the player can repair
     toolbox: 0xc0392b, // a small toolbox marking an equipped pit
+    road: 0x4a4a4a, // asphalt outside each gate
+    roadLine: 0xf5e642, // yellow road-edge marking
+    laneStripe: 0xffffff, // white guide/zebra paint on the garage floor
     label: '#ffe08a', // pit/worker label text (CSS color string for the sprite)
     // broken car
     carBody: 0xb0433a,

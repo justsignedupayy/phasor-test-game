@@ -55,9 +55,9 @@ export class SceneManager {
   }
 
   #addLights() {
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    this.scene.add(new THREE.AmbientLight(0xfff5e0, 1.8));
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+    const dir = new THREE.DirectionalLight(0xfff0cc, 2.2);
     dir.position.set(12, 20, 8);
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
@@ -71,6 +71,12 @@ export class SceneManager {
     dir.shadow.bias = -0.0005;
     this.scene.add(dir);
     this.scene.add(dir.target);
+
+    // Softer fill from the opposite side so the unlit side of objects never
+    // goes dark — no shadows, this light is purely there to fill.
+    const fill = new THREE.DirectionalLight(0xddeeff, 0.6);
+    fill.position.set(-8, 10, -6);
+    this.scene.add(fill);
   }
 
   #computeMoveBasis() {

@@ -52,7 +52,36 @@ export class Hud {
     document.body.appendChild(wrap);
     this.wrap = wrap;
 
+    this.#buildResetButton();
+
     this.update(0, 0);
+  }
+
+  #buildResetButton() {
+    const btn = document.createElement('button');
+    btn.textContent = 'RESET';
+    Object.assign(btn.style, {
+      position: 'fixed',
+      right: '14px',
+      top: '14px',
+      padding: '10px 14px',
+      borderRadius: '10px',
+      border: 'none',
+      background: '#c0392b',
+      color: '#fff',
+      fontWeight: '800',
+      fontSize: '14px',
+      fontFamily: 'Arial, sans-serif',
+      cursor: 'pointer',
+      zIndex: '17',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+    });
+    btn.addEventListener('click', () => {
+      localStorage.clear();
+      location.reload();
+    });
+    document.body.appendChild(btn);
+    this.resetButton = btn;
   }
 
   update(cash, repBoostRemaining = 0) {

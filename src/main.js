@@ -15,6 +15,7 @@ import { AdvertisingMenu } from './scene/AdvertisingMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
 import { preloadCarModels } from './scene/CarView.js';
+import { preloadMoneyModel, MoneyStack } from './scene/MoneyStack.js';
 
 const container = document.getElementById('app');
 
@@ -43,12 +44,14 @@ async function main() {
   const loadingEl = showLoading();
   const gltf = await loadCharacterModel();
   await preloadCarModels();
+  await preloadMoneyModel();
   loadingEl.remove();
 
   const character = new Character(gltf);
   sceneManager.add(character.root);
 
   const carYard = new CarYard(sceneManager, gltf);
+  const moneyStack = new MoneyStack(sceneManager);
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
   // taps never reach here). A tap raycasts the pit cars and applies to the touched
@@ -111,6 +114,7 @@ async function main() {
     garage.update(dt, state);
     carYard.update(dt, state);
     computer.update(dt, state);
+    moneyStack.update(dt, state, state.player.position);
     adMenu.update();
     hud.update(state.cash, state.repBoostRemaining);
     menu.update(state);

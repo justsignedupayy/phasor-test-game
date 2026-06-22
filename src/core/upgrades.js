@@ -16,6 +16,7 @@ import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
 
 const U = settings.upgrades;
+const M = settings.money;
 
 const geoCost = (cfg, level) => Math.round(cfg.baseCost * Math.pow(cfg.costGrowth, level));
 const letter = (i) => String.fromCharCode(65 + i); // 0 -> "A"
@@ -96,6 +97,11 @@ export function fixingTimeCost(state, pit) {
   return geoCost(U.fixingTime, pit.fixingTimeLevel);
 }
 
+/** Cost of the next bill-stack capacity increase (Cash Register). */
+export function stackLimitCost(state) {
+  return Math.round(M.stackLimitBaseCost * Math.pow(M.stackLimitGrowth, state.stackLimitLevel));
+}
+
 // --- purchases ------------------------------------------------------------
 
 /** Unlock the lowest-index locked lot (empty floor space only). */
@@ -151,6 +157,16 @@ export function buyFixingTime(state, pitIndex) {
   return true;
 }
 
+/** Grow the computer's bill-stack capacity (uncapped). */
+export function buyStackLimit(state) {
+  const cost = stackLimitCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.maxStackCount += M.stackLimitStep;
+  state.stackLimitLevel += 1;
+  return true;
+}
+
 // --- view model for the Upgrades DOM menu ---------------------------------
 //
 // Two sections: Garage (Expand Room + Buy Pit Equipment for any
@@ -163,6 +179,7 @@ const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 export function getMenuModel(state) {
   return {
     garage: garageRows(state),
+    cashRegister: [stackLimitRow(state)],
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
   };
 }
@@ -185,6 +202,18 @@ function expandView(state) {
     kind: 'expand',
     label: 'Expand Room',
     effect: `Open lot ${letter(next.index)}`,
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
+
+/** Cash Register section: grows the computer's bill-stack capacity. */
+function stackLimitRow(state) {
+  const cost = stackLimitCost(state);
+  return {
+    kind: 'stackLimit',
+    label: 'Stack Limit',
+    effect: `${state.maxStackCount} → ${state.maxStackCount + M.stackLimitStep} bills`,
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

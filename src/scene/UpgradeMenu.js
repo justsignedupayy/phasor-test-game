@@ -5,6 +5,7 @@ import {
   hireMechanic,
   buyWorkerSpeed,
   buyFixingTime,
+  buyStackLimit,
 } from '../core/upgrades.js';
 import { saveGame } from '../platform/storage.js';
 
@@ -155,6 +156,9 @@ export class UpgradeMenu {
     this.content.appendChild(this.#sectionHeader('Garage'));
     this.content.appendChild(this.#card(null, model.garage));
 
+    this.content.appendChild(this.#sectionHeader('Cash Register'));
+    this.content.appendChild(this.#card(null, model.cashRegister));
+
     this.content.appendChild(this.#sectionHeader('Workers'));
     for (const worker of model.workers) {
       this.content.appendChild(this.#card(worker.title, worker.rows));
@@ -229,6 +233,7 @@ export class UpgradeMenu {
 
   #refresh(model) {
     for (const row of model.garage) this.#refreshRow(row);
+    for (const row of model.cashRegister) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
   }
 
@@ -264,6 +269,9 @@ export class UpgradeMenu {
       case 'fixingTime':
         ok = buyFixingTime(this.state, pitIndex);
         break;
+      case 'stackLimit':
+        ok = buyStackLimit(this.state);
+        break;
     }
     if (ok) {
       this.update(this.state);
@@ -280,6 +288,7 @@ function rowKey(row) {
 // Changes whenever the set/shape of rows changes (lots open, equip, hire).
 function structureSignature(model) {
   const garage = model.garage.map(rowKey).join(',');
+  const cashRegister = model.cashRegister.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `G[${garage}]W[${workers}]`;
+  return `G[${garage}]C[${cashRegister}]W[${workers}]`;
 }

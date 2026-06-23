@@ -38,36 +38,12 @@ export class PitView {
     this.lot = new THREE.Group();
     this.lot.position.set(x, 0, z);
     this.lot.visible = false;
-    const lotPatch = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.2, 3.4),
-      new THREE.MeshStandardMaterial({ color: c.lot })
-    );
-    lotPatch.rotation.x = -Math.PI / 2;
-    lotPatch.position.y = 0.015;
-    lotPatch.receiveShadow = true;
-    this.lot.add(lotPatch);
-    const lotEdge = new THREE.Mesh(
-      new THREE.RingGeometry(2.05, 2.2, 4, 1),
-      new THREE.MeshBasicMaterial({ color: c.lotEdge, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
-    );
-    lotEdge.rotation.x = -Math.PI / 2;
-    lotEdge.rotation.z = Math.PI / 4;
-    lotEdge.position.y = 0.02;
-    this.lot.add(lotEdge);
     this.sm.add(this.lot);
 
     // Equipped station: brown pit floor + a toolbox marker.
     this.station = new THREE.Group();
     this.station.position.set(x, 0, z);
     this.station.visible = false;
-    const pad = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.2, 3.4),
-      new THREE.MeshStandardMaterial({ color: c.pit })
-    );
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.y = 0.025;
-    pad.receiveShadow = true;
-    this.station.add(pad);
     const toolbox = new THREE.Mesh(
       new THREE.BoxGeometry(0.7, 0.5, 0.5),
       new THREE.MeshStandardMaterial({ color: c.toolbox, flatShading: true })

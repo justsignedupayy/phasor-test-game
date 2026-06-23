@@ -210,6 +210,10 @@ export const settings = {
   pit: {
     radius: 1.7,
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out)
+    // Decorative blue "pit stop" rectangle painted on the floor at each pit
+    // position (approx car-sized; tune without touching scene code).
+    spotWidth: 2.4,
+    spotDepth: 4.4,
     // Cars drive straight THROUGH the garage (decreasing z the whole time):
     // in through a BACK-wall door (z = +halfZ) at the pit's x, and, once fixed,
     // out through a FRONT-wall door (z = -halfZ) at the same x.
@@ -247,9 +251,10 @@ export const settings = {
     pit: 0x7a6e5e, // an equipped pit station floor, darker for contrast
     pitGlow: 0xffe08a, // highlight ring when the player can repair
     toolbox: 0xc0392b, // a small toolbox marking an equipped pit
-    road: 0x4a4a4a, // asphalt outside each gate
-    roadLine: 0xf5e642, // yellow road-edge marking
-    laneStripe: 0xffffff, // white guide/zebra paint on the garage floor
+    road: 0x4a4a4a, // asphalt outside each gate + the exterior entry/exit roads
+    roadLine: 0xf5e642, // yellow road-edge marking + interior floor grid lines
+    laneStripe: 0xffffff, // white guide/zebra paint on the garage floor + exterior lane dashes
+    pitSpot: 0x2255cc, // blue decorative pit-stop rectangle painted at each pit
     label: '#ffe08a', // pit/worker label text (CSS color string for the sprite)
     // broken car
     carBody: 0xb0433a,

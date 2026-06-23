@@ -20,6 +20,8 @@ export class Garage {
 
     this.group = new THREE.Group();
     this.#buildFloor();
+    this.#buildExteriorRoads();
+    this.#buildPitSpots();
     this.#buildWalls();
     this.#buildDoors();
     this.sm.add(this.group);
@@ -35,8 +37,8 @@ export class Garage {
     this.#layoutSegmentedWall(this.backSegments, this.backWallZ, this.rightWallX, state);
     this.#layoutSegmentedWall(this.frontSegments, this.frontWallZ, this.rightWallX, state);
 
-    // A door's pillars + lintel + outside road (both walls) show once that
-    // pit's land is bought.
+    // A door's pillars + lintel + outside road (both walls), plus the pit's blue
+    // floor spot and exterior road section, all show once that pit's land is bought.
     for (const d of [...this.backDoors, ...this.frontDoors]) {
       const open = state.pits[d.index].roomUnlocked;
       d.pillarL.visible = open;
@@ -45,6 +47,33 @@ export class Garage {
       d.road.visible = open;
       d.roadCenterLine.visible = open;
     }
+    for (const s of this.pitSpots) {
+      s.spot.visible = state.pits[s.index].roomUnlocked;
+    }
+    for (const r of this.roadSections) {
+      r.group.visible = state.pits[r.index].roomUnlocked;
+    }
+
+    // Lane markings show with their own pit; a divider shows only when both of
+    // its neighbouring pits are unlocked.
+    for (const m of this.laneMarkings) {
+      m.group.visible = state.pits[m.index].roomUnlocked;
+    }
+    for (const d of this.pitDividers) {
+      d.mesh.visible = state.pits[d.a].roomUnlocked && state.pits[d.b].roomUnlocked;
+    }
+
+    // Clip the lobby + bay floor patches so neither shows beyond the owned wall.
+    this.#clipFloorPatch(this.lobbyPatch);
+    this.#clipFloorPatch(this.bayPatch);
+  }
+
+  /** Scale + reposition a floor patch so its right edge tracks the owned wall. */
+  #clipFloorPatch({ mesh, leftX, baseW, maxRightX }) {
+    const rightX = Math.min(maxRightX, this.rightWallX);
+    const w = Math.max(0.001, rightX - leftX);
+    mesh.scale.x = w / baseW;
+    mesh.position.x = leftX + w / 2;
   }
 
   #buildFloor() {
@@ -73,6 +102,8 @@ export class Garage {
     lobby.position.set(-W.halfX + lobbyW / 2, 0.012, 0);
     lobby.receiveShadow = true;
     this.group.add(lobby);
+    // Clipped each frame so the floor never shows beyond the owned right wall.
+    this.lobbyPatch = { mesh: lobby, leftX: -W.halfX, baseW: lobbyW, maxRightX: lobbyRightX };
 
     // Bay/work-area patch: the rest of the floor, right of the lobby, slightly
     // darker so the pit row reads as a distinct work zone.
@@ -85,55 +116,151 @@ export class Garage {
     bay.position.set(lobbyRightX + bayW / 2, 0.012, 0);
     bay.receiveShadow = true;
     this.group.add(bay);
+    this.bayPatch = { mesh: bay, leftX: lobbyRightX, baseW: bayW, maxRightX: W.halfX };
 
-    const grid = new THREE.GridHelper(Math.max(floorW, floorD), Math.max(floorW, floorD), c.grid, c.grid);
+    // A single yellow-line grid (both the centre-cross and the cell lines use the
+    // same yellow), reading as subtle lane markings on the floor. GridHelper draws
+    // only line segments, so there are no filled cells — just the floor showing
+    // through between the yellow lines.
+    const grid = new THREE.GridHelper(Math.max(floorW, floorD), Math.max(floorW, floorD), c.roadLine, c.roadLine);
     grid.position.y = 0.01;
     grid.material.transparent = true;
-    grid.material.opacity = 0.25;
+    grid.material.opacity = 0.00;
     this.group.add(grid);
 
     this.#buildLaneMarkings(floorD);
     this.#buildPitDividers(floorD);
   }
 
-  /** Yellow divider line between each pair of adjacent pit bays. */
+  /** Yellow divider line between each pair of adjacent pit bays; shown only when
+   * both neighbouring pits are roomUnlocked. */
   #buildPitDividers(floorD) {
     const c = settings.colors;
     const dividerMat = new THREE.MeshBasicMaterial({ color: c.roadLine });
     const positions = settings.pit.positions;
 
+    this.pitDividers = [];
     for (let i = 0; i < positions.length - 1; i++) {
       const midX = (positions[i].x + positions[i + 1].x) / 2;
       const divider = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, floorD), dividerMat);
       divider.position.set(midX, 0.02, 0);
+      divider.visible = false;
       this.group.add(divider);
+      this.pitDividers.push({ a: i, b: i + 1, mesh: divider });
     }
   }
 
-  /** Painted guide lines + a dashed centre line down each pit's car lane. */
+  /**
+   * The exterior road outside the building, split into one section per pit: an
+   * entry-road slab behind the back wall (z > halfZ, where queued cars line up)
+   * and an exit-road slab in front of the front wall (z < -halfZ, where fixed
+   * cars drive off), plus the dashed lane divider on the section's left edge.
+   * Each section is its own group, hidden until that pit's land is bought.
+   */
+  #buildExteriorRoads() {
+    const c = settings.colors;
+    const W = settings.world;
+    const P = settings.pit;
+    const positions = P.positions;
+
+    // Each section is one lane wide, centred on its pit column; adjacent sections
+    // meet edge-to-edge so an unlocked row reads as one continuous road.
+    const laneWidth = positions.length > 1 ? Math.abs(positions[1].x - positions[0].x) : 4.5;
+
+    const roadMat = new THREE.MeshStandardMaterial({ color: c.road });
+    const dashMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
+    const dashLen = 1.5;
+    const dashStep = dashLen; // dash + gap
+
+    // Entry: from the back wall out to where the last queue slot ends.
+    const entry = [W.halfZ, P.doorZ + settings.spawn.maxQueuePerPit * P.queueSlotDepth];
+    // Exit: from the front wall out to where exiting cars fully disappear.
+    const exit = [-W.halfZ, -(W.halfZ + P.queueSlotDepth * 2)];
+
+    const addRoad = (group, x, [zNear, zFar]) => {
+      const z0 = Math.min(zNear, zFar);
+      const z1 = Math.max(zNear, zFar);
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(laneWidth, z1 - z0), roadMat);
+      road.rotation.x = -Math.PI / 2;
+      road.position.set(x, 0.006, (z0 + z1) / 2); // just under the per-door roads (y=0.01)
+      road.receiveShadow = true;
+      group.add(road);
+    };
+
+    const addDashes = (group, dx, [zNear, zFar]) => {
+      const z0 = Math.min(zNear, zFar);
+      const z1 = Math.max(zNear, zFar);
+      for (let z = z0 + dashStep / 2; z <= z1; z += dashStep) {
+        const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, dashLen), dashMat);
+        dash.rotation.x = -Math.PI / 2;
+        dash.position.set(dx, 0.008, z);
+        group.add(dash);
+      }
+    };
+
+    // One road section per pit; visible only once that pit's land is bought.
+    this.roadSections = positions.map((pos, index) => {
+      const group = new THREE.Group();
+      addRoad(group, pos.x, entry);
+      addRoad(group, pos.x, exit);
+      // Dashed divider against the previous (left) column.
+      if (index > 0) {
+        const dx = (positions[index - 1].x + pos.x) / 2;
+        addDashes(group, dx, entry);
+        addDashes(group, dx, exit);
+      }
+      group.visible = false;
+      this.group.add(group);
+      return { index, group };
+    });
+  }
+
+  /** A blue, car-sized rectangle painted on the floor at every pit; hidden until
+   * that pit's land is bought. */
+  #buildPitSpots() {
+    const P = settings.pit;
+    const spotMat = new THREE.MeshBasicMaterial({ color: settings.colors.pitSpot });
+    this.pitSpots = P.positions.map((pos, index) => {
+      const spot = new THREE.Mesh(new THREE.PlaneGeometry(P.spotWidth, P.spotDepth), spotMat);
+      spot.rotation.x = -Math.PI / 2;
+      spot.position.set(pos.x, 0.015, pos.z); // above the floor markings to avoid z-fighting
+      spot.visible = false;
+      this.group.add(spot);
+      return { index, spot };
+    });
+  }
+
+  /** Painted guide lines + a dashed centre line down each pit's car lane; each
+   * pit's markings are grouped and shown only when that pit is roomUnlocked. */
   #buildLaneMarkings(floorD) {
     const c = settings.colors;
     const stripeMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
     const laneHalf = 1.6; // half-width of the painted lane, inside the 4.2-wide pit footprint
 
-    for (const pos of settings.pit.positions) {
+    this.laneMarkings = settings.pit.positions.map((pos, index) => {
+      const group = new THREE.Group();
+
       for (const side of [-1, 1]) {
         const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.12, floorD), stripeMat);
         edge.rotation.x = -Math.PI / 2;
         edge.position.set(pos.x + side * laneHalf, 0.013, 0);
-        this.group.add(edge);
+        group.add(edge);
       }
 
       // Zebra-style dashed centre line.
       const dashLen = 1.0;
-      const step = dashLen + 0.8; // dash + gap
+      const step = dashLen + 50; // dash + gap
       for (let z = -floorD / 2 + step / 2; z <= floorD / 2; z += step) {
         const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, dashLen), stripeMat);
         dash.rotation.x = -Math.PI / 2;
         dash.position.set(pos.x, 0.014, z);
-        this.group.add(dash);
+        group.add(dash);
       }
-    }
+
+      group.visible = false;
+      this.group.add(group);
+      return { index, group };
+    });
   }
 
   #buildWalls() {

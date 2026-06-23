@@ -29,16 +29,36 @@ export function seedIdCounter(state) {
 }
 
 /**
- * Pick a tier index 0..N-1 from a reputation-weighted roll. The weight for tier
- * i is a triangular bump centred on rep×(N-1): weight = max(0, 1 - |i - peak|).
- * This generalizes the old two-endpoint interpolation — rep 0 puts all weight on
- * the lowest tier, rep 1 on the highest, mid reputations spread across neighbors.
+ * Reputation-weighted tier weights, always summing to 1. Reputation linearly
+ * unlocks tiers: rep 0 activates only tier 0, and each 1/(N-1) of reputation
+ * unlocks one more tier. Between two thresholds the newly unlocking tier's weight
+ * ramps from 0 up to an equal share while the already-active tiers shed weight in
+ * proportion, so at every threshold all active tiers are equally likely:
+ *
+ *   rep 0.000 → [1]
+ *   rep 0.125 → [.75, .25]
+ *   rep 0.250 → [.5, .5]
+ *   rep 0.500 → [⅓, ⅓, ⅓]
+ *   rep 0.750 → [.25, .25, .25, .25]
+ *   rep 1.000 → [.2, .2, .2, .2, .2]
  */
-function rollTierIndex(state) {
+export function tierWeights(rep) {
   const tiers = settings.carTiers;
-  const peak = getEffectiveReputation(state) * (tiers.length - 1);
+  const scaled = rep * (tiers.length - 1);
+  const k = Math.min(Math.floor(scaled), tiers.length - 1); // highest fully-active tier
+  const f = scaled - k; // progress toward unlocking tier k+1
 
-  const weights = tiers.map((_, i) => Math.max(0, 1 - Math.abs(i - peak)));
+  const weights = new Array(tiers.length).fill(0);
+  const wNew = f / (k + 2); // newly unlocking tier's share (0 at a threshold)
+  const prevShare = (1 - wNew) / (k + 1); // each already-active tier's share
+  for (let i = 0; i <= k; i++) weights[i] = prevShare;
+  if (k + 1 < tiers.length) weights[k + 1] = wNew;
+  return weights;
+}
+
+/** Pick a tier index 0..N-1 from the reputation-weighted distribution. */
+function rollTierIndex(state) {
+  const weights = tierWeights(getEffectiveReputation(state));
   const total = weights.reduce((a, w) => a + w, 0);
 
   let r = Math.random() * total;

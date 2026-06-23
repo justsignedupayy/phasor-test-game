@@ -89,10 +89,10 @@ function collectPending(state, pit) {
 function updateYard(state, dt) {
   state.spawnTimer += dt;
   if (state.spawnTimer >= settings.spawn.interval) {
-    // Spawn one car to the shortest pit queue. If nothing could be placed
-    // (every equipped pit's queue is full), hold the timer so the car arrives
-    // the moment a slot frees — i.e. spawning stalls rather than dropping cars.
-    if (spawnToShortestQueue(state)) state.spawnTimer = 0;
+    // Generate one car each interval and route it to the pit matching its tier.
+    // The car is discarded if that pit can't take it; the timer always resets.
+    spawnToMatchingPit(state);
+    state.spawnTimer = 0;
   }
 
   // Per-pit routing: a free equipped pit pulls the front of its OWN queue.
@@ -104,22 +104,18 @@ function updateYard(state, dt) {
 }
 
 /**
- * Spawn one car into the equipped pit with the shortest queue, ties broken
- * randomly. Returns false (spawning nothing) when no equipped pit has room left
- * under maxQueuePerPit — including the degenerate case of no equipped pits at
- * all, which simply discards the car by never creating it.
+ * Generate one car and route it to the pit whose index matches its tier's index
+ * in settings.carTiers (pit 0 = rusty … pit 4 = luxury). The car is discarded if
+ * that pit doesn't exist, isn't equipped, or its queue is already full.
  */
-function spawnToShortestQueue(state) {
-  const candidates = state.pits.filter(
-    (p) => p.equipped && p.queue.length < settings.spawn.maxQueuePerPit
-  );
-  if (candidates.length === 0) return false;
-
-  const min = Math.min(...candidates.map((p) => p.queue.length));
-  const shortest = candidates.filter((p) => p.queue.length === min);
-  const pit = shortest[Math.floor(Math.random() * shortest.length)];
-  pit.queue.push(spawnCar(state));
-  return true;
+function spawnToMatchingPit(state) {
+  const car = spawnCar(state);
+  const pitIndex = settings.carTiers.findIndex((t) => t.name === car.tier);
+  const pit = state.pits[pitIndex];
+  if (!pit || !pit.equipped || pit.queue.length >= settings.spawn.maxQueuePerPit) {
+    return; // no matching slot — discard the car
+  }
+  pit.queue.push(car);
 }
 
 function updatePlayer(state, dt) {

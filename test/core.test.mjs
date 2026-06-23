@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { createInitialState } from '../src/core/GameState.js';
 import { tick, tapRepair, hurry } from '../src/core/simulation.js';
-import { spawnCar } from '../src/core/Car.js';
+import { spawnCar, tierWeights } from '../src/core/Car.js';
 import {
   buyExpandRoom,
   buyPitEquipment,
@@ -135,20 +135,23 @@ check('initial state: empty pits, empty queues, spawn seeded', () => {
 
 check('first tick puts a car straight into pit 0', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // every car is rusty → routes to pit 0
   tick(s, settings.spawn.interval);
   assert.ok(s.pits[0].car);
   assert.equal(s.pits[0].queue.length, 0); // routed straight in, nothing left waiting
 });
 
-check("spawning is automatic and stalls at maxQueuePerPit (pit's car + full queue)", () => {
+check("spawning is automatic and fills pit 0 to maxQueuePerPit (pit's car + full queue)", () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // every car is rusty → routes to pit 0
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval); // nobody repairs
   assert.ok(s.pits[0].car); // pit 0 holds one
-  assert.equal(s.pits[0].queue.length, settings.spawn.maxQueuePerPit); // its queue is full, spawning stalled
+  assert.equal(s.pits[0].queue.length, settings.spawn.maxQueuePerPit); // its queue is full, extra cars discarded
 });
 
 check('pit refills from the front of its own queue after a fix', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // every car is rusty → routes to pit 0
   for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval);
   const front = s.pits[0].queue[0];
   s.pits[0].car = null; // simulate the pit car being finished
@@ -166,20 +169,21 @@ check('locked/unequipped pits never get a car or a queue', () => {
   }
 });
 
-check('spawns distribute to the shortest pit queue (2 equipped pits, 4 cars → 2 each)', () => {
+check('rusty cars route only to pit 0 (matching tier)', () => {
   const s = createInitialState();
   s.cash = 1e9;
   buyExpandRoom(s);
   buyPitEquipment(s, 1); // pits 0 and 1 now equipped
+  s.permanentReputation = 0; // every car is rusty → matches pit 0 only
   // Occupy both pits so routing never drains their queues during this test.
   s.pits[0].car = spawnCar(s);
   s.pits[1].car = spawnCar(s);
-  for (let i = 0; i < 4; i++) tick(s, settings.spawn.interval);
-  assert.equal(s.pits[0].queue.length, 2);
-  assert.equal(s.pits[1].queue.length, 2);
+  for (let i = 0; i < 30; i++) tick(s, settings.spawn.interval);
+  assert.equal(s.pits[0].queue.length, settings.spawn.maxQueuePerPit); // pit 0 fills, rest discarded
+  assert.equal(s.pits[1].queue.length, 0); // pit 1 never gets a rusty car
 });
 
-check('spawns distribute across all 5 equipped pits (10 cars → 2 each)', () => {
+check('every queued car matches its pit tier (pit i ↔ carTiers[i])', () => {
   const s = createInitialState();
   s.cash = 1e9;
   for (let i = 1; i < settings.maxPits; i++) {
@@ -187,10 +191,26 @@ check('spawns distribute across all 5 equipped pits (10 cars → 2 each)', () =>
     buyPitEquipment(s, i);
   }
   assert.equal(s.pits.length, 5);
+  s.permanentReputation = 0.5; // spread the roll across the middle tiers
   // Occupy every pit so routing never drains their queues during this test.
   for (const pit of s.pits) pit.car = spawnCar(s);
-  for (let i = 0; i < 10; i++) tick(s, settings.spawn.interval);
-  for (const pit of s.pits) assert.equal(pit.queue.length, 2);
+  for (let i = 0; i < 200; i++) tick(s, settings.spawn.interval);
+  s.pits.forEach((pit, idx) => {
+    const tierName = settings.carTiers[idx].name;
+    for (const car of pit.queue) assert.equal(car.tier, tierName);
+  });
+});
+
+check('a car whose matching pit is not equipped is discarded', () => {
+  const s = createInitialState();
+  // rep 0.25 → 50% rusty (→ pit 0, equipped) + 50% normal (→ pit 1, unequipped).
+  s.permanentReputation = 0.25;
+  for (let i = 0; i < 60; i++) tick(s, settings.spawn.interval);
+  assert.ok(s.pits[0].car || s.pits[0].queue.length > 0); // rusty cars landed at pit 0
+  for (let i = 1; i < s.pits.length; i++) {
+    assert.equal(s.pits[i].car, null); // normal cars had no equipped pit → discarded
+    assert.equal(s.pits[i].queue.length, 0);
+  }
 });
 
 // --- randomized damage ----------------------------------------------------
@@ -239,6 +259,7 @@ console.log('\ncore repair loop');
 
 check('tapRepair needs a present player and a car in the pit', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // rusty car → routes to pit 0
   tick(s, settings.spawn.interval); // car now in pit 0
   s.pits[0].playerPresent = false;
   tapRepair(s, 0);
@@ -250,6 +271,7 @@ check('tapRepair needs a present player and a car in the pit', () => {
 
 check('finishing a car parks its payout at the pit, collected on the next tick', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // rusty car → routes to pit 0
   tick(s, settings.spawn.interval);
   s.pits[0].playerPresent = true;
   const car = s.pits[0].car;
@@ -272,6 +294,7 @@ check('finishing a car parks its payout at the pit, collected on the next tick',
 
 check('full flow: fix several cars, cash accrues by each payout (collected at the pit)', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // every car is rusty → routes to pit 0
   s.pits[0].playerPresent = true; // player stands here, so each tick banks waiting pay
   let expected = 0;
   for (let r = 0; r < 5; r++) {
@@ -319,7 +342,8 @@ check('a freshly equipped pit starts accepting cars', () => {
   s.cash = 1e9;
   buyExpandRoom(s);
   buyPitEquipment(s, 1);
-  for (let i = 0; i < 10; i++) tick(s, settings.spawn.interval);
+  s.permanentReputation = 0.25; // 50% rusty (→ pit 0), 50% normal (→ pit 1)
+  for (let i = 0; i < 50; i++) tick(s, settings.spawn.interval);
   assert.ok(s.pits[0].car);
   assert.ok(s.pits[1].car); // second pit now pulls from its own queue
 });
@@ -403,6 +427,7 @@ check('a hired worker auto-repairs; with no cashier the pay waits at the pit', (
 
 check('pre-worker, an unmanned pit does NOT repair on its own', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // rusty car → routes to pit 0
   tick(s, settings.spawn.interval); // car arrives in pit 0
   const car = s.pits[0].car;
   const before = car.ticksDone;
@@ -461,6 +486,7 @@ check('initial state: no cashier, no pit holds waiting pay', () => {
 
 check('no cashier: pay waits at the pit, banked only when the player is near', () => {
   const s = createInitialState();
+  s.permanentReputation = 0; // rusty car → routes to pit 0
   tick(s, settings.spawn.interval);
   const car = s.pits[0].car;
   s.pits[0].playerPresent = true; // present so we can tap-repair to completion
@@ -538,17 +564,38 @@ check('getEffectiveReputation: no boost = permanent rate; boosted = doubled, cla
   assert.equal(getEffectiveReputation(s), settings.reputation.repCap);
 });
 
-check('spawnCar: a maxed-out reputation always rolls the top tier, scaled by its ticksMult/payoutMult', () => {
-  const luxury = settings.carTiers[settings.carTiers.length - 1];
+check('tierWeights: reputation unlocks tiers linearly with the exact key-value distribution', () => {
+  const approx = (a, b) => Math.abs(a - b) < 1e-9;
+  const expect = (rep, active) => {
+    const w = tierWeights(rep);
+    assert.equal(w.length, settings.carTiers.length);
+    active.forEach((share, i) => assert.ok(approx(w[i], share), `rep ${rep} tier ${i}: ${w[i]} != ${share}`));
+    for (let i = active.length; i < w.length; i++) assert.ok(approx(w[i], 0), `rep ${rep} tier ${i} should be 0`);
+    assert.ok(approx(w.reduce((a, x) => a + x, 0), 1), `rep ${rep} weights must sum to 1`);
+  };
+
+  expect(0.0, [1]); // rusty 100%
+  expect(0.25, [0.5, 0.5]); // rusty/normal
+  expect(0.5, [1 / 3, 1 / 3, 1 / 3]); // rusty/normal/decent
+  expect(0.75, [0.25, 0.25, 0.25, 0.25]); // + premium
+  expect(1.0, [0.2, 0.2, 0.2, 0.2, 0.2]); // all five
+  expect(0.125, [0.75, 0.25]); // mid-ramp: normal interpolating in
+});
+
+check('spawnCar: at max reputation every tier appears, each scaled by its own ticksMult/payoutMult', () => {
   const s = createInitialState();
   s.permanentReputation = settings.reputation.repCap;
-  for (let i = 0; i < 50; i++) {
+  const seen = new Set();
+  for (let i = 0; i < 500; i++) {
     const car = spawnCar(s);
     const n = car.damageParts.length;
-    assert.equal(car.tier, 'luxury');
-    assert.ok(Math.abs(car.baseTicks - settings.repair.ticksPerPart * n * luxury.ticksMult) < 1e-9);
-    assert.ok(Math.abs(car.payout - settings.spawn.basePayoutPerPart * n * luxury.payoutMult) < 1e-9);
+    const tier = settings.carTiers.find((t) => t.name === car.tier);
+    assert.ok(tier, `unknown tier ${car.tier}`);
+    assert.ok(Math.abs(car.baseTicks - settings.repair.ticksPerPart * n * tier.ticksMult) < 1e-9);
+    assert.ok(Math.abs(car.payout - settings.spawn.basePayoutPerPart * n * tier.payoutMult) < 1e-9);
+    seen.add(car.tier);
   }
+  assert.equal(seen.size, settings.carTiers.length); // uniform roll hits all five tiers
 });
 
 check('buyAdvertising: deducts cost, adds repStep, bumps adLevel; fails when unaffordable', () => {

@@ -17,6 +17,8 @@ import { loadGame, saveGame } from './platform/storage.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
 import { preloadCarModels } from './scene/CarView.js';
 import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
+import { preloadStorageModels } from './scene/StorageModels.js';
+import { CarriedBox } from './scene/CarriedBox.js';
 
 const container = document.getElementById('app');
 
@@ -46,6 +48,7 @@ async function main() {
   const gltf = await loadCharacterModel();
   await preloadCarModels();
   await preloadMoneyModel();
+  await preloadStorageModels();
   loadingEl.remove();
 
   const character = new Character(gltf);
@@ -53,6 +56,7 @@ async function main() {
 
   const carYard = new CarYard(sceneManager, gltf);
   const pitMoney = new PitMoney(sceneManager);
+  const carriedBox = new CarriedBox(sceneManager);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -100,16 +104,21 @@ async function main() {
 
     tick(state, dt); // movement + spawning + queue→pits + workers' auto-repair
 
-    // Scene sets per-pit proximity each frame; core only reads playerPresent.
+    // Scene sets per-pit proximity each frame; core only reads these flags.
+    // playerPresent = near the worker/pit (repair + box delivery); playerNearShelf
+    // = near this pit's shelf (box pickup).
     for (const pit of state.pits) {
       if (!pit.equipped) {
         pit.playerPresent = false;
+        pit.playerNearShelf = false;
         continue;
       }
       const p = settings.pit.positions[pit.index];
-      const dx = state.player.position.x - p.x;
-      const dz = state.player.position.z - p.z;
-      pit.playerPresent = Math.hypot(dx, dz) <= settings.pit.radius;
+      const px = state.player.position.x;
+      const pz = state.player.position.z;
+      pit.playerPresent = Math.hypot(px - p.x, pz - p.z) <= settings.pit.radius;
+      const so = settings.storage.shelfOffset;
+      pit.playerNearShelf = Math.hypot(px - (p.x + so.x), pz - (p.z + so.z)) <= settings.storage.pickupRadius;
     }
 
     // Cashier NPC: appears at the desk the moment one is hired, then idles forever.
@@ -120,6 +129,7 @@ async function main() {
     if (cashier) cashier.update(dt);
 
     character.update(dt, state.player);
+    carriedBox.update(state.player);
     garage.update(dt, state);
     carYard.update(dt, state);
     computer.update(dt, state);

@@ -16,6 +16,7 @@ export function tick(state, dt) {
   // bills when it's > 0); clear it before any collection can set it this tick.
   for (const pit of state.pits) pit.collectedThisTick = 0;
   updatePlayer(state, dt);
+  updateStorage(state, dt);
   updateYard(state, dt);
   for (const pit of state.pits) updatePit(state, pit, dt);
   // Collect after every pit has run, so pay a worker produces THIS tick is
@@ -67,9 +68,50 @@ function applyRepair(state, pit, ticks) {
   car.ticksDone = Math.min(required, car.ticksDone + ticks);
   if (car.ticksDone >= required) {
     car.fixed = true;
+    pit.tiresRemaining = Math.max(0, pit.tiresRemaining - 1); // each repair burns a tire
     if (state.hasCashier) state.cash += car.payout;
     else pit.pendingCash += car.payout;
-    pit.car = null; // updateYard refills from the queue
+    pit.car = null; // updateYard refills from the queue (only while tires remain)
+  }
+}
+
+/**
+ * Tire logistics. The player ferries boxes from a pit's shelf to its worker to
+ * refill that pit's tire stack; the Conveyor upgrade automates the same delivery
+ * for every pit. Proximity flags (playerNearShelf / playerPresent) are written
+ * by the scene each frame and only read here, matching the existing pattern.
+ */
+function updateStorage(state, dt) {
+  const S = settings.storage;
+  const player = state.player;
+
+  // Conveyor: every interval, restock any pit that has run fully dry (tires at
+  // 0) straight from its shelf. A pit with tires left is left alone. Shelf stock
+  // is infinite + decorative, so this never depletes shelfBoxes.
+  if (state.hasConveyor) {
+    state.conveyorTimer += dt;
+    if (state.conveyorTimer >= S.conveyorInterval) {
+      state.conveyorTimer = 0;
+      for (const pit of state.pits) {
+        if (pit.equipped && pit.shelfBoxes > 0 && pit.tiresRemaining === 0) {
+          pit.tiresRemaining = S.maxTiresPerPit; // one box = one full stack
+        }
+      }
+    }
+  }
+
+  // Manual hauling: grab a box at a shelf, then drop it at that pit's worker.
+  // Shelf stock is infinite + decorative, so a pickup never depletes shelfBoxes.
+  for (const pit of state.pits) {
+    if (!pit.equipped) continue;
+    if (!player.carryingBox && pit.playerNearShelf && pit.shelfBoxes > 0) {
+      player.carryingBox = true;
+      player.carryingBoxPitIndex = pit.index;
+    } else if (player.carryingBox && player.carryingBoxPitIndex === pit.index && pit.playerPresent) {
+      player.carryingBox = false;
+      player.carryingBoxPitIndex = null;
+      pit.tiresRemaining = S.maxTiresPerPit; // delivered box refills the stack
+    }
   }
 }
 
@@ -95,9 +137,10 @@ function updateYard(state, dt) {
     state.spawnTimer = 0;
   }
 
-  // Per-pit routing: a free equipped pit pulls the front of its OWN queue.
+  // Per-pit routing: a free equipped pit with tires pulls the front of its OWN
+  // queue. A pit out of tires holds its line until it's refilled.
   for (const pit of state.pits) {
-    if (pit.equipped && !pit.car && pit.queue.length > 0) {
+    if (pit.equipped && pit.tiresRemaining > 0 && !pit.car && pit.queue.length > 0) {
       pit.car = pit.queue.shift();
     }
   }
@@ -106,14 +149,14 @@ function updateYard(state, dt) {
 /**
  * Generate one car and route it to the pit whose index matches its tier's index
  * in settings.carTiers (pit 0 = rusty … pit 4 = luxury). The car is discarded if
- * that pit doesn't exist, isn't equipped, or its queue is already full.
+ * that pit doesn't exist, isn't equipped, is out of tires, or its queue is full.
  */
 function spawnToMatchingPit(state) {
   const car = spawnCar(state);
   const pitIndex = settings.carTiers.findIndex((t) => t.name === car.tier);
   const pit = state.pits[pitIndex];
-  if (!pit || !pit.equipped || pit.queue.length >= settings.spawn.maxQueuePerPit) {
-    return; // no matching slot — discard the car
+  if (!pit || !pit.equipped || pit.tiresRemaining <= 0 || pit.queue.length >= settings.spawn.maxQueuePerPit) {
+    return; // no matching slot (locked, out of tires, or full) — discard the car
   }
   pit.queue.push(car);
 }
@@ -135,6 +178,55 @@ function updatePlayer(state, dt) {
     player.moving = true;
   } else {
     player.moving = false;
+  }
+
+  // Solid props: push the player circle out of any conveyor belt it overlaps.
+  // The scene writes each equipped conveyor's world rectangle to pit.conveyorBounds.
+  repelFromConveyors(state, player.position);
+}
+
+/** Push the player's circular radius out of every pit's conveyor rectangle. */
+function repelFromConveyors(state, pos) {
+  const r = settings.player.radius;
+  for (const pit of state.pits) {
+    if (pit.conveyorBounds) repelFromRect(pos, r, pit.conveyorBounds);
+  }
+}
+
+/**
+ * Resolve a circle (center `pos`, radius `r`) against an axis-aligned rectangle
+ * `b` = { x, z, halfX, halfZ }: if they overlap, move the center to the nearest
+ * point where they just touch. Mirrors how clampToBounds keeps the player a full
+ * radius clear of a flat edge, but for a free-standing box (push out by corner/
+ * edge normal when outside the rect, or out the shallowest side when inside it).
+ */
+function repelFromRect(pos, r, b) {
+  const dx = pos.x - b.x;
+  const dz = pos.z - b.z;
+  // Closest point on the rectangle to the circle center (clamped offset).
+  const cx = Math.max(-b.halfX, Math.min(b.halfX, dx));
+  const cz = Math.max(-b.halfZ, Math.min(b.halfZ, dz));
+  const nx = dx - cx;
+  const nz = dz - cz;
+  const distSq = nx * nx + nz * nz;
+
+  if (distSq > r * r) return; // gap wider than the radius — no overlap
+
+  if (distSq > 1e-12) {
+    // Center is outside the rectangle: push along the outward normal to distance r.
+    const dist = Math.sqrt(distSq);
+    const push = r - dist;
+    pos.x += (nx / dist) * push;
+    pos.z += (nz / dist) * push;
+  } else {
+    // Center is inside the rectangle: eject out the nearest side (plus radius).
+    const penX = b.halfX - Math.abs(dx);
+    const penZ = b.halfZ - Math.abs(dz);
+    if (penX < penZ) {
+      pos.x = b.x + (dx < 0 ? -1 : 1) * (b.halfX + r);
+    } else {
+      pos.z = b.z + (dz < 0 ? -1 : 1) * (b.halfZ + r);
+    }
   }
 }
 

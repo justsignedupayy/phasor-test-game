@@ -76,7 +76,7 @@ export class CarYard {
       }
     }
 
-    state.pits.forEach((pit, i) => this.pitViews[i].update(dt, pit));
+    state.pits.forEach((pit, i) => this.pitViews[i].update(dt, pit, state));
   }
 
   /** True once a car's position projects outside the camera frame (with margin). */

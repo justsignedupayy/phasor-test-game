@@ -75,6 +75,8 @@ export class CarView {
     }
 
     const cfg = settings.car;
+    const tier = settings.carTiers[this.tierIndex];
+    const modelScale = tier?.modelScale ?? cfg.modelScale; // per-tier size fixup, falls back to the shared one
     const model = base.clone();
 
     // The source scenes also export a large ground-plane mesh alongside the
@@ -86,7 +88,7 @@ export class CarView {
     });
     for (const o of floorNodes) o.parent.remove(o);
 
-    model.scale.setScalar(cfg.modelScale);
+    model.scale.setScalar(modelScale);
     model.rotation.y = cfg.modelYRotationOffset;
     model.traverse((o) => {
       if (!o.isMesh) return;

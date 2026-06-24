@@ -10,7 +10,7 @@ export const settings = {
   // halfX is wide enough for the left lobby (clear of all pits) plus the five-pit
   // row to its right.
   world: {
-    halfX: 15,
+    halfX: 40.5,
     halfZ: 10,
     wallHeight: 1.6,
     wallThickness: 0.4,
@@ -24,7 +24,7 @@ export const settings = {
   },
 
   camera: {
-    viewSize: 30, // world units visible vertically (smaller = more zoomed in)
+    viewSize: 25, // world units visible vertically (smaller = more zoomed in)
     distance: 40, // ortho position scale; does NOT change apparent size
     near: 0.1,
     far: 200,
@@ -70,12 +70,14 @@ export const settings = {
   // model (in public/models/, preloaded + cloned per car by CarView.js).
   // baseTicks = ticksPerPart × parts × ticksMult; payout =
   // basePayoutPerPart × parts × payoutMult. STARTING VALUES — tune later.
+  // modelScale is a per-tier glb size fixup (falls back to settings.car.modelScale
+  // if absent); STARTING VALUES — tune after the visual check.
   carTiers: [
-    { name: 'rusty', ticksMult: 0.7, payoutMult: 0.6, model: 'normalcar.glb' },
-    { name: 'normal', ticksMult: 1.0, payoutMult: 1.0, model: 'taxi.glb' },
-    { name: 'decent', ticksMult: 1.3, payoutMult: 1.8, model: 'SUV.glb' },
-    { name: 'premium', ticksMult: 1.7, payoutMult: 2.8, model: 'sports.glb' },
-    { name: 'luxury', ticksMult: 2.2, payoutMult: 4.5, model: 'cop.glb' },
+    { name: 'rusty', ticksMult: 0.7, payoutMult: 0.6, model: 'normalcar.glb', modelScale: 1.1 },
+    { name: 'normal', ticksMult: 1.0, payoutMult: 1.0, model: 'taxi.glb', modelScale: 1.1 },
+    { name: 'decent', ticksMult: 1.3, payoutMult: 1.8, model: 'SUV.glb', modelScale: 1.0 },
+    { name: 'premium', ticksMult: 1.7, payoutMult: 2.8, model: 'sports.glb', modelScale: 0.75 },
+    { name: 'luxury', ticksMult: 2.2, payoutMult: 4.5, model: 'cop.glb', modelScale: 1.1 },
   ],
 
   joystick: {
@@ -166,10 +168,10 @@ export const settings = {
 
   // The garage's advertising terminal: tap while standing within `radius` to
   // open the Advertising panel. Lives in the left lobby (x left of pit 0's lot,
-  // which starts at x ≈ -8.1) — clear of every pit lot and car lane, always
+  // which starts at x ≈ -28.2) — clear of every pit lot and car lane, always
   // within owned land, reachable without crossing any lane.
   computer: {
-    x: -12,
+    x: -36,
     z: 4,
     radius: 1.6,
   },
@@ -178,7 +180,7 @@ export const settings = {
   // from `computer` so the character can sit beside the desk rather than on it.
   // rotation is the Y-axis facing in radians.
   cashier: {
-    x: -12.0,
+    x: -36.0,
     z: 5,
     rotation: Math.PI,
   },
@@ -201,11 +203,53 @@ export const settings = {
     flyDuration: 0.4, // seconds for bills to fly to the player on collection
   },
 
+  // Per-pit tire stock + the shelf/boxes that replenish it. The player carries a
+  // box from a pit's shelf to its worker to refill that pit's tires; each refill
+  // is one box = one full tire stack. A pit with no tires stops taking cars. The
+  // one-time Conveyor upgrade automates box→tire delivery for every pit.
+  storage: {
+    shelfCapacity: 10, // max boxes a shelf holds (starts full)
+    tiresPerBox: 20, // repairs one delivered box enables
+    maxTiresPerPit: 20, // a pit's tire stack caps here (one box worth)
+    conveyorBaseCost: 500, // one-time, garage-wide automation upgrade
+    conveyorInterval: 3, // seconds between automatic box→tire transfers (per pit)
+    pickupRadius: 1.9, // how close to a shelf the player must stand to grab a box
+    // Placements are offsets from each pit's position (settings.pit.positions[i]).
+    shelfOffset: { x: 3.2, z: -13.5 }, // exit-door (front wall) side of the pit, clear of the exit lane
+    tireOffset: { x: 2.9, z: 0.2 }, // beside the worker (mechanic.offsetX ≈ 2.1)
+    conveyorOffset: { x: 3.2, z: -7 }, // sits between the shelf and the worker
+    // Shelf boxes are decorative: the shelf always shows a full 3-wide grid that
+    // stacks upward, regardless of the actual shelfBoxes count. They render at
+    // 1/5 the (carried/traveling) box scale.
+    shelfBoxScale: 0.25,
+    boxGrid: { cols: 3, spacingX: 0.5, spacingY: 0.5, baseY: 0.35 },
+    carriedBoxOffset: { forward: 0.9, y: 1.3 }, // floats ahead of + above the player
+    // Conveyor delivery animation: a single box rides the belt from the shelf end
+    // to the worker end, then vanishes (one box per delivery, not a loop).
+    conveyorBeltY: 0.6, // height the traveling box rides at
+    conveyorTravelDuration: 1.0, // seconds for the box to ride shelf→worker
+    conveyorRotation: Math.PI / 2, // Y-axis facing of the conveyor mesh (radians); tweak if misaligned
+    // Per-model scale fixups (the glbs import at whatever scale they were
+    // authored at — tune these by eye once visible, like settings.car.modelScale).
+    shelfScale: 1,
+    boxScale: 1, // carried + traveling box at full (original) scale
+    tireScale: 1,
+    conveyorScale: 6,
+  },
+
+  // Static GLB props loaded once at startup (see scene/StorageModels.js).
+  models: {
+    shelf: 'shelf.glb',
+    box: 'singlecardboardbox.glb',
+    tires: 'Tires.glb',
+    conveyor: 'conveyor_straight.glb',
+  },
+
   // The pits: shared geometry plus a world position per pit. radius = how close
   // the player must stand to manually tap an unmanned pit.
   //
   // All five pits sit at the same z (a straight side-by-side row), spaced evenly
-  // along x. The row starts at x = -6 (leaving the left lobby clear) and fills
+  // along x. The row starts at x = -27 (leaving the left lobby clear) and fills
   // out to the right as Expand Room is bought.
   pit: {
     radius: 1.7,
@@ -221,11 +265,11 @@ export const settings = {
     exitDoorZ: -11.5, // exit: = -(world.halfZ + 1.5), just outside the front wall
     queueSlotDepth: 5.0, // each waiting car steps this much further out (toward +z); > car length (~4.2), no overlap
     positions: [
-      { x: -6, z: 4 },
-      { x: -1.5, z: 4 },
-      { x: 3, z: 4 },
-      { x: 7.5, z: 4 },
-      { x: 12, z: 4 },
+      { x: -27, z: 4 },
+      { x: -13.5, z: 4 },
+      { x: 0, z: 4 },
+      { x: 13.5, z: 4 },
+      { x: 27, z: 4 },
     ],
   },
 

@@ -29,6 +29,16 @@ function createPit(index) {
     hurryTimer: 0, // seconds of remaining worker speed boost (per pit)
     pendingCash: 0, // pay from finished cars waiting here for the player to collect
     collectedThisTick: 0, // one-tick render signal: $ banked this tick (scene pops "+$")
+    // Tire stock: each completed repair burns one tire; at 0 the pit stops
+    // taking cars until refilled. The shelf holds boxes the player (or the
+    // conveyor) carries to the worker — one delivered box = one full tire stack.
+    tiresRemaining: settings.storage.maxTiresPerPit, // starts with one box worth
+    shelfBoxes: settings.storage.shelfCapacity, // starts full
+    playerNearShelf: false, // written by the scene each frame (proximity to this pit's shelf)
+    // The conveyor belt's world footprint as a rectangle { x, z, halfX, halfZ },
+    // written by the scene each frame (null when the pit has no visible conveyor).
+    // simulation.js reads it to repel the player so they can't walk through it.
+    conveyorBounds: null,
   };
 }
 
@@ -41,6 +51,13 @@ export class GameState {
     // until the player walks up to collect; once hired, every payout lands in
     // state.cash directly and no money ever waits at a pit.
     this.hasCashier = false;
+
+    // Conveyor: a one-time, garage-wide automation upgrade (see upgrades.js
+    // buyConveyor). While owned, every pit's shelf auto-delivers a box to its
+    // tire stack every settings.storage.conveyorInterval seconds — the player
+    // no longer has to hand-carry boxes. conveyorTimer counts toward the next.
+    this.hasConveyor = false;
+    this.conveyorTimer = 0;
 
     // Reputation: chance an incoming car is a higher-paying "better" car (see
     // core/reputation.js). permanentReputation rises via Buy Advertising;
@@ -57,12 +74,14 @@ export class GameState {
     this.spawnTimer = settings.spawn.interval;
 
     // Starts inside pit 0's own bay (the only owned land at game start; see
-    // upgrades.js ownedRightX). Pit 0 sits at x = -6, so the player spawns there
+    // upgrades.js ownedRightX). Pit 0 sits at x = -27, so the player spawns there
     // (in front of it) rather than at the world origin or the left lobby.
     this.player = {
-      position: { x: -6, z: 0 },
+      position: { x: -27, z: 0 },
       rotation: 0, // radians around Y; 0 faces +z
       moving: false,
+      carryingBox: false, // is the player holding a box right now?
+      carryingBoxPitIndex: null, // which pit's shelf the carried box came from
     };
 
     // Desired move direction in WORLD space (x/z), magnitude 0..1.

@@ -6,6 +6,7 @@ import {
   buyWorkerSpeed,
   buyFixingTime,
   buyCashier,
+  buyConveyor,
 } from '../core/upgrades.js';
 import { saveGame } from '../platform/storage.js';
 
@@ -159,6 +160,9 @@ export class UpgradeMenu {
     this.content.appendChild(this.#sectionHeader('Cashier'));
     this.content.appendChild(this.#card(null, model.cashier));
 
+    this.content.appendChild(this.#sectionHeader('Automation'));
+    this.content.appendChild(this.#card(null, model.automation));
+
     this.content.appendChild(this.#sectionHeader('Workers'));
     for (const worker of model.workers) {
       this.content.appendChild(this.#card(worker.title, worker.rows));
@@ -234,6 +238,7 @@ export class UpgradeMenu {
   #refresh(model) {
     for (const row of model.garage) this.#refreshRow(row);
     for (const row of model.cashier) this.#refreshRow(row);
+    for (const row of model.automation) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
   }
 
@@ -272,6 +277,9 @@ export class UpgradeMenu {
       case 'cashier':
         ok = buyCashier(this.state);
         break;
+      case 'conveyor':
+        ok = buyConveyor(this.state);
+        break;
     }
     if (ok) {
       this.update(this.state);
@@ -289,6 +297,7 @@ function rowKey(row) {
 function structureSignature(model) {
   const garage = model.garage.map(rowKey).join(',');
   const cashier = model.cashier.map(rowKey).join(',');
+  const automation = model.automation.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `G[${garage}]C[${cashier}]W[${workers}]`;
+  return `G[${garage}]C[${cashier}]A[${automation}]W[${workers}]`;
 }

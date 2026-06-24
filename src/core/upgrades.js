@@ -52,7 +52,7 @@ export function requiredTicks(car, pit) {
 // own x position is derived from how much land is currently owned.
 
 const LOT_HALF_WIDTH = 2.1; // half of PitView's lot/station plane width (4.2)
-const BAY_MARGIN = 1.0; // gap from an owned lot's outer edge to the fence
+const BAY_MARGIN = 13.5; // gap from an owned lot's outer edge to the fence
 export const BAY_ZONE_Z = -0.75; // z beyond this is bay territory (fenced); below it is the open lane
 
 /** True once every pit's land has been bought (no fence left to show). */
@@ -99,6 +99,11 @@ export function fixingTimeCost(state, pit) {
 /** Flat, one-time cost of the garage-wide cashier hire. */
 export function cashierCost(state) {
   return U.cashier.baseCost;
+}
+
+/** Flat, one-time cost of the garage-wide conveyor automation. */
+export function conveyorCost(state) {
+  return settings.storage.conveyorBaseCost;
 }
 
 // --- purchases ------------------------------------------------------------
@@ -176,6 +181,20 @@ export function buyCashier(state) {
   return true;
 }
 
+/**
+ * Buy the garage-wide conveyor (one-time). From then on every pit's shelf
+ * auto-delivers boxes to its tire stack on a timer (see simulation.updateStorage),
+ * so tires never have to be hand-carried.
+ */
+export function buyConveyor(state) {
+  if (state.hasConveyor) return false;
+  const cost = conveyorCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.hasConveyor = true;
+  return true;
+}
+
 // --- view model for the Upgrades DOM menu ---------------------------------
 //
 // Two sections: Garage (Expand Room + Buy Pit Equipment for any
@@ -189,6 +208,7 @@ export function getMenuModel(state) {
   return {
     garage: garageRows(state),
     cashier: [cashierRow(state)],
+    automation: [conveyorRow(state)],
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
   };
 }
@@ -232,6 +252,27 @@ function cashierRow(state) {
     kind: 'cashier',
     label: 'Hire Cashier',
     effect: 'Payouts skip the pit, go straight to cash',
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
+
+/** Automation section: the one-time conveyor that auto-restocks every pit's tires. */
+function conveyorRow(state) {
+  if (state.hasConveyor) {
+    return {
+      kind: 'conveyor',
+      label: 'Conveyor',
+      effect: 'Auto-restocks tires at every pit',
+      cost: 'OWNED',
+      disabled: true,
+    };
+  }
+  const cost = conveyorCost(state);
+  return {
+    kind: 'conveyor',
+    label: 'Buy Conveyor',
+    effect: 'Auto-delivers boxes → tires, hands-free',
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

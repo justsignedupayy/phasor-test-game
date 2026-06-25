@@ -230,11 +230,25 @@ function repelFromRect(pos, r, b) {
   }
 }
 
-/** In bay territory, the right edge is fenced to whatever land is owned; the lane is always open. */
+/**
+ * In bay territory, the right edge is fenced to whatever land is owned; the lane
+ * is always open. The left edge is solid too, except through the supermarket's
+ * restock door (once unlocked) — there the player may step out to the exterior
+ * restock pile. This is separate from the customer doors (back/front walls,
+ * see Garage.js's marketEntryDoor/marketExitDoor) — only the player uses this
+ * one, to fetch boxes, never customers.
+ */
 function clampToBounds(state, pos) {
   const limX = settings.world.halfX - settings.player.radius;
   const limZ = settings.world.halfZ - settings.player.radius;
   const rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : settings.world.halfX) - settings.player.radius;
-  pos.x = Math.max(-limX, Math.min(rightLim, pos.x));
+
+  let leftLim = -limX;
+  const M = settings.supermarket;
+  const throughRestockDoor =
+    state.supermarket.unlocked && Math.abs(pos.z - M.restockDoorZ) <= settings.world.gateHalf - settings.player.radius;
+  if (throughRestockDoor) leftLim = M.exteriorLimitX + settings.player.radius;
+
+  pos.x = Math.max(leftLim, Math.min(rightLim, pos.x));
   pos.z = Math.max(-limZ, Math.min(limZ, pos.z));
 }

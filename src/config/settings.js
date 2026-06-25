@@ -8,9 +8,11 @@ export const settings = {
 
   // Garage interior bounds (character is clamped inside these on the x/z plane).
   // halfX is wide enough for the left lobby (clear of all pits) plus the five-pit
-  // row to its right.
+  // row to its right. Grown from the original 40.5 to double the supermarket's
+  // floor footprint (width) without touching halfZ, which the car/pit doors'
+  // doorZ/exitDoorZ literals are tuned against.
   world: {
-    halfX: 40.5,
+    halfX: 48,
     halfZ: 10,
     wallHeight: 1.6,
     wallThickness: 0.4,
@@ -40,8 +42,10 @@ export const settings = {
   // match, so a wrong guess here never freezes the character.
   //
   // CURRENT MODEL: CharacterModel.js merges character_idle.glb +
-  // character_run.glb + character_repair.glb + character_yell.glb and renames
-  // their clips to 'idle' / 'walk' / 'repair' / 'yell'.
+  // character_run.glb + character_repair.glb + character_yell.glb +
+  // character_carry_run.glb + character_carry_idle.glb + character_walk.glb
+  // and renames their clips to 'idle' / 'walk' / 'repair' / 'yell' / 'carry' /
+  // 'carryIdle' / 'walkSlow'.
   character: {
     modelScale: 1,
     modelYRotationOffset: 0, // radians, added on top of the movement-facing rotation
@@ -50,10 +54,20 @@ export const settings = {
       walk: 'walk',
       repair: 'repair',
       yell: 'yell',
+      // play while player.carryingBox is true (see Character.js): 'carry'
+      // while moving, 'carryIdle' while stationary — mirrors idle/walk.
+      carry: 'carry',
+      carryIdle: 'carryIdle',
+      // genuine walking-pace clip (not the run-sourced 'walk') for NPCs that
+      // move well under run speed — market customers/worker (see
+      // MarketCustomer.js / MarketWorker.js) — so their legs match their feet.
+      walkSlow: 'walkSlow',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
     cashierTint: 0x3ad06a, // green tint for the cashier clone (see scene/Cashier.js)
+    marketWorkerTint: 0x4a9fd8, // the supermarket worker clone (see scene/MarketWorker.js)
+    customerTint: 0xc9956a, // supermarket customer clones (see scene/MarketCustomer.js)
   },
 
   // Shared transform applied to every car glb when cloned (see CarView.js).
@@ -237,12 +251,87 @@ export const settings = {
     conveyorScale: 6,
   },
 
+  // The supermarket: a one-time unlock that turns the left lobby into a shop,
+  // plus a 2-level worker upgrade (see upgrades.js). Level 0: the player does
+  // both packaging (shelves -> checkout) and restocking (outside box ->
+  // shelf) by hand. Level 1 ("Hire Market Worker"): the worker packages;
+  // the player still restocks. Level 2 ("Train Market Worker"): the worker
+  // does both, hands-free. See core/supermarket.js.
+  supermarket: {
+    // TESTING: cheap for iteration — restore before shipping.
+    unlockBaseCost: 1, // was 800
+    workerHireCost: 1, // was 250 — Hire Market Worker (workerLevel 0 -> 1)
+    workerTrainCost: 1, // was 450 — Train Market Worker (workerLevel 1 -> 2)
+
+    shelfCapacity: 20, // max units per product, per shelf; starts full once unlocked
+
+    // TESTING: cheap for iteration (was A:8, B:6, C:11, D:15)
+    products: {
+      A: { price: 1, label: 'Canned Goods' },
+      B: { price: 1, label: 'Snacks' },
+      C: { price: 1, label: 'Frozen Pizza' },
+      D: { price: 1, label: 'Ice Cream' },
+    },
+
+    customerSpawnInterval: 5, // seconds between spawns, once unlocked
+    maxCustomerQueue: 5, // cap on customers in the building at once (waiting + being served)
+    customerMinItems: 1,
+    customerMaxItems: 5,
+    customerMoveSpeed: 3.0, // world units/second
+    workerMoveSpeed: 3.4, // world units/second, market worker only
+    arriveEpsilon: 0.05, // distance under which a mover counts as "arrived"
+
+    // World layout, inside the left lobby (settings.colors.lobby). Customers
+    // get their OWN entry + exit doors, same shape as a car's: a back-wall
+    // door to walk in (marketX, world.halfZ) and a separate front-wall door to
+    // walk out (marketX, -world.halfZ) — see Garage.js's marketEntryDoor /
+    // marketExitDoor, built the same way as a pit's back/front doors, just at
+    // a fixed x instead of per-pit. Customers drive straight through on z,
+    // exactly like cars do, just slower and on foot. A third, separate door in
+    // the LEFT wall (restockDoorZ) is for restocking only — the player/worker
+    // carrying boxes, never customers. STARTING VALUES — tune by eye once visible.
+    //
+    // Shelf x-offsets from marketX are doubled (±6, was ±3) to double the
+    // market's total floor footprint (width x depth) — world.halfX was grown
+    // to make room. Depth (z) is left as-is: it's already close to the room's
+    // existing front/back walls, shared with the car system's doorZ/exitDoorZ.
+    marketX: -38, // shared x for both customer doors, clear of every pit lot
+    customerEntryOutside: { x: -38, z: 11.5 }, // = { marketX, world.halfZ + 1.5 }, mirrors pit.doorZ
+    customerExitOutside: { x: -38, z: -11.5 }, // = { marketX, -(world.halfZ + 1.5) }, mirrors pit.exitDoorZ
+
+    restockDoorZ: -8, // the restock-only door's gap centre along the LEFT wall (z-axis); width = world.gateHalf
+    exteriorLimitX: -54.5, // how far out the player may walk to reach the restock pile
+
+    shelves: [
+      { x: -44, z: -4, productType: 'A', model: 'shelfEnd' },
+      { x: -32, z: -4, productType: 'B', model: 'shelfEnd' },
+      { x: -44, z: -7, productType: 'C', model: 'freezer' },
+      { x: -32, z: -7, productType: 'D', model: 'freezer' },
+    ],
+    restockBoxPosition: { x: -53.5, z: -5 },
+    checkoutPosition: { x: -38, z: 1 },
+    workerIdleSpot: { x: -38, z: -2 },
+    queueAnchor: { x: -38, z: 4.5 }, // slot 0 — nearest the checkout
+    queueStep: { x: 0, z: 1.2 }, // each further-back slot steps this much toward the entry door
+
+    interactRadius: 1.8, // tap-affordance radius for shelves/checkout/restock pile (mirrors settings.pit.radius)
+
+    // Per-model scale fixups (tune by eye once visible, like settings.storage.*Scale).
+    shelfScale: 1,
+    freezerScale: 1,
+    bagScale: 1,
+    restockPileScale: 0.6,
+  },
+
   // Static GLB props loaded once at startup (see scene/StorageModels.js).
   models: {
     shelf: 'shelf.glb',
     box: 'singlecardboardbox.glb',
     tires: 'Tires.glb',
     conveyor: 'conveyor_straight.glb',
+    shelfEnd: 'shelf_end.glb',
+    freezer: 'freezers_standing.glb',
+    bag: 'Bag.glb',
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close

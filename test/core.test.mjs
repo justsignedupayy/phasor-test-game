@@ -24,6 +24,12 @@ import {
   pitEquipmentCost,
   ownedRightX,
   allLandOwned,
+  buySupermarket,
+  hireMarketWorker,
+  trainMarketWorker,
+  supermarketCost,
+  marketWorkerHireCost,
+  marketWorkerTrainCost,
 } from '../src/core/upgrades.js';
 import {
   getEffectiveReputation,
@@ -32,6 +38,16 @@ import {
   adCost,
 } from '../src/core/reputation.js';
 import { formatMoney } from '../src/core/format.js';
+import {
+  spawnCustomer,
+  tickSupermarket,
+  buyProduct,
+  placeAtCheckout,
+  restockShelf,
+  checkoutCustomer,
+  frontCustomer,
+  computeTotal,
+} from '../src/core/supermarket.js';
 import settings from '../src/config/settings.js';
 
 let passed = 0;
@@ -802,6 +818,209 @@ check('formatMoney: rounding never leaves a stray "1000" in the old unit', () =>
 
 check('formatMoney: negative numbers keep the sign', () => {
   assert.equal(formatMoney(-12000), '-12.0K');
+});
+
+// --- supermarket ------------------------------------------------------------
+console.log('\ncore supermarket');
+
+check('initial state: locked, 4 full shelves, no customers, no worker', () => {
+  const s = createInitialState();
+  assert.equal(s.supermarket.unlocked, false);
+  assert.equal(s.supermarket.workerLevel, 0);
+  assert.equal(s.supermarket.shelves.length, settings.supermarket.shelves.length);
+  for (const shelf of s.supermarket.shelves) assert.equal(shelf.stock, settings.supermarket.shelfCapacity);
+  assert.equal(s.supermarket.customerQueue.length, 0);
+  assert.equal(s.supermarket.checkoutBag, null);
+  assert.equal(s.supermarket.worker, null);
+});
+
+check('tickSupermarket does nothing until the supermarket is unlocked', () => {
+  const s = createInitialState();
+  for (let i = 0; i < 200; i++) tickSupermarket(s, 1);
+  assert.equal(s.supermarket.customerQueue.length, 0);
+});
+
+check('spawnCustomer: 1-5 items, only known product types, pushed as walkingIn', () => {
+  const s = createInitialState();
+  for (let i = 0; i < 200; i++) {
+    const before = s.supermarket.customerQueue.length;
+    const c = spawnCustomer(s);
+    const total = Object.values(c.request).reduce((a, n) => a + n, 0);
+    assert.ok(total >= settings.supermarket.customerMinItems && total <= settings.supermarket.customerMaxItems);
+    for (const type in c.request) assert.ok(type in settings.supermarket.products);
+    assert.equal(c.state, 'walkingIn');
+    assert.equal(s.supermarket.customerQueue.length, before + 1);
+  }
+});
+
+check('once unlocked, customers spawn automatically up to maxCustomerQueue', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  for (let i = 0; i < 500; i++) tickSupermarket(s, settings.supermarket.customerSpawnInterval);
+  assert.equal(s.supermarket.customerQueue.length, settings.supermarket.maxCustomerQueue);
+});
+
+check('computeTotal sums price x quantity per product', () => {
+  const P = settings.supermarket.products;
+  assert.equal(computeTotal({ A: 2, D: 1 }), P.A.price * 2 + P.D.price * 1);
+});
+
+check('frontCustomer is null when nobody has fully walked in yet', () => {
+  const s = createInitialState();
+  assert.equal(frontCustomer(s), null);
+  s.supermarket.customerQueue.push({ id: 1, request: {}, state: 'walkingIn', position: { x: 0, z: 0 }, rotation: 0, moving: true });
+  assert.equal(frontCustomer(s), null);
+});
+
+check("buyProduct gathers exactly what's needed (capped by stock); placeAtCheckout needs a complete bag", () => {
+  const s = createInitialState();
+  const customer = { id: 1, request: { A: 2, C: 1 }, state: 'waiting', position: { x: 0, z: 0 }, rotation: 0, moving: false };
+  s.supermarket.customerQueue.push(customer);
+
+  assert.equal(placeAtCheckout(s), false, 'nothing gathered yet');
+
+  const shelfOf = (type) => s.supermarket.shelves.findIndex((sh) => sh.productType === type);
+
+  assert.equal(buyProduct(s, shelfOf('B')), false, 'order has no B');
+  assert.equal(buyProduct(s, shelfOf('A')), true);
+  assert.equal(s.supermarket.shelves[shelfOf('A')].stock, settings.supermarket.shelfCapacity - 2, 'took both needed A at once');
+  assert.equal(buyProduct(s, shelfOf('A')), false, 'already has all the A it needs');
+
+  assert.equal(placeAtCheckout(s), false, 'still missing C');
+
+  assert.equal(buyProduct(s, shelfOf('C')), true);
+  assert.equal(placeAtCheckout(s), true);
+  assert.equal(s.supermarket.assemblingBag, null);
+  assert.deepEqual(s.supermarket.checkoutBag.items, { A: 2, C: 1 });
+  assert.equal(s.supermarket.checkoutBag.total, computeTotal({ A: 2, C: 1 }));
+  assert.equal(placeAtCheckout(s), false, 'counter already occupied');
+});
+
+check("buyProduct is capped by the shelf's remaining stock", () => {
+  const s = createInitialState();
+  const customer = { id: 1, request: { A: 5 }, state: 'waiting', position: { x: 0, z: 0 }, rotation: 0, moving: false };
+  s.supermarket.customerQueue.push(customer);
+  const shelfA = s.supermarket.shelves.findIndex((sh) => sh.productType === 'A');
+  s.supermarket.shelves[shelfA].stock = 2;
+  assert.equal(buyProduct(s, shelfA), true);
+  assert.equal(s.supermarket.shelves[shelfA].stock, 0);
+  assert.equal(s.supermarket.assemblingBag.items.A, 2);
+  assert.equal(buyProduct(s, shelfA), false, 'shelf empty, even though the order still needs 3 more');
+});
+
+check('checkoutCustomer pays into cash and starts the customer walking out', () => {
+  const s = createInitialState();
+  const customer = { id: 1, request: { D: 1 }, state: 'waiting', position: { x: 0, z: 0 }, rotation: 0, moving: false };
+  s.supermarket.customerQueue.push(customer);
+  buyProduct(s, s.supermarket.shelves.findIndex((sh) => sh.productType === 'D'));
+  placeAtCheckout(s);
+  const total = s.supermarket.checkoutBag.total;
+
+  assert.equal(checkoutCustomer(s), true);
+  assert.equal(s.cash, total);
+  assert.equal(customer.state, 'walkingOut');
+  assert.equal(s.supermarket.checkoutBag, null);
+});
+
+check('a served customer walks to checkout, pays, walks out, and is removed from the queue', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.spawnTimer = -1e9; // no auto-spawned customers during this test
+  const customer = spawnCustomer(s);
+
+  for (let i = 0; i < 200 && customer.state === 'walkingIn'; i++) tickSupermarket(s, 0.5);
+  assert.equal(customer.state, 'waiting');
+
+  for (const type in customer.request) {
+    buyProduct(s, s.supermarket.shelves.findIndex((sh) => sh.productType === type));
+  }
+  assert.equal(placeAtCheckout(s), true);
+
+  const before = s.cash;
+  for (let i = 0; i < 200 && s.supermarket.customerQueue.includes(customer); i++) tickSupermarket(s, 0.5);
+  assert.ok(!s.supermarket.customerQueue.includes(customer), 'customer eventually leaves');
+  assert.ok(s.cash > before, 'payment landed in cash');
+});
+
+check('restockShelf refills to capacity; no-ops once already full or for a bad index', () => {
+  const s = createInitialState();
+  const shelf = s.supermarket.shelves[0];
+  shelf.stock = 3;
+  assert.equal(restockShelf(s, 0), true);
+  assert.equal(shelf.stock, settings.supermarket.shelfCapacity);
+  assert.equal(restockShelf(s, 0), false, 'already full');
+  assert.equal(restockShelf(s, 99), false, 'bad index');
+});
+
+check('buySupermarket: one-time, deducts cost, gated on cash', () => {
+  const s = createInitialState();
+  assert.equal(buySupermarket(s), false, 'no cash yet');
+  s.cash = supermarketCost(s);
+  assert.equal(buySupermarket(s), true);
+  assert.equal(s.supermarket.unlocked, true);
+  assert.equal(s.cash, 0);
+  assert.equal(buySupermarket(s), false, 'one-time purchase');
+});
+
+check('hireMarketWorker requires the supermarket to be open first, then spawns a worker', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(hireMarketWorker(s), false, 'market not open yet');
+  buySupermarket(s);
+  assert.equal(hireMarketWorker(s), true);
+  assert.equal(s.supermarket.workerLevel, 1);
+  assert.ok(s.supermarket.worker);
+  assert.equal(hireMarketWorker(s), false, 'one-time hire');
+});
+
+check('trainMarketWorker requires a level-1 worker first', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(trainMarketWorker(s), false, 'no worker yet');
+  buySupermarket(s);
+  hireMarketWorker(s);
+  assert.equal(trainMarketWorker(s), true);
+  assert.equal(s.supermarket.workerLevel, 2);
+  assert.equal(trainMarketWorker(s), false, 'one-time train');
+});
+
+check("a level-1 worker auto-packages a waiting customer's order with no manual taps", () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buySupermarket(s);
+  hireMarketWorker(s);
+  s.supermarket.spawnTimer = -1e9; // isolate this customer from auto-spawning
+  const customer = { id: 1, request: { A: 1, B: 2 }, state: 'waiting', position: { x: -34, z: -1.5 }, rotation: 0, moving: false };
+  s.supermarket.customerQueue.push(customer);
+
+  for (let i = 0; i < 2000 && customer.state === 'waiting'; i++) tickSupermarket(s, 0.1);
+  assert.equal(customer.state, 'walkingToCheckout', 'worker placed the bag without any manual taps');
+});
+
+check('a level-2 worker auto-restocks the emptiest shelf when no one needs packaging', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buySupermarket(s);
+  hireMarketWorker(s);
+  trainMarketWorker(s);
+  s.supermarket.spawnTimer = -1e9; // no customers — isolate restocking
+  s.supermarket.shelves[2].stock = 0;
+
+  for (let i = 0; i < 2000 && s.supermarket.shelves[2].stock < settings.supermarket.shelfCapacity; i++) {
+    tickSupermarket(s, 0.1);
+  }
+  assert.equal(s.supermarket.shelves[2].stock, settings.supermarket.shelfCapacity, 'worker refilled it hands-free');
+});
+
+check('a level-1 worker does NOT restock — that still needs the player until trained', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buySupermarket(s);
+  hireMarketWorker(s);
+  s.supermarket.spawnTimer = -1e9;
+  s.supermarket.shelves[1].stock = 0;
+  for (let i = 0; i < 200; i++) tickSupermarket(s, 0.1);
+  assert.equal(s.supermarket.shelves[1].stock, 0, 'untrained worker leaves restocking alone');
 });
 
 console.log(`\n${passed} passed`);

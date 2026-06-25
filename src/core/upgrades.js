@@ -14,6 +14,7 @@
  */
 import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
+import { createMarketWorker } from './supermarket.js';
 
 const U = settings.upgrades;
 
@@ -106,6 +107,21 @@ export function conveyorCost(state) {
   return settings.storage.conveyorBaseCost;
 }
 
+/** Flat, one-time cost to unlock the supermarket. */
+export function supermarketCost(state) {
+  return settings.supermarket.unlockBaseCost;
+}
+
+/** Flat, one-time cost of the level 0 -> 1 market worker hire. */
+export function marketWorkerHireCost(state) {
+  return settings.supermarket.workerHireCost;
+}
+
+/** Flat, one-time cost of the level 1 -> 2 market worker training. */
+export function marketWorkerTrainCost(state) {
+  return settings.supermarket.workerTrainCost;
+}
+
 // --- purchases ------------------------------------------------------------
 
 /** Unlock the lowest-index locked lot (empty floor space only). */
@@ -195,6 +211,37 @@ export function buyConveyor(state) {
   return true;
 }
 
+/** Unlock the supermarket (one-time). Shelves start full; no worker yet. */
+export function buySupermarket(state) {
+  if (state.supermarket.unlocked) return false;
+  const cost = supermarketCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.supermarket.unlocked = true;
+  return true;
+}
+
+/** Hire the market worker (level 0 -> 1): it takes over packaging. */
+export function hireMarketWorker(state) {
+  if (!state.supermarket.unlocked || state.supermarket.workerLevel !== 0) return false;
+  const cost = marketWorkerHireCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.supermarket.workerLevel = 1;
+  state.supermarket.worker = createMarketWorker();
+  return true;
+}
+
+/** Train the market worker (level 1 -> 2): it also takes over restocking. */
+export function trainMarketWorker(state) {
+  if (state.supermarket.workerLevel !== 1) return false;
+  const cost = marketWorkerTrainCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.supermarket.workerLevel = 2;
+  return true;
+}
+
 // --- view model for the Upgrades DOM menu ---------------------------------
 //
 // Two sections: Garage (Expand Room + Buy Pit Equipment for any
@@ -209,6 +256,7 @@ export function getMenuModel(state) {
     garage: garageRows(state),
     cashier: [cashierRow(state)],
     automation: [conveyorRow(state)],
+    supermarket: supermarketRows(state),
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
   };
 }
@@ -276,6 +324,60 @@ function conveyorRow(state) {
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };
+}
+
+/** Supermarket section: unlock, then the 2-level worker upgrade (one row at a time). */
+function supermarketRows(state) {
+  const S = state.supermarket;
+
+  if (!S.unlocked) {
+    const cost = supermarketCost(state);
+    return [
+      {
+        kind: 'openMarket',
+        label: 'Open Supermarket',
+        effect: 'Turns the lobby into a shop',
+        cost: `$${formatMoney(cost)}`,
+        disabled: state.cash < cost,
+      },
+    ];
+  }
+
+  if (S.workerLevel === 0) {
+    const cost = marketWorkerHireCost(state);
+    return [
+      {
+        kind: 'hireMarketWorker',
+        label: 'Hire Market Worker',
+        effect: 'Worker packages orders; you still restock',
+        cost: `$${formatMoney(cost)}`,
+        disabled: state.cash < cost,
+      },
+    ];
+  }
+
+  if (S.workerLevel === 1) {
+    const cost = marketWorkerTrainCost(state);
+    return [
+      {
+        kind: 'trainMarketWorker',
+        label: 'Train Market Worker',
+        effect: 'Worker also restocks, hands-free',
+        cost: `$${formatMoney(cost)}`,
+        disabled: state.cash < cost,
+      },
+    ];
+  }
+
+  return [
+    {
+      kind: 'trainMarketWorker',
+      label: 'Market Worker',
+      effect: 'Fully trained — packages and restocks',
+      cost: 'MAX',
+      disabled: true,
+    },
+  ];
 }
 
 function equipmentView(state, pit) {

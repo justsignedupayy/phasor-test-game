@@ -3,6 +3,7 @@ import settings from './config/settings.js';
 import { createInitialState } from './core/GameState.js';
 import { tick, tapRepair, hurry } from './core/simulation.js';
 import { seedIdCounter } from './core/Car.js';
+import { tickSupermarket, buyProduct, placeAtCheckout, restockShelf } from './core/supermarket.js';
 import { SceneManager } from './scene/SceneManager.js';
 import { Input } from './scene/Input.js';
 import { Character } from './scene/Character.js';
@@ -19,6 +20,7 @@ import { preloadCarModels } from './scene/CarView.js';
 import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
 import { preloadStorageModels } from './scene/StorageModels.js';
 import { CarriedBox } from './scene/CarriedBox.js';
+import { SupermarketView } from './scene/SupermarketView.js';
 
 const container = document.getElementById('app');
 
@@ -57,6 +59,7 @@ async function main() {
   const carYard = new CarYard(sceneManager, gltf);
   const pitMoney = new PitMoney(sceneManager);
   const carriedBox = new CarriedBox(sceneManager);
+  const supermarketView = new SupermarketView(sceneManager, gltf);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -76,6 +79,12 @@ async function main() {
       return;
     }
 
+    const marketHit = supermarketView.raycastTap(raycaster);
+    if (marketHit) {
+      handleMarketTap(marketHit);
+      return;
+    }
+
     const i = carYard.raycast(raycaster);
     if (i < 0) return;
     const pit = state.pits[i];
@@ -90,6 +99,35 @@ async function main() {
     }
   });
 
+  /**
+   * Manual market taps — only meaningful at workerLevel 0 (packaging/checkout)
+   * or workerLevel < 2 (restocking; the player still restocks at level 1).
+   * Proximity is checked here at tap-time, the same role state.pits[i].playerPresent
+   * plays for tapRepair, just computed inline instead of written every frame.
+   */
+  function handleMarketTap(hit) {
+    const market = state.supermarket;
+    const M = settings.supermarket;
+    const near = (pos) =>
+      Math.hypot(state.player.position.x - pos.x, state.player.position.z - pos.z) <= M.interactRadius;
+
+    if (hit.kind === 'shelf') {
+      const cfg = M.shelves[hit.index];
+      if (!near(cfg)) return;
+      if (state.player.carryingRestockBox) {
+        if (market.workerLevel < 2 && restockShelf(state, hit.index)) state.player.carryingRestockBox = false;
+      } else if (market.workerLevel === 0) {
+        buyProduct(state, hit.index);
+      }
+    } else if (hit.kind === 'checkout') {
+      if (market.workerLevel === 0 && near(M.checkoutPosition)) placeAtCheckout(state);
+    } else if (hit.kind === 'restockBox') {
+      if (market.workerLevel < 2 && !state.player.carryingRestockBox && near(market.restockBoxPosition)) {
+        state.player.carryingRestockBox = true;
+      }
+    }
+  }
+
   const clock = new THREE.Clock();
   const basis = sceneManager.moveBasis; // camera-relative ground axes
 
@@ -103,6 +141,7 @@ async function main() {
     state.input.z = basis.right.z * ix + basis.forward.z * iy;
 
     tick(state, dt); // movement + spawning + queue→pits + workers' auto-repair
+    tickSupermarket(state, dt); // supermarket customers + (once hired) the market worker
 
     // Scene sets per-pit proximity each frame; core only reads these flags.
     // playerPresent = near the worker/pit (repair + box delivery); playerNearShelf
@@ -133,6 +172,7 @@ async function main() {
     garage.update(dt, state);
     carYard.update(dt, state);
     computer.update(dt, state);
+    supermarketView.update(dt, state);
     pitMoney.update(dt, state, state.player.position);
     adMenu.update();
     hud.update(state.cash, state.repBoostRemaining);

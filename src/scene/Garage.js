@@ -12,6 +12,12 @@ import { ownedRightX } from '../core/upgrades.js';
  * on BOTH the back wall (z = +halfZ, entry) and the front wall (z = -halfZ,
  * exit), each flanked by gate pillars + a lintel. Locked pits keep solid wall on
  * both. The pit lots/stations and all cars are dynamic and owned by CarYard/PitView.
+ *
+ * The supermarket gets the same treatment, once unlocked: customers get their
+ * own back-wall entry + front-wall exit door at a fixed x (settings.supermarket.
+ * marketX) — marketEntryDoor/marketExitDoor, built by the same #buildDoorRow as
+ * the pit doors. A third, separate door in the LEFT wall (restockDoor) is for
+ * restocking only — the player carrying boxes, never customers.
  */
 export class Garage {
   constructor(sceneManager) {
@@ -24,6 +30,7 @@ export class Garage {
     this.#buildPitSpots();
     this.#buildWalls();
     this.#buildDoors();
+    this.#buildRestockDoor();
     this.sm.add(this.group);
   }
 
@@ -36,6 +43,17 @@ export class Garage {
     this.#layoutRightWall(this.rightWallX);
     this.#layoutSegmentedWall(this.backSegments, this.backWallZ, this.rightWallX, state);
     this.#layoutSegmentedWall(this.frontSegments, this.frontWallZ, this.rightWallX, state);
+    this.#layoutLeftWall(state);
+
+    // The restock door's pillars/lintel/exterior road show once the supermarket
+    // is unlocked — same affordance pattern as a pit door, but gated on the
+    // supermarket purchase instead of roomUnlocked. Restocking only — customers
+    // never use this one.
+    const marketOpen = state.supermarket.unlocked;
+    this.restockDoor.pillarNear.visible = marketOpen;
+    this.restockDoor.pillarFar.visible = marketOpen;
+    this.restockDoor.lintel.visible = marketOpen;
+    this.restockDoor.road.visible = marketOpen;
 
     // A door's pillars + lintel + outside road (both walls), plus the pit's blue
     // floor spot and exterior road section, all show once that pit's land is bought.
@@ -46,6 +64,16 @@ export class Garage {
       d.lintel.visible = open;
       d.road.visible = open;
       d.roadCenterLine.visible = open;
+    }
+
+    // The customers' own entry (back wall) + exit (front wall) doors — same
+    // shape as a car's pair of doors, just at a fixed x instead of per-pit.
+    for (const d of [this.marketEntryDoor, this.marketExitDoor]) {
+      d.pillarL.visible = marketOpen;
+      d.pillarR.visible = marketOpen;
+      d.lintel.visible = marketOpen;
+      d.road.visible = marketOpen;
+      d.roadCenterLine.visible = marketOpen;
     }
     for (const s of this.pitSpots) {
       s.spot.visible = state.pits[s.index].roomUnlocked;
@@ -280,17 +308,19 @@ export class Garage {
     this.frontWallZ = -W.halfZ - t / 2;
     this.backWallZ = W.halfZ + t / 2;
 
-    // Left wall: fixed at x = -halfX, solid, full depth.
-    const left = box(t, depthZ);
-    left.position.set(-W.halfX - t / 2, h / 2, 0);
-    this.group.add(left);
+    // Left wall: solid, except for one gap (the supermarket's door) that opens
+    // once the supermarket is unlocked — same segment-pool trick as the front/
+    // back walls' pit doors, just along z instead of x, and with a single
+    // door that never moves (so only 2 segments are ever needed).
+    this.leftSegments = this.#buildLeftWallSegments(box);
 
     // Right wall: slides to rightWallX each frame (solid, full depth).
     this.rightWall = box(t, depthZ);
     this.group.add(this.rightWall);
 
     // Front + back walls: pools of unit-width segments; gaps are left at unlocked
-    // pits' doors. maxPits doors → at most maxPits+1 solid segments per wall.
+    // pits' doors plus the market's entry/exit door once unlocked. maxPits+1
+    // doors total → at most maxPits+2 solid segments per wall.
     this.backSegments = this.#buildSegmentPool(box);
     this.frontSegments = this.#buildSegmentPool(box);
   }
@@ -298,8 +328,20 @@ export class Garage {
   #buildSegmentPool(box) {
     const W = settings.world;
     const pool = [];
-    for (let i = 0; i < settings.maxPits + 1; i++) {
+    for (let i = 0; i < settings.maxPits + 2; i++) {
       const seg = box(1, W.wallThickness);
+      seg.visible = false;
+      this.group.add(seg);
+      pool.push(seg);
+    }
+    return pool;
+  }
+
+  /** The left wall has at most one gap (the market door), so 2 segments cover it. */
+  #buildLeftWallSegments(box) {
+    const pool = [];
+    for (let i = 0; i < 2; i++) {
+      const seg = box(settings.world.wallThickness, 1);
       seg.visible = false;
       this.group.add(seg);
       pool.push(seg);
@@ -312,9 +354,15 @@ export class Garage {
     // exit on the front). dir is which way is "outward" from the building.
     this.backDoors = this.#buildDoorRow(this.backWallZ, 1);
     this.frontDoors = this.#buildDoorRow(this.frontWallZ, -1);
+
+    // The supermarket's own entry/exit: same builder, one door each, at a
+    // fixed x (not per-pit) — mirrors a car's back/front door pair exactly.
+    const marketX = [settings.supermarket.marketX];
+    this.marketEntryDoor = this.#buildDoorRow(this.backWallZ, 1, marketX)[0];
+    this.marketExitDoor = this.#buildDoorRow(this.frontWallZ, -1, marketX)[0];
   }
 
-  #buildDoorRow(z, dir) {
+  #buildDoorRow(z, dir, xs = settings.pit.positions.map((p) => p.x)) {
     const c = settings.colors;
     const W = settings.world;
     const h = W.wallHeight;
@@ -372,15 +420,63 @@ export class Garage {
       return grp;
     };
 
-    // One door per pit, at the pit's x (fixed). Toggled by roomUnlocked.
-    return settings.pit.positions.map((pos, index) => ({
+    // One door per x given (pit positions by default). Toggled by the caller.
+    return xs.map((x, index) => ({
       index,
-      pillarL: pillar(pos.x - g),
-      pillarR: pillar(pos.x + g),
-      lintel: lintel(pos.x),
-      road: road(pos.x),
-      roadCenterLine: roadCenterLine(pos.x),
+      pillarL: pillar(x - g),
+      pillarR: pillar(x + g),
+      lintel: lintel(x),
+      road: road(x),
+      roadCenterLine: roadCenterLine(x),
     }));
+  }
+
+  /**
+   * The restock-only door: a single gap in the LEFT wall (rotated 90° from the
+   * pit/market doors, whose gaps run along x at a fixed z — this one runs
+   * along z at the fixed x = -halfX). Toggled by state.supermarket.unlocked.
+   * Only the player (carrying boxes) ever uses this one — customers use their
+   * own back/front-wall doors instead (see #buildDoors' marketEntryDoor/
+   * marketExitDoor).
+   */
+  #buildRestockDoor() {
+    const c = settings.colors;
+    const W = settings.world;
+    const M = settings.supermarket;
+    const h = W.wallHeight;
+    const g = W.gateHalf;
+    const t = W.wallThickness;
+    const x = -W.halfX;
+
+    const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
+    const pillar = (z) => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h * 1.6, 0.6), gateMat);
+      p.position.set(x, h * 0.8, z);
+      p.castShadow = true;
+      p.visible = false;
+      this.group.add(p);
+      return p;
+    };
+
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, g * 2 + 0.6), gateMat);
+    lintel.position.set(x, h * 1.6, M.restockDoorZ);
+    lintel.castShadow = true;
+    lintel.visible = false;
+    this.group.add(lintel);
+
+    // Exterior path, running outward (-x) from the gap, wide enough to reach
+    // the restock pile beyond the wall.
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x5a5a5a });
+    const roadLength = 8;
+    const outerX = x - t / 2;
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(roadLength, g * 2), roadMat);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(outerX - roadLength / 2, 0.01, M.restockDoorZ);
+    road.receiveShadow = true;
+    road.visible = false;
+    this.group.add(road);
+
+    this.restockDoor = { pillarNear: pillar(M.restockDoorZ - g), pillarFar: pillar(M.restockDoorZ + g), lintel, road };
   }
 
   #layoutRightWall(rightX) {
@@ -395,10 +491,9 @@ export class Garage {
     const h = W.wallHeight;
     const leftX = -W.halfX;
 
-    const doors = state.pits
-      .filter((p) => p.roomUnlocked)
-      .map((p) => settings.pit.positions[p.index].x)
-      .sort((a, b) => a - b);
+    const doors = state.pits.filter((p) => p.roomUnlocked).map((p) => settings.pit.positions[p.index].x);
+    if (state.supermarket.unlocked) doors.push(settings.supermarket.marketX);
+    doors.sort((a, b) => a - b);
 
     const segs = [];
     let cursor = leftX;
@@ -420,6 +515,40 @@ export class Garage {
       mesh.visible = width > 0.001;
       mesh.scale.x = Math.max(0.001, width);
       mesh.position.set((a + b) / 2, h / 2, wallZ);
+    });
+  }
+
+  /** Place the left wall's (at most 2) segments to span [-halfZ, halfZ] minus the restock door's gap. */
+  #layoutLeftWall(state) {
+    const W = settings.world;
+    const M = settings.supermarket;
+    const g = W.gateHalf;
+    const h = W.wallHeight;
+    const x = -W.halfX - W.wallThickness / 2;
+    const z0 = -W.halfZ;
+    const z1 = W.halfZ;
+
+    const segs = [];
+    if (state.supermarket.unlocked) {
+      const gapStart = M.restockDoorZ - g;
+      const gapEnd = M.restockDoorZ + g;
+      if (gapStart > z0) segs.push([z0, gapStart]);
+      if (z1 > gapEnd) segs.push([gapEnd, z1]);
+    } else {
+      segs.push([z0, z1]);
+    }
+
+    this.leftSegments.forEach((mesh, i) => {
+      const seg = segs[i];
+      if (!seg) {
+        mesh.visible = false;
+        return;
+      }
+      const [a, b] = seg;
+      const depth = b - a;
+      mesh.visible = depth > 0.001;
+      mesh.scale.z = Math.max(0.001, depth);
+      mesh.position.set(x, h / 2, (a + b) / 2);
     });
   }
 }

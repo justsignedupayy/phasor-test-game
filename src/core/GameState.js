@@ -42,6 +42,33 @@ function createPit(index) {
   };
 }
 
+/**
+ * The supermarket. unlocked is the one-time "Open Supermarket" purchase;
+ * workerLevel is the 2-stage worker upgrade (0 = player does everything by
+ * hand, 1 = worker packages, 2 = worker also restocks — see upgrades.js and
+ * core/supermarket.js). shelves/customerQueue/checkoutBag/worker are all
+ * advanced by tickSupermarket(); restockBoxPosition is copied from settings
+ * once so a save is self-contained even if the layout setting later moves.
+ */
+function createSupermarketState() {
+  return {
+    unlocked: false,
+    workerLevel: 0,
+    shelves: settings.supermarket.shelves.map((cfg, i) => ({
+      index: i,
+      productType: cfg.productType,
+      stock: settings.supermarket.shelfCapacity,
+    })),
+    customerQueue: [],
+    nextCustomerId: 1,
+    spawnTimer: settings.supermarket.customerSpawnInterval, // seeded so the first customer arrives promptly
+    assemblingBag: null, // { customerId, items:{A:n,...} } while being gathered (player or worker)
+    checkoutBag: null, // { customerId, items, total } once fully assembled and placed at the counter
+    worker: null, // { position:{x,z}, rotation, moving, carrying, state:'idle'|'packaging'|'restocking', ... } once workerLevel >= 1
+    restockBoxPosition: { ...settings.supermarket.restockBoxPosition },
+  };
+}
+
 export class GameState {
   constructor() {
     this.cash = 0;
@@ -82,10 +109,14 @@ export class GameState {
       moving: false,
       carryingBox: false, // is the player holding a box right now?
       carryingBoxPitIndex: null, // which pit's shelf the carried box came from
+      carryingRestockBox: false, // manual market restocking: carrying a box from the outside pile
     };
 
     // Desired move direction in WORLD space (x/z), magnitude 0..1.
     this.input = { x: 0, z: 0 };
+
+    // The supermarket (see core/supermarket.js + upgrades.js).
+    this.supermarket = createSupermarketState();
   }
 }
 

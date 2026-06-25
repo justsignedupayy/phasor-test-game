@@ -62,6 +62,14 @@ export function updateMixer(mixer, dt, label) {
   mixer.update(dt);
 }
 
+/** Shortest-path angle interpolation (handles wrap-around), used by every moving character. */
+export function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
 /**
  * Clones a mesh's material(s) — so a tinted clone never mutates the shared
  * source materials — and recolors them. Materials without a `.color` (some

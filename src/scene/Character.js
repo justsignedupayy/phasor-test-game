@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
-import { buildActionMap, crossfadeTo, groundModel, updateMixer } from './characterAnim.js';
+import { buildActionMap, crossfadeTo, groundModel, lerpAngle, updateMixer } from './characterAnim.js';
 
 /**
  * Character — the player, rendered as the shared rigged glTF model (see
@@ -58,11 +58,15 @@ export class Character {
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, player.rotation, t);
 
-    // Active state: a yell/repair blip wins briefly, else moving/idle.
+    // Active state: a yell/repair blip wins briefly, else carrying a box
+    // overrides walk/idle (carry/carryIdle) for as long as
+    // player.carryingBox is true.
     let next;
     if (this.emoteTimer > 0) {
       this.emoteTimer = Math.max(0, this.emoteTimer - dt);
       next = this.emoteState;
+    } else if (player.carryingBox) {
+      next = player.moving ? 'carry' : 'carryIdle';
     } else {
       next = player.moving ? 'walk' : 'idle';
     }
@@ -70,12 +74,4 @@ export class Character {
 
     updateMixer(this.mixer, dt, 'Character');
   }
-}
-
-// Shortest-path angle interpolation (handles wrap-around).
-function lerpAngle(a, b, t) {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
 }

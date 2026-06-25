@@ -7,6 +7,9 @@ import {
   buyFixingTime,
   buyCashier,
   buyConveyor,
+  buySupermarket,
+  hireMarketWorker,
+  trainMarketWorker,
 } from '../core/upgrades.js';
 import { saveGame } from '../platform/storage.js';
 
@@ -163,6 +166,9 @@ export class UpgradeMenu {
     this.content.appendChild(this.#sectionHeader('Automation'));
     this.content.appendChild(this.#card(null, model.automation));
 
+    this.content.appendChild(this.#sectionHeader('Supermarket'));
+    this.content.appendChild(this.#card(null, model.supermarket));
+
     this.content.appendChild(this.#sectionHeader('Workers'));
     for (const worker of model.workers) {
       this.content.appendChild(this.#card(worker.title, worker.rows));
@@ -239,6 +245,7 @@ export class UpgradeMenu {
     for (const row of model.garage) this.#refreshRow(row);
     for (const row of model.cashier) this.#refreshRow(row);
     for (const row of model.automation) this.#refreshRow(row);
+    for (const row of model.supermarket) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
   }
 
@@ -280,6 +287,15 @@ export class UpgradeMenu {
       case 'conveyor':
         ok = buyConveyor(this.state);
         break;
+      case 'openMarket':
+        ok = buySupermarket(this.state);
+        break;
+      case 'hireMarketWorker':
+        ok = hireMarketWorker(this.state);
+        break;
+      case 'trainMarketWorker':
+        ok = trainMarketWorker(this.state);
+        break;
     }
     if (ok) {
       this.update(this.state);
@@ -298,6 +314,7 @@ function structureSignature(model) {
   const garage = model.garage.map(rowKey).join(',');
   const cashier = model.cashier.map(rowKey).join(',');
   const automation = model.automation.map(rowKey).join(',');
+  const supermarket = model.supermarket.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `G[${garage}]C[${cashier}]A[${automation}]W[${workers}]`;
+  return `G[${garage}]C[${cashier}]A[${automation}]S[${supermarket}]W[${workers}]`;
 }

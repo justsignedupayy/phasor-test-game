@@ -33,18 +33,21 @@ export class SupermarketView {
   #buildShelves() {
     const M = settings.supermarket;
     this.shelves = M.shelves.map((cfg, i) => {
+      const ox = cfg.offset?.x ?? 0;
+      const oz = cfg.offset?.z ?? 0;
+
       const model = cloneStorageModel(cfg.model);
       model.scale.setScalar(cfg.model === 'shelfEnd' ? M.shelfScale : M.freezerScale);
-      model.position.set(cfg.x, 0, cfg.z);
+      model.position.set(cfg.x + ox, 0, cfg.z + oz);
       model.visible = false;
       this.sm.add(model);
 
       const label = makeLabelSprite();
-      label.position.set(cfg.x, 2.6, cfg.z);
+      label.position.set(cfg.x + ox, 2.6, cfg.z + oz);
       label.visible = false;
       this.sm.add(label);
 
-      const ring = makeRing(cfg.x, cfg.z);
+      const ring = makeRing(cfg.x + ox, cfg.z + oz);
       this.sm.add(ring);
 
       return { index: i, cfg, model, label, ring, labelText: '' };

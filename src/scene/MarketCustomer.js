@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { buildActionMap, crossfadeTo, groundModel, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
+import { cloneStorageModel } from './StorageModels.js';
 
 const HEAD_LABEL_Y = 2.1; // floats just above the head
 
@@ -9,8 +10,9 @@ const HEAD_LABEL_Y = 2.1; // floats just above the head
  * MarketCustomer — one shopper NPC, the same rigged glTF as the player/workers,
  * cloned + tinted (customerTint). Walks in, queues, walks to checkout, walks
  * out (core/supermarket.js owns its position/rotation/state; this only
- * renders it). Idle/walkSlow only — no carry, since a customer doesn't
- * visibly hold its bag until after checkout, which is also when it leaves.
+ * renders it). Walks in idle/walkSlow until it collects at checkout, then hauls
+ * a Bag.glb (parented to its hand bone) out on the 'carryWalk' clip until it
+ * exits and is disposed.
  * Shows its order (e.g. "2A 1C") on a head-label sprite for its whole
  * lifetime — the request never changes after spawn, so it's drawn once.
  */
@@ -33,6 +35,13 @@ export class MarketCustomer {
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
 
+    // Bag.glb carried out once the customer collects at checkout (parented to the
+    // hand bone so it tracks the carry animation); hidden until then.
+    this.bag = cloneStorageModel('bag');
+    this.bag.scale.setScalar(settings.supermarket.bagScale);
+    this.bag.visible = false;
+    attachToHand(this.model, this.bag, settings.supermarket.bagHandOffset, settings.supermarket.bagHandRotation);
+
     this.headLabel = makeRequestSprite();
     this.headLabel.position.set(0, HEAD_LABEL_Y, 0); // on the Y axis — unaffected by root's facing rotation
     drawRequestSprite(this.headLabel, formatRequest(customer.request));
@@ -52,13 +61,32 @@ export class MarketCustomer {
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, customer.rotation, t);
 
-    const next = customer.moving ? 'walkSlow' : 'idle';
+    // The customer collects its bag at the checkout — core flips it to
+    // 'walkingOut' at that moment — and carries it (hand-attached Bag.glb +
+    // 'carryWalk') from there until it leaves; before that it walks empty-handed.
+    const carrying = customer.state === 'walkingOut';
+    const next = carrying ? (customer.moving ? 'carryWalk' : 'carryIdle') : customer.moving ? 'walkSlow' : 'idle';
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
+    this.bag.visible = carrying;
 
     updateMixer(this.mixer, dt, 'MarketCustomer');
   }
 
   dispose(sceneManager) {
+    // Detach the carried bag first: its geometry is shared with every other
+    // Bag.glb clone (worker's bag, checkout bag), so it must NOT be caught by the
+    // root geometry-dispose below. Only its own cloned materials are freed.
+    if (this.bag) {
+      this.bag.removeFromParent();
+      this.bag.traverse((o) => {
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => m.dispose());
+        }
+      });
+      this.bag = null;
+    }
+
     sceneManager.remove(this.root);
     this.root.traverse((o) => {
       if (o.geometry) o.geometry.dispose();

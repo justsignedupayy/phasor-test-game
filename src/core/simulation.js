@@ -239,15 +239,25 @@ function repelFromRect(pos, r, b) {
  * one, to fetch boxes, never customers.
  */
 function clampToBounds(state, pos) {
-  const limX = settings.world.halfX - settings.player.radius;
-  const limZ = settings.world.halfZ - settings.player.radius;
-  const rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : settings.world.halfX) - settings.player.radius;
+  const W = settings.world;
+  const r = settings.player.radius;
+  const limX = W.halfX - r;
+  const limZ = W.halfZ - r;
+  let rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : W.halfX) - r;
 
   let leftLim = -limX;
   const M = settings.supermarket;
   const throughRestockDoor =
-    state.supermarket.unlocked && Math.abs(pos.z - M.restockDoorZ) <= settings.world.gateHalf - settings.player.radius;
-  if (throughRestockDoor) leftLim = M.exteriorLimitX + settings.player.radius;
+    state.supermarket.unlocked && Math.abs(pos.z - M.restockDoorZ) <= W.gateHalf - r;
+  // Once unlocked, the player can step OUT through the restock door's z-gap to
+  // the exterior pile (which sits north of the door, not dead-centre on it),
+  // roam the exterior strip, and walk back in. The rest of the left wall stays
+  // solid, so crossing it — out OR back — is only ever possible within the
+  // door's z-band. Without this, leaving the band snapped the player back
+  // inside before they could ever reach the pile.
+  const outside = state.supermarket.unlocked && pos.x < -W.halfX;
+  if (throughRestockDoor || outside) leftLim = M.exteriorLimitX + r;
+  if (outside && !throughRestockDoor) rightLim = -W.halfX - r; // solid wall blocks re-entry off-door
 
   pos.x = Math.max(leftLim, Math.min(rightLim, pos.x));
   pos.z = Math.max(-limZ, Math.min(limZ, pos.z));

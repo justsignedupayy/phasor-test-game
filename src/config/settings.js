@@ -62,6 +62,10 @@ export const settings = {
       // move well under run speed — market customers/worker (see
       // MarketCustomer.js / MarketWorker.js) — so their legs match their feet.
       walkSlow: 'walkSlow',
+      // walking-pace carry cycle: a customer hauling its bag out at walking
+      // speed (MarketCustomer.js, post-checkout) — the walkSlow counterpart to
+      // the run-paced 'carry'.
+      carryWalk: 'carryWalk',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
@@ -185,8 +189,8 @@ export const settings = {
   // which starts at x ≈ -28.2) — clear of every pit lot and car lane, always
   // within owned land, reachable without crossing any lane.
   computer: {
-    x: -36,
-    z: 4,
+    x: -47,
+    z: 7.5,
     radius: 1.6,
   },
 
@@ -194,8 +198,8 @@ export const settings = {
   // from `computer` so the character can sit beside the desk rather than on it.
   // rotation is the Y-axis facing in radians.
   cashier: {
-    x: -36.0,
-    z: 5,
+    x: -47.0,
+    z: 8.5,
     rotation: Math.PI,
   },
 
@@ -238,6 +242,11 @@ export const settings = {
     shelfBoxScale: 0.25,
     boxGrid: { cols: 3, spacingX: 0.5, spacingY: 0.5, baseY: 0.35 },
     carriedBoxOffset: { forward: 0.9, y: 1.3 }, // floats ahead of + above the player
+    // Local placement of the market worker's hand-held cardboard box during a
+    // restock haul (applied in characterAnim.attachToHand, in the hand bone's
+    // local space). Tune by eye once visible; rotation is Euler radians.
+    boxHandOffset: { x: 0, y: 0, z: 0 },
+    boxHandRotation: { x: 0, y: 0, z: 0 },
     // Conveyor delivery animation: a single box rides the belt from the shelf end
     // to the worker end, then vanishes (one box per delivery, not a loop).
     conveyorBeltY: 0.6, // height the traveling box rides at
@@ -303,13 +312,13 @@ export const settings = {
     exteriorLimitX: -54.5, // how far out the player may walk to reach the restock pile
 
     shelves: [
-      { x: -44, z: -4, productType: 'A', model: 'shelfEnd' },
-      { x: -32, z: -4, productType: 'B', model: 'shelfEnd' },
-      { x: -44, z: -7, productType: 'C', model: 'freezer' },
-      { x: -32, z: -7, productType: 'D', model: 'freezer' },
+      { x: -44, z: -6, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
+      { x: -32, z: -6, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
+      { x: -44, z: -9, productType: 'C', model: 'freezer', offset: { x: 0, z: 0 } },
+      { x: -32, z: -9, productType: 'D', model: 'freezer', offset: { x: 0, z: 0 } },
     ],
     restockBoxPosition: { x: -53.5, z: -5 },
-    checkoutPosition: { x: -38, z: 1 },
+    checkoutPosition: { x: -45.5, z: 7.596 },
     workerIdleSpot: { x: -38, z: -2 },
     queueAnchor: { x: -38, z: 4.5 }, // slot 0 — nearest the checkout
     queueStep: { x: 0, z: 1.2 }, // each further-back slot steps this much toward the entry door
@@ -317,10 +326,16 @@ export const settings = {
     interactRadius: 1.8, // tap-affordance radius for shelves/checkout/restock pile (mirrors settings.pit.radius)
 
     // Per-model scale fixups (tune by eye once visible, like settings.storage.*Scale).
-    shelfScale: 1,
-    freezerScale: 1,
+    shelfScale: 1.8,
+    freezerScale: 1.8,
     bagScale: 1,
     restockPileScale: 0.6,
+    // Local placement of a hand-held Bag.glb (the customer's groceries after
+    // checkout, and the worker's packaging bag), applied in
+    // characterAnim.attachToHand in the hand bone's local space. Tune by eye once
+    // visible; rotation is Euler radians.
+    bagHandOffset: { x: 0, y: 0, z: 0 },
+    bagHandRotation: { x: 0, y: 0, z: 0 },
   },
 
   // Static GLB props loaded once at startup (see scene/StorageModels.js).

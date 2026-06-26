@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { buildActionMap, crossfadeTo, groundModel, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
+import { cloneStorageModel } from './StorageModels.js';
 
 /**
  * MarketWorker — the supermarket's worker NPC (state.supermarket.workerLevel
@@ -29,6 +30,23 @@ export class MarketWorker {
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
 
+    // Two independently-toggled hand props, both parented to the hand bone so
+    // they track the carry animation:
+    //  • a cardboard box on a restock haul (pile → shelf), sized like the
+    //    player's carried box (settings.storage.boxScale);
+    //  • a Bag.glb holding the order while packaging.
+    // Only one is ever visible at a time (the worker can't restock and package
+    // at once), but each is shown/hidden by its own state below.
+    this.box = cloneStorageModel('box');
+    this.box.scale.setScalar(settings.storage.boxScale);
+    this.box.visible = false;
+    attachToHand(this.model, this.box, settings.storage.boxHandOffset, settings.storage.boxHandRotation);
+
+    this.bag = cloneStorageModel('bag');
+    this.bag.scale.setScalar(settings.supermarket.bagScale);
+    this.bag.visible = false;
+    attachToHand(this.model, this.bag, settings.supermarket.bagHandOffset, settings.supermarket.bagHandRotation);
+
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);
     this.state = 'idle';
@@ -43,12 +61,30 @@ export class MarketWorker {
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, worker.rotation, t);
 
-    // Carrying the bag (packaging) or a restock box overrides walk/idle with
-    // carry/carryIdle for as long as it lasts — mirrors the player's carry flow.
-    // Plain walking uses 'walkSlow' (not the run-paced 'walk') since the
-    // worker moves well under run speed — see settings.supermarket.workerMoveSpeed.
-    const next = worker.carrying ? (worker.moving ? 'carry' : 'carryIdle') : worker.moving ? 'walkSlow' : 'idle';
+    // On a RESTOCK haul the worker carries the cardboard box from the pile to the
+    // shelf — carry clip + visible box — once it has actually picked it up
+    // (worker.carrying flips true on arrival at the pile).
+    const haulingBox = worker.state === 'restocking' && worker.carrying;
+
+    // Animation: restock haul → carry. While packaging, gate on core's
+    // worker._gatheredItem — empty-handed (false) is the run-paced sprint to the
+    // first shelf ('walk'); once it holds ≥1 item (true) it switches to 'carry'
+    // for the rest of the trip. Everything else uses the walking-pace 'walkSlow'.
+    let next;
+    if (haulingBox) {
+      next = worker.moving ? 'carry' : 'carryIdle';
+    } else if (worker.state === 'packaging') {
+      next = worker._gatheredItem ? (worker.moving ? 'carry' : 'carryIdle') : worker.moving ? 'walk' : 'idle';
+    } else {
+      next = worker.moving ? 'walkSlow' : 'idle';
+    }
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
+
+    // Props: the cardboard box shows on a restock haul; the order bag shows while
+    // packaging once an item is in hand — both gated on the same flags that drive
+    // the animation. worker._gatheredItem is only ever true mid-packaging-trip.
+    this.box.visible = haulingBox;
+    this.bag.visible = worker._gatheredItem;
 
     updateMixer(this.mixer, dt, 'MarketWorker');
   }

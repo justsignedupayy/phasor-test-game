@@ -62,6 +62,45 @@ export function updateMixer(mixer, dt, label) {
   mixer.update(dt);
 }
 
+const _attachPos = new THREE.Vector3();
+const _attachQuat = new THREE.Quaternion();
+const _attachScale = new THREE.Vector3();
+
+/**
+ * Parents a prop (e.g. a carried Bag.glb / box clone) under the character's hand
+ * bone so it tracks the hand through every animation frame. The rigged glTF's
+ * hand bones import as 'handr'/'handl' (Rigify 'hand.r'/'hand.l', with the dots
+ * stripped by GLTFLoader's node-name sanitiser — the same reason stripRootMotion
+ * targets 'rootx'/'root'). Prefers the right hand, falls back to the left, and
+ * finally to the model root with a warning so a prop is never silently lost.
+ *
+ * The rig bakes a 0.01 (cm→m) scale into its root bone, so a hand bone's WORLD
+ * scale is 0.01 — a prop parented straight onto it would render at 1/100th size
+ * and look invisible. We divide that world scale back out so the local scale the
+ * caller already set (e.g. settings.supermarket.bagScale) becomes the prop's
+ * effective WORLD size.
+ *
+ * `offset` ({x,y,z}) and `rotation` ({x,y,z} Euler radians) place the prop in the
+ * hand bone's local space (a prop's natural pivot rarely sits where the palm is).
+ * Both default to no transform. Returns the parent it attached to.
+ */
+export function attachToHand(model, prop, offset, rotation) {
+  const hand = model.getObjectByName('handr') || model.getObjectByName('handl');
+  const parent = hand ?? model;
+  if (!hand) {
+    console.warn('[characterAnim] no hand bone (handr/handl) found — attaching prop to the model root instead.');
+  }
+  parent.add(prop);
+  parent.updateWorldMatrix(true, false);
+  parent.matrixWorld.decompose(_attachPos, _attachQuat, _attachScale);
+  if (_attachScale.x && _attachScale.y && _attachScale.z) {
+    prop.scale.set(prop.scale.x / _attachScale.x, prop.scale.y / _attachScale.y, prop.scale.z / _attachScale.z);
+  }
+  if (offset) prop.position.set(offset.x, offset.y, offset.z);
+  if (rotation) prop.rotation.set(rotation.x, rotation.y, rotation.z);
+  return parent;
+}
+
 /** Shortest-path angle interpolation (handles wrap-around), used by every moving character. */
 export function lerpAngle(a, b, t) {
   let d = b - a;

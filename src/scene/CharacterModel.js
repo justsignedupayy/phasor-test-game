@@ -2,16 +2,17 @@ import { MathUtils } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 /**
- * CharacterModel.js — the rigged character is split across seven Mixamo
+ * CharacterModel.js — the rigged character is split across eight Mixamo
  * exports, one animation each: character_idle.glb (mesh + skeleton + idle
  * clip), character_run.glb (run clip), character_repair.glb (repair clip),
  * character_yell.glb (yell clip), character_carry_run.glb (carry-while-walking
- * clip), character_carry_idle.glb (carry-while-standing clip), and
- * character_walk.glb (a genuine walking-pace clip), all sharing the same
- * skeleton. They load exactly once and are merged into a single gltf-shaped
- * { scene, animations } result — idle's scene as the base, clips renamed to
- * 'idle'/'walk'/'repair'/'yell'/'carry'/'carryIdle'/'walkSlow' — so the
- * player and every worker/customer clone share one fetched/parsed asset (see
+ * clip), character_carry_idle.glb (carry-while-standing clip),
+ * character_walk.glb (a genuine walking-pace clip), and character_carry_walk.glb
+ * (a walking-pace carry cycle, for NPCs who haul a bag at walking speed), all
+ * sharing the same skeleton. They load exactly once and are merged into a single
+ * gltf-shaped { scene, animations } result — idle's scene as the base, clips
+ * renamed to 'idle'/'walk'/'repair'/'yell'/'carry'/'carryIdle'/'walkSlow'/'carryWalk'
+ * — so the player and every worker/customer clone share one fetched/parsed asset (see
  * Character.js + Mechanic.js + MarketWorker.js + MarketCustomer.js, which
  * build their own AnimationMixer off gltf.scene/animations).
  *
@@ -41,8 +42,9 @@ export function loadCharacterModel() {
       loader.loadAsync('/models/character_yell.glb'),
       loader.loadAsync('/models/character_carry_run.glb'),
       loader.loadAsync('/models/character_carry_idle.glb'),
-      loader.loadAsync('/models/character_walk.glb'),
-    ]).then(([idleGltf, runGltf, repairGltf, yellGltf, carryGltf, carryIdleGltf, walkGltf]) => {
+      loader.loadAsync('/models/character_sassy_walk.glb'),
+      loader.loadAsync('/models/character_carry_walk.glb'),
+    ]).then(([idleGltf, runGltf, repairGltf, yellGltf, carryGltf, carryIdleGltf, walkGltf, carryWalkGltf]) => {
       const idleClip = idleGltf.animations[0];
       const walkClip = runGltf.animations[0];
       const repairClip = repairGltf.animations[0];
@@ -50,6 +52,7 @@ export function loadCharacterModel() {
       const carryClip = carryGltf.animations[0];
       const carryIdleClip = carryIdleGltf.animations[0];
       const walkSlowClip = walkGltf.animations[0];
+      const carryWalkClip = carryWalkGltf.animations[0];
       idleClip.name = 'idle';
       walkClip.name = 'walk';
       repairClip.name = 'repair';
@@ -57,6 +60,7 @@ export function loadCharacterModel() {
       carryClip.name = 'carry';
       carryIdleClip.name = 'carryIdle';
       walkSlowClip.name = 'walkSlow';
+      carryWalkClip.name = 'carryWalk';
 
       console.log(
         'clip durations — idle:', idleClip.duration,
@@ -65,7 +69,8 @@ export function loadCharacterModel() {
         'yell:', yellClip.duration,
         'carry:', carryClip.duration,
         'carryIdle:', carryIdleClip.duration,
-        'walkSlow:', walkSlowClip.duration
+        'walkSlow:', walkSlowClip.duration,
+        'carryWalk:', carryWalkClip.duration
       );
 
       idleClip.uuid = MathUtils.generateUUID();
@@ -75,6 +80,7 @@ export function loadCharacterModel() {
       carryClip.uuid = MathUtils.generateUUID();
       carryIdleClip.uuid = MathUtils.generateUUID();
       walkSlowClip.uuid = MathUtils.generateUUID();
+      carryWalkClip.uuid = MathUtils.generateUUID();
 
       // carryIdle is a standing pose (like idle), not a travel cycle, so it
       // keeps its root motion — only the walk-style clips get stripped.
@@ -83,10 +89,11 @@ export function loadCharacterModel() {
       stripRootMotion(yellClip);
       stripRootMotion(carryClip);
       stripRootMotion(walkSlowClip);
+      stripRootMotion(carryWalkClip);
 
       return {
         scene: idleGltf.scene,
-        animations: [idleClip, walkClip, repairClip, yellClip, carryClip, carryIdleClip, walkSlowClip],
+        animations: [idleClip, walkClip, repairClip, yellClip, carryClip, carryIdleClip, walkSlowClip, carryWalkClip],
       };
     });
   }

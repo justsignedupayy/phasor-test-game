@@ -25,6 +25,12 @@
  */
 import settings from '../config/settings.js';
 
+// The market worker only bothers restocking a shelf once it's GENUINELY low —
+// at or below half its capacity — instead of shuttling to the box pile the
+// instant a single unit sells (which left it restocking near-full shelves in a
+// near-constant loop). Topping off only happens below this fraction of capacity.
+const RESTOCK_THRESHOLD_FRACTION = 0.1;
+
 // --- shared movement -------------------------------------------------------
 
 /**
@@ -82,15 +88,57 @@ export function computeTotal(items) {
   return total;
 }
 
-/** First shelf index whose product the customer still needs more of, or null. */
-function nextNeededShelfIndex(state, customer) {
+/** The assembling bag for this customer, or null if none is in progress for them. */
+function customerBag(state, customer) {
+  const bag = state.supermarket.assemblingBag;
+  return bag && bag.customerId === customer.id ? bag : null;
+}
+
+/** Does the worker currently hold ≥1 gathered item toward this customer's order? */
+function bagHasItems(state, customer) {
+  if (!customer) return false;
+  const bag = customerBag(state, customer);
+  if (!bag) return false;
+  for (const type in bag.items) if (bag.items[type] > 0) return true;
+  return false;
+}
+
+/**
+ * Nearest shelf (by Euclidean distance from `from`) that the customer still
+ * needs more of AND that has stock to gather, or null. Drives packaging routing
+ * so the worker walks to whichever in-stock needed shelf is closest, not the
+ * lowest product index.
+ */
+function nearestNeededShelfIndex(state, customer, from) {
   const S = state.supermarket;
-  const bag = S.assemblingBag && S.assemblingBag.customerId === customer.id ? S.assemblingBag : null;
+  const positions = settings.supermarket.shelves;
+  const bag = customerBag(state, customer);
+  let best = null;
+  let bestDist = Infinity;
   for (let i = 0; i < S.shelves.length; i++) {
     const type = S.shelves[i].productType;
     const wanted = customer.request[type] || 0;
     const have = bag ? bag.items[type] || 0 : 0;
-    if (wanted > have) return i;
+    if (wanted <= have) continue; // no longer needs this product
+    if (S.shelves[i].stock <= 0) continue; // out of stock — nothing to gather here
+    const d = Math.hypot(positions[i].x - from.x, positions[i].z - from.z);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** A shelf the customer still needs but that is empty (blocks the order until restocked), or null. */
+function neededEmptyShelfIndex(state, customer) {
+  const S = state.supermarket;
+  const bag = customerBag(state, customer);
+  for (let i = 0; i < S.shelves.length; i++) {
+    const type = S.shelves[i].productType;
+    const wanted = customer.request[type] || 0;
+    const have = bag ? bag.items[type] || 0 : 0;
+    if (wanted > have && S.shelves[i].stock <= 0) return i;
   }
   return null;
 }
@@ -258,6 +306,7 @@ export function createMarketWorker() {
     state: 'idle',
     phase: null,
     targetShelfIndex: null,
+    _gatheredItem: false, // true once ≥1 order item is in hand this packaging trip (drives the carry clip + bag prop)
   };
 }
 
@@ -274,10 +323,8 @@ function updateWorker(state, dt) {
     w.carrying = true;
     if (arrived) {
       buyProduct(state, w.targetShelfIndex);
-      const customer = frontCustomer(state);
-      const next = customer ? nextNeededShelfIndex(state, customer) : null;
-      if (next !== null) w.targetShelfIndex = next;
-      else w.phase = 'toCheckout';
+      w._gatheredItem = bagHasItems(state, frontCustomer(state));
+      w.phase = null; // re-decide the next leg (nearest needed shelf / checkout / restock) from here
     }
     return;
   }
@@ -291,6 +338,7 @@ function updateWorker(state, dt) {
       w.phase = null;
       w.carrying = false;
       w.state = 'idle';
+      w._gatheredItem = false;
     }
     return;
   }
@@ -319,28 +367,63 @@ function updateWorker(state, dt) {
     return;
   }
 
-  // Idle: decide the next job. Packaging (a waiting customer) always wins over
+  // Idle: decide the next job. Serving a waiting customer wins over routine
   // restocking; restocking only ever runs for a fully trained (level 2) worker.
   const customer = frontCustomer(state);
   if (customer && !S.checkoutBag) {
-    const idx = nextNeededShelfIndex(state, customer);
-    w.state = 'packaging';
-    w.phase = idx !== null ? 'toShelf' : 'toCheckout';
-    w.targetShelfIndex = idx;
+    // Walk to the nearest in-stock shelf the order still needs.
+    const idx = nearestNeededShelfIndex(state, customer, w.position);
+    if (idx !== null) {
+      w.state = 'packaging';
+      w.phase = 'toShelf';
+      w.targetShelfIndex = idx;
+      w._gatheredItem = bagHasItems(state, customer);
+      return;
+    }
+    // Nothing left to gather in stock: either the order is complete (deliver it)
+    // or it's blocked on an empty shelf. A blocked shelf must be restocked first
+    // (level 2) — otherwise the worker would loop forever at the empty shelf.
+    const bag = customerBag(state, customer);
+    if (bag && bagComplete(bag.items, customer.request)) {
+      w.state = 'packaging';
+      w.phase = 'toCheckout';
+      w.targetShelfIndex = null;
+      w._gatheredItem = true;
+      return;
+    }
+    if (S.workerLevel >= 2) {
+      const blocked = neededEmptyShelfIndex(state, customer);
+      if (blocked !== null) {
+        w.state = 'restocking';
+        w.phase = 'toBox';
+        w.targetShelfIndex = blocked;
+        w._gatheredItem = false;
+        return;
+      }
+    }
+    // A level-1 worker can't restock; with the order blocked there's nothing it
+    // can do but wait for the player to refill, so it idles in place.
+    w.state = 'idle';
+    w.moving = false;
+    w._gatheredItem = false;
     return;
   }
   if (S.workerLevel >= 2) {
     const idx = emptiestShelfIndex(state);
-    if (idx !== null) {
+    const restockAt = M.shelfCapacity * RESTOCK_THRESHOLD_FRACTION;
+    if (idx !== null && S.shelves[idx].stock <= restockAt) {
       w.state = 'restocking';
       w.phase = 'toBox';
       w.targetShelfIndex = idx;
+      w._gatheredItem = false;
       return;
     }
   }
+  // Idle in place: no job to do, so the worker stays exactly where its last task
+  // left it (no walk back to a fixed idle spot) and drops straight into idle.
   w.state = 'idle';
-  const arrived = moveToward(w, M.workerIdleSpot, M.workerMoveSpeed, dt, M.arriveEpsilon);
-  w.moving = !arrived;
+  w.moving = false;
+  w._gatheredItem = false;
 }
 
 // --- top-level tick -----------------------------------------------------------

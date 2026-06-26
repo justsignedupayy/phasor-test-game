@@ -320,8 +320,14 @@ export const settings = {
     restockBoxPosition: { x: -53.5, z: -5 },
     checkoutPosition: { x: -45.5, z: 7.596 },
     workerIdleSpot: { x: -38, z: -2 },
-    queueAnchor: { x: -38, z: 4.5 }, // slot 0 — nearest the checkout
-    queueStep: { x: 0, z: 1.2 }, // each further-back slot steps this much toward the entry door
+    // queueAnchor (slot 0, nearest the checkout) sits right beside the counter, at
+    // the same z; queueStep runs along x toward the entry door (there's only ~2.5
+    // units of floor between the checkout and the left wall, not enough room for a
+    // line of 5 if it stepped further back in z instead — see Garage.js's left
+    // wall at x = -world.halfX). It used to be anchored at the door's x (z-stepped),
+    // which stranded the line far from the checkout it was meant to lead into.
+    queueAnchor: { x: -44.1, z: 7.6 },
+    queueStep: { x: 1.4, z: 0 }, // each further-back slot steps this much further east, toward the entry door
 
     interactRadius: 1.8, // tap-affordance radius for shelves/checkout/restock pile (mirrors settings.pit.radius)
 

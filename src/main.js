@@ -3,7 +3,7 @@ import settings from './config/settings.js';
 import { createInitialState } from './core/GameState.js';
 import { tick, tapRepair, hurry } from './core/simulation.js';
 import { seedIdCounter } from './core/Car.js';
-import { tickSupermarket, buyProduct, placeAtCheckout, restockShelf } from './core/supermarket.js';
+import { tickSupermarket, buyProduct, placeAtCheckout, restockShelf, hurryMarketWorker } from './core/supermarket.js';
 import { SceneManager } from './scene/SceneManager.js';
 import { Input } from './scene/Input.js';
 import { Character } from './scene/Character.js';
@@ -104,6 +104,8 @@ async function main() {
    * or workerLevel < 2 (restocking; the player still restocks at level 1).
    * Proximity is checked here at tap-time, the same role state.pits[i].playerPresent
    * plays for tapRepair, just computed inline instead of written every frame.
+   * Tapping the worker itself is the one exception: a remote hurry, same as
+   * tapping a manned pit's car, so it works from anywhere with no proximity check.
    */
   function handleMarketTap(hit) {
     const market = state.supermarket;
@@ -111,7 +113,10 @@ async function main() {
     const near = (pos) =>
       Math.hypot(state.player.position.x - pos.x, state.player.position.z - pos.z) <= M.interactRadius;
 
-    if (hit.kind === 'shelf') {
+    if (hit.kind === 'worker') {
+      hurryMarketWorker(state);
+      character.yell();
+    } else if (hit.kind === 'shelf') {
       const cfg = M.shelves[hit.index];
       if (!near(cfg)) return;
       if (state.player.carryingRestockBox) {

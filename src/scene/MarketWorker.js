@@ -12,6 +12,8 @@ import { cloneStorageModel } from './StorageModels.js';
  * rotation/state each tick, this class only renders it — same split as
  * Character.js mirroring state.player.
  */
+const HURRY_TIME_SCALE = 2; // matches Mechanic.js: the active clip plays at double speed while hurrying
+
 export class MarketWorker {
   constructor(gltf) {
     const cfg = settings.character;
@@ -79,6 +81,9 @@ export class MarketWorker {
       next = worker.moving ? 'walkSlow' : 'idle';
     }
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
+
+    const activeAction = this.actions[this.state];
+    if (activeAction) activeAction.timeScale = worker.hurryTimer > 0 ? HURRY_TIME_SCALE : 1;
 
     // Props: the cardboard box shows on a restock haul; the order bag shows while
     // packaging once an item is in hand — both gated on the same flags that drive

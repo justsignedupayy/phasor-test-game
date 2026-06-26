@@ -9,6 +9,8 @@
  *   placeAtCheckout(state)       place the finished order at the counter.
  *   restockShelf(state, i)       refill a shelf to capacity.
  *   checkoutCustomer(state)      the served customer pays and starts walking out.
+ *   hurryMarketWorker(state)     remote boost: temporarily speeds the market worker,
+ *                                 mirroring simulation.js's per-pit hurry(state, i).
  *
  * Customer states: walkingIn -> waiting -> walkingToCheckout -> walkingOut (then
  * removed). Only the front-of-line customer (the first one fully 'waiting') is
@@ -289,6 +291,7 @@ export function checkoutCustomer(state) {
   if (!customer) return false;
 
   state.cash += bag.total;
+  S.paidThisTick = bag.total;
   customer.state = 'walkingOut';
   customer.moving = true;
   return true;
@@ -307,7 +310,15 @@ export function createMarketWorker() {
     phase: null,
     targetShelfIndex: null,
     _gatheredItem: false, // true once ≥1 order item is in hand this packaging trip (drives the carry clip + bag prop)
+    hurryTimer: 0, // seconds of remaining speed boost, set by hurryMarketWorker (mirrors pit.hurryTimer)
   };
+}
+
+/** Remote hurry: tapping the worker from anywhere refreshes its boost window. */
+export function hurryMarketWorker(state) {
+  const w = state.supermarket.worker;
+  if (!w) return;
+  w.hurryTimer = settings.hurry.duration;
 }
 
 function updateWorker(state, dt) {
@@ -316,9 +327,12 @@ function updateWorker(state, dt) {
   if (!w) return;
   const M = settings.supermarket;
 
+  if (w.hurryTimer > 0) w.hurryTimer = Math.max(0, w.hurryTimer - dt);
+  const speed = M.workerMoveSpeed * (w.hurryTimer > 0 ? settings.hurry.multiplier : 1);
+
   if (w.phase === 'toShelf') {
     const target = M.shelves[w.targetShelfIndex];
-    const arrived = moveToward(w, target, M.workerMoveSpeed, dt, M.arriveEpsilon);
+    const arrived = moveToward(w, target, speed, dt, M.arriveEpsilon);
     w.moving = !arrived;
     w.carrying = true;
     if (arrived) {
@@ -330,7 +344,7 @@ function updateWorker(state, dt) {
   }
 
   if (w.phase === 'toCheckout') {
-    const arrived = moveToward(w, M.checkoutPosition, M.workerMoveSpeed, dt, M.arriveEpsilon);
+    const arrived = moveToward(w, M.checkoutPosition, speed, dt, M.arriveEpsilon);
     w.moving = !arrived;
     w.carrying = true;
     if (arrived) {
@@ -344,7 +358,7 @@ function updateWorker(state, dt) {
   }
 
   if (w.phase === 'toBox') {
-    const arrived = moveToward(w, S.restockBoxPosition, M.workerMoveSpeed, dt, M.arriveEpsilon);
+    const arrived = moveToward(w, S.restockBoxPosition, speed, dt, M.arriveEpsilon);
     w.moving = !arrived;
     if (arrived) {
       w.carrying = true;
@@ -355,7 +369,7 @@ function updateWorker(state, dt) {
 
   if (w.phase === 'toRestockShelf') {
     const target = M.shelves[w.targetShelfIndex];
-    const arrived = moveToward(w, target, M.workerMoveSpeed, dt, M.arriveEpsilon);
+    const arrived = moveToward(w, target, speed, dt, M.arriveEpsilon);
     w.moving = !arrived;
     w.carrying = true;
     if (arrived) {
@@ -429,6 +443,9 @@ function updateWorker(state, dt) {
 // --- top-level tick -----------------------------------------------------------
 
 export function tickSupermarket(state, dt) {
+  // paidThisTick is a one-tick render signal (the scene pops "+$" at the
+  // checkout when it's > 0); clear it before checkoutCustomer can set it.
+  state.supermarket.paidThisTick = 0;
   if (!state.supermarket.unlocked) return;
   updateCustomerSpawning(state, dt);
   updateCustomers(state, dt);

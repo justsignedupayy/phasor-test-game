@@ -3,6 +3,8 @@ import settings from '../config/settings.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { MarketWorker } from './MarketWorker.js';
 import { MarketCustomer } from './MarketCustomer.js';
+import { showCashPopup } from './popup.js';
+import { formatMoney } from '../core/format.js';
 
 /**
  * SupermarketView — the whole shop's render layer: 4 shelves (shelf_end.glb /
@@ -110,8 +112,11 @@ export class SupermarketView {
     this.sm.add(this.carriedBox);
   }
 
-  /** Tap raycast against shelves/checkout/restock pile; null if nothing hit. */
+  /** Tap raycast against the worker/shelves/checkout/restock pile; null if nothing hit. */
   raycastTap(raycaster) {
+    if (this.worker && raycaster.intersectObject(this.worker.model, true).length > 0) {
+      return { kind: 'worker' };
+    }
     for (const shelf of this.shelves) {
       if (shelf.model.visible && raycaster.intersectObject(shelf.model, true).length > 0) {
         return { kind: 'shelf', index: shelf.index };
@@ -145,6 +150,8 @@ export class SupermarketView {
     this.checkoutCounter.visible = unlocked;
     this.bag.visible = unlocked && !!S.checkoutBag;
     for (const box of this.pileBoxes) box.visible = unlocked;
+
+    if (S.paidThisTick > 0) this.#popup(S.paidThisTick, settings.supermarket.checkoutPosition);
 
     this.#updateCarriedBox(state.player);
     this.#syncCustomers(dt, S);
@@ -217,6 +224,15 @@ export class SupermarketView {
     const canGrabBox = S.unlocked && S.workerLevel < 2 && !player.carryingRestockBox && near(S.restockBoxPosition);
     this.restockRing.visible = S.unlocked;
     this.restockRing.material.opacity += ((canGrabBox ? pulse : 0) - this.restockRing.material.opacity) * k;
+  }
+
+  /** Pops "+$" over the checkout the instant a customer pays, mirroring CarYard/PitMoney's popup. */
+  #popup(amount, pos) {
+    const v = new THREE.Vector3(pos.x, 1.6, pos.z).project(this.sm.camera);
+    const rect = this.sm.renderer.domElement.getBoundingClientRect();
+    const x = (v.x * 0.5 + 0.5) * rect.width + rect.left;
+    const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+    showCashPopup(`+$${formatMoney(amount)}`, x, y);
   }
 }
 

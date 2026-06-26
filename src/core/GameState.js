@@ -66,6 +66,7 @@ function createSupermarketState() {
     checkoutBag: null, // { customerId, items, total } once fully assembled and placed at the counter
     worker: null, // { position:{x,z}, rotation, moving, carrying, state:'idle'|'packaging'|'restocking', ... } once workerLevel >= 1
     restockBoxPosition: { ...settings.supermarket.restockBoxPosition },
+    paidThisTick: 0, // one-tick render signal (the scene pops "+$" at checkout when this is > 0), mirrors pit.collectedThisTick
   };
 }
 

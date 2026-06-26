@@ -80,9 +80,14 @@ const _attachScale = new THREE.Vector3();
  * caller already set (e.g. settings.supermarket.bagScale) becomes the prop's
  * effective WORLD size.
  *
- * `offset` ({x,y,z}) and `rotation` ({x,y,z} Euler radians) place the prop in the
- * hand bone's local space (a prop's natural pivot rarely sits where the palm is).
- * Both default to no transform. Returns the parent it attached to.
+ * `offset` ({x,y,z}) and `rotation` ({x,y,z} Euler radians) place the prop relative
+ * to the hand bone (a prop's natural pivot rarely sits where the palm is). The
+ * offset is given in WORLD units, like the (scale-compensated) prop size: because
+ * the prop sits in the hand bone's local space — whose world scale is the rig's
+ * baked 0.01 — a raw local offset would be shrunk 100×, so we divide the offset by
+ * that same world scale (the inverse of how the prop's own scale is compensated
+ * above). Rotation is scale-invariant, so it's applied as-is. Both default to no
+ * transform. Returns the parent it attached to.
  */
 export function attachToHand(model, prop, offset, rotation) {
   const hand = model.getObjectByName('handr') || model.getObjectByName('handl');
@@ -93,10 +98,19 @@ export function attachToHand(model, prop, offset, rotation) {
   parent.add(prop);
   parent.updateWorldMatrix(true, false);
   parent.matrixWorld.decompose(_attachPos, _attachQuat, _attachScale);
-  if (_attachScale.x && _attachScale.y && _attachScale.z) {
+  const hasScale = _attachScale.x && _attachScale.y && _attachScale.z;
+  if (hasScale) {
     prop.scale.set(prop.scale.x / _attachScale.x, prop.scale.y / _attachScale.y, prop.scale.z / _attachScale.z);
   }
-  if (offset) prop.position.set(offset.x, offset.y, offset.z);
+  if (offset) {
+    // Divide the world-unit offset by the bone's world scale so it lands at the
+    // intended world distance (matches the scale compensation done for the prop).
+    prop.position.set(
+      hasScale ? offset.x / _attachScale.x : offset.x,
+      hasScale ? offset.y / _attachScale.y : offset.y,
+      hasScale ? offset.z / _attachScale.z : offset.z
+    );
+  }
   if (rotation) prop.rotation.set(rotation.x, rotation.y, rotation.z);
   return parent;
 }

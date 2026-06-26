@@ -10,6 +10,7 @@ import settings from '../config/settings.js';
 import { spawnCar } from './Car.js';
 import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z } from './upgrades.js';
 import { updateReputationTimer } from './reputation.js';
+import { resolveSupermarketCollisions } from './collision.js';
 
 export function tick(state, dt) {
   // collectedThisTick is a one-tick render signal (the scene pops "+$" / flies
@@ -183,6 +184,9 @@ function updatePlayer(state, dt) {
   // Solid props: push the player circle out of any conveyor belt it overlaps.
   // The scene writes each equipped conveyor's world rectangle to pit.conveyorBounds.
   repelFromConveyors(state, player.position);
+  // ...and out of every supermarket obstacle (shelves/freezers/checkout). The
+  // player never targets an obstacle centre, so nothing is exempted for it.
+  resolveSupermarketCollisions(state, player.position, settings.player.radius);
 }
 
 /** Push the player's circular radius out of every pit's conveyor rectangle. */

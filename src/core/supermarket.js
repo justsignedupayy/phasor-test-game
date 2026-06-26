@@ -26,6 +26,12 @@
  * no customer needs packaging.
  */
 import settings from '../config/settings.js';
+import { grid, findPath } from './pathfinding.js';
+
+// Every market NPC (worker + customers) shares the player's body radius — they all
+// clone the same character model. Obstacle inflation in the pathfinding grid uses
+// this same radius, and it's the separation distance for agent-agent overlap.
+const NPC_RADIUS = settings.player.radius;
 
 // The market worker only bothers restocking a shelf once it's GENUINELY low —
 // at or below half its capacity — instead of shuttling to the box pile the
@@ -33,28 +39,213 @@ import settings from '../config/settings.js';
 // near-constant loop). Topping off only happens below this fraction of capacity.
 const RESTOCK_THRESHOLD_FRACTION = 0.1;
 
-// --- shared movement -------------------------------------------------------
+// --- shared movement (A* waypoint following) -------------------------------
+
+// Distance at which a waypoint counts as reached. Kept to half a cell so the mover
+// hugs the A* cell centres closely — a larger value lets it cut corners and graze the
+// inflated obstacle margin it was routed clear of (a few cm into the checkout box).
+const WP_REACH = settings.pathfinding.cellSize * 0.5;
+
+/** Two points (essentially) the same spot — used to detect a target change. */
+function samePoint(a, b) {
+  return Math.abs(a.x - b.x) < 1e-3 && Math.abs(a.z - b.z) < 1e-3;
+}
+
+/** Drop a mover's cached route (on arrival, so the next target replans). */
+function clearPath(mover) {
+  mover._path = undefined;
+  mover._pathTarget = undefined;
+  mover._pathIndex = 0;
+}
 
 /**
- * Step a mover (anything with .position {x,z} and .rotation) toward target at
- * speed; updates rotation to face the travel direction. Returns true once it
- * has arrived (snapped exactly onto target).
+ * Plan a mover's route to target — normally plain A* (findPath), but for trips that
+ * must pass through a DOOR GAP (rather than straight through a solid wall) or AROUND
+ * the checkout it threads a mandatory gap waypoint first:
+ *
+ *  • Worker restock OUT (target = exterior pile, worker still inside the room): A* to
+ *    the LEFT-wall restock-door gap { -halfX, restockDoorZ }, then a direct leg out to
+ *    the pile — so it crosses at the gap, never through the wall.
+ *  • Worker restock BACK (already outside, heading to an interior target): in through
+ *    the restock-door gap, then A* across the room to the target.
+ *  • Customer EXIT (target = the outside exit point): A* to the FRONT-wall exit-door
+ *    gap { marketX, -halfZ } — which routes the customer AROUND the inflated checkout
+ *    box instead of straight through it — then a direct leg out through the gap.
+ *    (Entry needs none: its straight path already clears the box and its own door.)
+ *
+ * Each special route still uses findPath for the in-room legs, so the A* grid is the
+ * single source of static obstacle avoidance; only the gap waypoint is threaded in.
  */
-function moveToward(mover, target, speed, dt, epsilon) {
-  const dx = target.x - mover.position.x;
-  const dz = target.z - mover.position.z;
-  const dist = Math.hypot(dx, dz);
-  if (dist > 1e-4) mover.rotation = Math.atan2(dx, dz);
+function planRoute(mover, target) {
+  const W = settings.world;
+  const M = settings.supermarket;
+  const pos = mover.position;
 
-  if (dist <= epsilon || speed * dt >= dist) {
+  // Worker → exterior restock pile: A* to the restock door, then direct out.
+  const restockDoor = { x: -W.halfX, z: M.restockDoorZ };
+  if (samePoint(target, M.restockBoxPosition) && pos.x > -W.halfX) {
+    const toDoor = findPath(grid, pos, restockDoor);
+    return toDoor ? [...toDoor, restockDoor] : [restockDoor];
+  }
+  // Worker returning from the exterior: in through the restock door, then A* inside.
+  if (pos.x < -W.halfX && target.x >= -W.halfX) {
+    const fromDoor = findPath(grid, restockDoor, target);
+    return fromDoor ? [restockDoor, ...fromDoor] : [restockDoor];
+  }
+  // Customer leaving: A* to the exit door (routes around the checkout box), then out.
+  if (samePoint(target, M.customerExitOutside)) {
+    const exitDoor = { x: M.marketX, z: -W.halfZ };
+    const toDoor = findPath(grid, pos, exitDoor);
+    return toDoor ? [...toDoor, exitDoor] : [exitDoor];
+  }
+
+  return findPath(grid, pos, target);
+}
+
+/**
+ * Move one market NPC toward `target`, routing around static obstacles via A*. The
+ * single routing point for every customer/worker move. Returns true once arrived
+ * (so callers drive `.moving` and their FSM transitions exactly as before).
+ *
+ *  • On a target change, request a fresh path (findPath) and cache it on the mover.
+ *    A null path (target/start off the grid, e.g. the worker's exterior restock pile
+ *    or a customer's outside door) falls back to moving straight at the target.
+ *  • Each frame, move toward the next waypoint; advance the cursor once within
+ *    WP_REACH of it. With all waypoints consumed (or on a direct path) it heads to
+ *    the real target — A* stops at the edge of an inflated obstacle, so this last
+ *    short leg walks the NPC onto its actual interaction spot.
+ *  • Arrival is judged BEFORE movement (against the real target) so the FSM advances
+ *    the instant the NPC lands on it. A per-frame cap keeps any step ≤ speed*dt.
+ */
+function waypointNpc(state, mover, target, speed, dt) {
+  const eps = settings.supermarket.arriveEpsilon;
+  const step = speed * dt;
+
+  if (!mover._pathTarget || !samePoint(mover._pathTarget, target)) {
+    mover._path = planRoute(mover, target);
+    mover._pathTarget = { x: target.x, z: target.z };
+    mover._pathIndex = 0;
+  }
+
+  const fromX = mover.position.x;
+  const fromZ = mover.position.z;
+
+  // Advance the cursor past every waypoint already reached this frame.
+  const path = mover._path;
+  if (path && path.length) {
+    while (mover._pathIndex < path.length) {
+      const wp = path[mover._pathIndex];
+      if (Math.hypot(wp.x - mover.position.x, wp.z - mover.position.z) <= WP_REACH) mover._pathIndex++;
+      else break;
+    }
+  }
+  const onFinalLeg = !path || !path.length || mover._pathIndex >= path.length;
+
+  // Arrival (before movement): snap onto the real target, clear the route.
+  const dxT = target.x - mover.position.x;
+  const dzT = target.z - mover.position.z;
+  const distT = Math.hypot(dxT, dzT);
+  if (onFinalLeg && (distT <= eps || step >= distT)) {
+    if (distT > 1e-4) mover.rotation = Math.atan2(dxT, dzT);
     mover.position.x = target.x;
     mover.position.z = target.z;
+    clearPath(mover);
     return true;
   }
-  const step = speed * dt;
-  mover.position.x += (dx / dist) * step;
-  mover.position.z += (dz / dist) * step;
+
+  // Step toward the immediate sub-goal: next waypoint, or the real target.
+  const goal = onFinalLeg ? target : path[mover._pathIndex];
+  const gx = goal.x - mover.position.x;
+  const gz = goal.z - mover.position.z;
+  const gd = Math.hypot(gx, gz);
+  if (gd > 1e-4) {
+    mover.rotation = Math.atan2(gx, gz);
+    const m = Math.min(step, gd);
+    mover.position.x += (gx / gd) * m;
+    mover.position.z += (gz / gd) * m;
+  }
+
+  // A null path means a direct moveToward with no A* wall routing (an off-grid
+  // target: the worker's exterior restock pile, a customer's outside door). Enforce
+  // the world bounds here so the mover can't walk through a solid wall. Applied
+  // before the cap below, so any clamp correction is smoothed to ≤ speed*dt.
+  if (!path) clampFallbackToWalls(mover.position, NPC_RADIUS, target);
+
+  // Per-frame displacement cap (the step above is already ≤ speed*dt; this guards
+  // against any future addition shoving the NPC further than its speed allows).
+  const ddx = mover.position.x - fromX;
+  const ddz = mover.position.z - fromZ;
+  const moved = Math.hypot(ddx, ddz);
+  if (moved > step) {
+    mover.position.x = fromX + (ddx / moved) * step;
+    mover.position.z = fromZ + (ddz / moved) * step;
+  }
   return false;
+}
+
+/**
+ * Wall clamp for the null-path direct fallback. Mirrors simulation.clampToBounds,
+ * with two door relaxations so a legitimate crossing is never blocked:
+ *  • LEFT wall opens when the mover targets the restock pile or is already outside it
+ *    (x < -halfX) — the worker's restock-door access, relaxed exactly as before.
+ *  • A z-wall opens when the mover is at or heading beyond it — a customer crossing
+ *    its entry/exit door (only customers ever target a z beyond the room; the worker
+ *    stays within z, so it's always clamped there).
+ * The right wall is always solid.
+ */
+function clampFallbackToWalls(pos, r, target) {
+  const W = settings.world;
+  const M = settings.supermarket;
+  const limX = W.halfX - r;
+  const limZ = W.halfZ - r;
+
+  if (pos.x > limX) pos.x = limX; // right wall — always solid
+
+  const restocking = target && samePoint(target, M.restockBoxPosition);
+  const outsideLeft = pos.x < -W.halfX;
+  if (!restocking && !outsideLeft && pos.x < -limX) pos.x = -limX; // left wall (unless restock-door access)
+
+  const crossingZ = (target && Math.abs(target.z) > W.halfZ) || Math.abs(pos.z) > W.halfZ;
+  if (!crossingZ) {
+    if (pos.z > limZ) pos.z = limZ;
+    else if (pos.z < -limZ) pos.z = -limZ;
+  }
+}
+
+/**
+ * Light dynamic agent-agent separation: push apart any two NPCs (worker +
+ * customers) whose bodies overlap, but ONLY while BOTH are in transit (`.moving`).
+ * A settled agent standing on its interaction spot (a waiting customer, the worker
+ * at the checkout) is never disturbed and never blocks another agent's arrival, so
+ * this can't stall the FSM. Static obstacles are handled by A*, not here.
+ */
+function separateMovingAgents(state) {
+  const S = state.supermarket;
+  const agents = S.worker ? [...S.customerQueue, S.worker] : S.customerQueue;
+  const minDist = 2 * NPC_RADIUS;
+  for (let i = 0; i < agents.length; i++) {
+    for (let j = i + 1; j < agents.length; j++) {
+      const a = agents[i];
+      const b = agents[j];
+      if (!a.moving || !b.moving) continue;
+      let dx = b.position.x - a.position.x;
+      let dz = b.position.z - a.position.z;
+      let d = Math.hypot(dx, dz);
+      if (d >= minDist) continue;
+      if (d < 1e-4) {
+        dx = 1;
+        dz = 0;
+        d = 1;
+      } // coincident — separate along an arbitrary axis
+      const push = (minDist - d) / 2;
+      const nx = dx / d;
+      const nz = dz / d;
+      a.position.x -= nx * push;
+      a.position.z -= nz * push;
+      b.position.x += nx * push;
+      b.position.z += nz * push;
+    }
+  }
 }
 
 /** Waiting-line slot i's world position (slot 0 = nearest the checkout). */
@@ -205,7 +396,7 @@ function updateCustomers(state, dt) {
 
     if (c.state === 'walkingIn' || c.state === 'waiting') {
       const target = queueSlotPosition(lineIndexOf(state, c));
-      const arrived = moveToward(c, target, M.customerMoveSpeed, dt, M.arriveEpsilon);
+      const arrived = waypointNpc(state, c, target, M.customerMoveSpeed, dt);
       c.moving = !arrived;
       if (c.state === 'walkingIn' && arrived) c.state = 'waiting';
       if (S.checkoutBag && S.checkoutBag.customerId === c.id) {
@@ -216,14 +407,16 @@ function updateCustomers(state, dt) {
     }
 
     if (c.state === 'walkingToCheckout') {
-      const arrived = moveToward(c, M.checkoutPosition, M.customerMoveSpeed, dt, M.arriveEpsilon);
+      // Stand in FRONT of the checkout (customerCheckoutSpot), not on its centre, so
+      // the customer never clips through the counter mesh on the final approach.
+      const arrived = waypointNpc(state, c, M.customerCheckoutSpot, M.customerMoveSpeed, dt);
       c.moving = !arrived;
       if (arrived) checkoutCustomer(state);
       continue;
     }
 
     // walkingOut
-    const arrived = moveToward(c, M.customerExitOutside, M.customerMoveSpeed, dt, M.arriveEpsilon);
+    const arrived = waypointNpc(state, c, M.customerExitOutside, M.customerMoveSpeed, dt);
     c.moving = !arrived;
     if (arrived) q.splice(i, 1);
   }
@@ -332,7 +525,7 @@ function updateWorker(state, dt) {
 
   if (w.phase === 'toShelf') {
     const target = M.shelves[w.targetShelfIndex];
-    const arrived = moveToward(w, target, speed, dt, M.arriveEpsilon);
+    const arrived = waypointNpc(state, w, target, speed, dt);
     w.moving = !arrived;
     w.carrying = true;
     if (arrived) {
@@ -344,7 +537,13 @@ function updateWorker(state, dt) {
   }
 
   if (w.phase === 'toCheckout') {
-    const arrived = moveToward(w, M.checkoutPosition, speed, dt, M.arriveEpsilon);
+    // Deliver from a spot offset off the checkout centre so the worker doesn't
+    // path onto the customer standing there. The customer still targets checkoutPosition.
+    const deliverSpot = {
+      x: M.checkoutPosition.x + M.workerCheckoutOffset.x,
+      z: M.checkoutPosition.z + M.workerCheckoutOffset.z,
+    };
+    const arrived = waypointNpc(state, w, deliverSpot, speed, dt);
     w.moving = !arrived;
     w.carrying = true;
     if (arrived) {
@@ -358,7 +557,7 @@ function updateWorker(state, dt) {
   }
 
   if (w.phase === 'toBox') {
-    const arrived = moveToward(w, S.restockBoxPosition, speed, dt, M.arriveEpsilon);
+    const arrived = waypointNpc(state, w, S.restockBoxPosition, speed, dt);
     w.moving = !arrived;
     if (arrived) {
       w.carrying = true;
@@ -369,7 +568,7 @@ function updateWorker(state, dt) {
 
   if (w.phase === 'toRestockShelf') {
     const target = M.shelves[w.targetShelfIndex];
-    const arrived = moveToward(w, target, speed, dt, M.arriveEpsilon);
+    const arrived = waypointNpc(state, w, target, speed, dt);
     w.moving = !arrived;
     w.carrying = true;
     if (arrived) {
@@ -450,4 +649,5 @@ export function tickSupermarket(state, dt) {
   updateCustomerSpawning(state, dt);
   updateCustomers(state, dt);
   if (state.supermarket.workerLevel >= 1) updateWorker(state, dt);
+  separateMovingAgents(state); // light agent-agent overlap net, after everyone has moved
 }

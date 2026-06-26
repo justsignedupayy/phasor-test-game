@@ -30,6 +30,8 @@ export class SupermarketView {
     this.#buildCheckout();
     this.#buildRestockPile();
     this.#buildCarriedBox();
+
+    logCollisionTuning();
   }
 
   #buildShelves() {
@@ -234,6 +236,22 @@ export class SupermarketView {
     const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
     showCashPopup(`+$${formatMoney(amount)}`, x, y);
   }
+}
+
+// Dump the supermarket collision tuning to the console once at startup, so the
+// values can be read off (and tweaked) live in `npm run dev` without digging
+// through settings.js. Half-extents drive how far each obstacle blocks; the
+// offsets nudge a box's collision centre off its visual model position.
+function logCollisionTuning() {
+  const M = settings.supermarket;
+  console.log(
+    '[supermarket collision tuning] ' +
+      `shelfHalf=(${M.shelfCollisionHalf.x}, ${M.shelfCollisionHalf.z}) ` +
+      `freezerHalf=(${M.freezerCollisionHalf.x}, ${M.freezerCollisionHalf.z}) ` +
+      `checkoutHalf=(${M.checkoutCollisionHalf.x}, ${M.checkoutCollisionHalf.z}) ` +
+      `shelfOffset=(${M.shelfCollisionOffset.x}, ${M.shelfCollisionOffset.z}) ` +
+      `freezerOffset=(${M.freezerCollisionOffset.x}, ${M.freezerCollisionOffset.z})`
+  );
 }
 
 // A camera-facing text label rendered to a small canvas texture (mirrors PitView's storage label).

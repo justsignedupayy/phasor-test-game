@@ -25,6 +25,14 @@ export const settings = {
     turnLerp: 12, // higher = snappier turning
   },
 
+  // Supermarket NPC navigation (core/pathfinding.js). A static A* walkability grid
+  // is built once from the world bounds + market obstacles at this cell resolution;
+  // smaller cells = finer paths but a bigger grid. Obstacles are inflated by the
+  // NPC body radius (settings.player.radius) before marking, so paths never clip.
+  pathfinding: {
+    cellSize: 0.5, // world units per grid cell
+  },
+
   camera: {
     viewSize: 25, // world units visible vertically (smaller = more zoomed in)
     distance: 40, // ortho position scale; does NOT change apparent size
@@ -239,14 +247,14 @@ export const settings = {
     // Shelf boxes are decorative: the shelf always shows a full 3-wide grid that
     // stacks upward, regardless of the actual shelfBoxes count. They render at
     // 1/5 the (carried/traveling) box scale.
-    shelfBoxScale: 0.25,
+    shelfBoxScale: 0.9,
     boxGrid: { cols: 3, spacingX: 0.5, spacingY: 0.5, baseY: 0.35 },
     carriedBoxOffset: { forward: 0.9, y: 1.3 }, // floats ahead of + above the player
     // Local placement of the market worker's hand-held cardboard box during a
     // restock haul (applied in characterAnim.attachToHand, in the hand bone's
     // local space). Tune by eye once visible; rotation is Euler radians.
     boxHandOffset: { x: 0, y: 0, z: 0 },
-    boxHandRotation: { x: 0, y: 0, z: 0 },
+    boxHandRotation: { x: 0, y: 0, z: 0},
     // Conveyor delivery animation: a single box rides the belt from the shelf end
     // to the worker end, then vanishes (one box per delivery, not a loop).
     conveyorBeltY: 0.6, // height the traveling box rides at
@@ -312,13 +320,23 @@ export const settings = {
     exteriorLimitX: -54.5, // how far out the player may walk to reach the restock pile
 
     shelves: [
-      { x: -44, z: -6, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
-      { x: -32, z: -6, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
+      { x: -42, z: -9, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
+      { x: -34, z: -9, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
       { x: -44, z: -9, productType: 'C', model: 'freezer', offset: { x: 0, z: 0 } },
       { x: -32, z: -9, productType: 'D', model: 'freezer', offset: { x: 0, z: 0 } },
     ],
     restockBoxPosition: { x: -53.5, z: -5 },
-    checkoutPosition: { x: -45.5, z: 7.596 },
+    checkoutPosition: { x: -44.5, z: 7.596 },
+    // Where the served customer actually stands to check out: in FRONT of the
+    // checkout (checkoutPosition with z + 1.5), clear of its collision box, so the
+    // customer never has to walk into the counter mesh — A* routes it here and it's
+    // close enough to fire the checkout FSM via arriveEpsilon. Keep it in step with
+    // checkoutPosition (= { checkoutPosition.x, checkoutPosition.z + 1.5 }).
+    customerCheckoutSpot: { x: -44.5, z: 9.096 },
+    // The market worker delivers the packaged order from this spot, offset from
+    // checkoutPosition so it doesn't path into (and collide with) the customer
+    // standing on the checkout centre. Added to checkoutPosition in core/supermarket.js.
+    workerCheckoutOffset: { x: 1.5, z: 0 },
     workerIdleSpot: { x: -38, z: -2 },
     // queueAnchor (slot 0, nearest the checkout) sits right beside the counter, at
     // the same z; queueStep runs along x toward the entry door (there's only ~2.5
@@ -326,10 +344,25 @@ export const settings = {
     // line of 5 if it stepped further back in z instead — see Garage.js's left
     // wall at x = -world.halfX). It used to be anchored at the door's x (z-stepped),
     // which stranded the line far from the checkout it was meant to lead into.
-    queueAnchor: { x: -44.1, z: 7.6 },
+    queueAnchor: { x: -42.1, z: 7.6 },
     queueStep: { x: 1.4, z: 0 }, // each further-back slot steps this much further east, toward the entry door
 
     interactRadius: 1.8, // tap-affordance radius for shelves/checkout/restock pile (mirrors settings.pit.radius)
+
+    // AABB collision half-extents for the solid market props (see core/collision.js).
+    // Centres come from each shelf's x/z and checkoutPosition; the half-extents are
+    // picked by model type. Every mover (player, worker, customers) is pushed out of
+    // these. Keep them a touch under interactRadius so a mover can still get close
+    // enough to tap/interact (a mover walking INTO its target obstacle is exempt).
+    shelfCollisionHalf: { x: 1.5, z: 0.6 },
+    freezerCollisionHalf: { x: 1.5, z: 0.6 },
+    checkoutCollisionHalf: { x: 1.0, z: 0.3 },
+    // Nudge a shelf/freezer's COLLISION centre independently of its visual model
+    // position (applied in core/collision.js when building the obstacle list), so
+    // the solid box can be lined up with the mesh's footprint without moving the
+    // model. Per model type; default 0 = collision centred on the model.
+    shelfCollisionOffset: { x: 0, z: 0 },
+    freezerCollisionOffset: { x: 0, z: 0 },
 
     // Per-model scale fixups (tune by eye once visible, like settings.storage.*Scale).
     shelfScale: 1.8,
@@ -341,7 +374,7 @@ export const settings = {
     // characterAnim.attachToHand in the hand bone's local space. Tune by eye once
     // visible; rotation is Euler radians.
     bagHandOffset: { x: 0, y: 0, z: 0 },
-    bagHandRotation: { x: 0, y: 0, z: 0 },
+    bagHandRotation: { x: 0, y: 0, z: 15 },
   },
 
   // Static GLB props loaded once at startup (see scene/StorageModels.js).

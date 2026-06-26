@@ -3,8 +3,10 @@ import settings from '../config/settings.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { MarketWorker } from './MarketWorker.js';
 import { MarketCustomer } from './MarketCustomer.js';
+import { TruckView } from './TruckView.js';
 import { showCashPopup } from './popup.js';
 import { formatMoney } from '../core/format.js';
+import { deliverStock } from '../core/supermarket.js';
 
 /**
  * SupermarketView — the whole shop's render layer: 4 shelves (shelf_end.glb /
@@ -25,6 +27,13 @@ export class SupermarketView {
     this.worker = null; // MarketWorker, spawned once workerLevel >= 1
     this.customers = new Map(); // customerId -> MarketCustomer
     this.highlightT = 0;
+
+    // The market worker's break chair (a couch once its break room is upgraded),
+    // built once a worker exists; tapped to open the break UI while it's seated.
+    this.seat = null;
+    this._seatModelKey = null; // 'chair' | 'couch' — current model, for swap detection
+
+    this.truck = new TruckView(sceneManager); // single reused Truck.glb instance
 
     this.#buildShelves();
     this.#buildCheckout();
@@ -102,6 +111,13 @@ export class SupermarketView {
       return box;
     });
 
+    // Live unit count ("X/4") floating above the box, same sprite style as the shelf labels.
+    this.restockLabel = makeLabelSprite();
+    this.restockLabel.position.set(pos.x, 1.8, pos.z);
+    this.restockLabel.visible = false;
+    this.sm.add(this.restockLabel);
+    this.restockLabelText = '';
+
     this.restockRing = makeRing(pos.x, pos.z);
     this.sm.add(this.restockRing);
   }
@@ -133,6 +149,31 @@ export class SupermarketView {
     return null;
   }
 
+  /** True if the market worker's chair was hit AND the worker is seated on break. */
+  raycastChair(raycaster, state) {
+    const w = state.supermarket.worker;
+    if (!this.seat || !w || !w.break.onBreak) return false;
+    return raycaster.intersectObject(this.seat, true).length > 0;
+  }
+
+  /**
+   * Build (or swap) the market worker's break seat: a Chair by default, a couch
+   * once its break room is upgraded. Placed at settings.breaks.marketChairPosition.
+   */
+  #ensureSeat(upgraded) {
+    const key = upgraded ? 'couch' : 'chair';
+    if (this._seatModelKey === key) return;
+    if (this.seat) disposeSeat(this.sm, this.seat);
+    const B = settings.breaks;
+    const seat = cloneStorageModel(key);
+    seat.scale.setScalar(upgraded ? B.couchScale : B.chairScale);
+    seat.position.set(B.marketChairPosition.x, 0, B.marketChairPosition.z);
+    seat.rotation.y = B.marketChairFacing;
+    this.sm.add(seat);
+    this.seat = seat;
+    this._seatModelKey = key;
+  }
+
   update(dt, state) {
     const S = state.supermarket;
     const unlocked = S.unlocked;
@@ -153,6 +194,22 @@ export class SupermarketView {
     this.bag.visible = unlocked && !!S.checkoutBag;
     for (const box of this.pileBoxes) box.visible = unlocked;
 
+    // Restock-box unit count ("X/maxUnits") floating above the box — the pile
+    // mesh stays decorative; this label is the live readout of remaining units.
+    this.restockLabel.visible = unlocked;
+    if (unlocked) {
+      const text = `${S.restockBox.units}/${S.restockBox.maxUnits}`;
+      if (text !== this.restockLabelText) {
+        this.restockLabelText = text;
+        drawLabelSprite(this.restockLabel, text);
+      }
+    }
+
+    // Delivery truck: core flags an arrival; play the drive-in (which tops up the
+    // box via deliverStock at touchdown), then the drive-out. Single reused instance.
+    if (S.truckArriving && this.truck.idle) this.truck.arrive(() => deliverStock(state));
+    this.truck.update(dt);
+
     if (S.paidThisTick > 0) this.#popup(S.paidThisTick, settings.supermarket.checkoutPosition);
 
     this.#updateCarriedBox(state.player);
@@ -162,6 +219,7 @@ export class SupermarketView {
       this.worker = new MarketWorker(this.gltf);
       this.sm.add(this.worker.root);
     }
+    if (S.worker) this.#ensureSeat(S.worker.break.breakDurationUpgraded);
     if (this.worker) this.worker.update(dt, S.worker);
 
     this.#updateHighlights(dt, state);
@@ -223,7 +281,8 @@ export class SupermarketView {
     this.checkoutRing.visible = S.unlocked;
     this.checkoutRing.material.opacity += ((canPlace ? pulse : 0) - this.checkoutRing.material.opacity) * k;
 
-    const canGrabBox = S.unlocked && S.workerLevel < 2 && !player.carryingRestockBox && near(S.restockBoxPosition);
+    const canGrabBox =
+      S.unlocked && S.workerLevel < 2 && S.restockBox.units > 0 && !player.carryingRestockBox && near(S.restockBoxPosition);
     this.restockRing.visible = S.unlocked;
     this.restockRing.material.opacity += ((canGrabBox ? pulse : 0) - this.restockRing.material.opacity) * k;
   }
@@ -236,6 +295,18 @@ export class SupermarketView {
     const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
     showCashPopup(`+$${formatMoney(amount)}`, x, y);
   }
+}
+
+// Remove a cloned seat from the scene and free its (per-clone) geometry/materials.
+function disposeSeat(sceneManager, mesh) {
+  sceneManager.remove(mesh);
+  mesh.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => m.dispose());
+    }
+  });
 }
 
 // Dump the supermarket collision tuning to the console once at startup, so the

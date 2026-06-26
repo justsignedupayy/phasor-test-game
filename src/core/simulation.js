@@ -11,6 +11,7 @@ import { spawnCar } from './Car.js';
 import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z } from './upgrades.js';
 import { updateReputationTimer } from './reputation.js';
 import { resolveSupermarketCollisions } from './collision.js';
+import { tickBreak, incrementJobCount } from './breaks.js';
 
 export function tick(state, dt) {
   // collectedThisTick is a one-tick render signal (the scene pops "+$" / flies
@@ -50,6 +51,11 @@ function updatePit(state, pit, dt) {
   if (pit.hurryTimer > 0) pit.hurryTimer = Math.max(0, pit.hurryTimer - dt);
   if (!pit.hasMechanic) return;
 
+  // On break: the worker sits at its chair and does no auto-repair. Cars still
+  // queue/pull into the pit as usual (they just wait), identical to an idle pit.
+  tickBreak(pit.break, dt); // advance a running break; may auto-end it this frame
+  if (pit.break.onBreak) return;
+
   const car = pit.car;
   if (!car || car.fixed) return;
 
@@ -73,6 +79,9 @@ function applyRepair(state, pit, ticks) {
     if (state.hasCashier) state.cash += car.payout;
     else pit.pendingCash += car.payout;
     pit.car = null; // updateYard refills from the queue (only while tires remain)
+    // A finished repair counts a job toward this worker's break (only a hired
+    // worker takes breaks — a manual-tap completion with no mechanic doesn't).
+    if (pit.hasMechanic) incrementJobCount(pit.break);
   }
 }
 
@@ -236,32 +245,18 @@ function repelFromRect(pos, r, b) {
 
 /**
  * In bay territory, the right edge is fenced to whatever land is owned; the lane
- * is always open. The left edge is solid too, except through the supermarket's
- * restock door (once unlocked) — there the player may step out to the exterior
- * restock pile. This is separate from the customer doors (back/front walls,
- * see Garage.js's marketEntryDoor/marketExitDoor) — only the player uses this
- * one, to fetch boxes, never customers.
+ * is always open. The left/front/back walls are solid: the player stays inside
+ * the building. The supermarket's restock box now sits just inside the front-wall
+ * delivery gate, so there's no exterior pile to walk out to any more — only the
+ * delivery truck (scene-only, not clamped) ever crosses that gate.
  */
 function clampToBounds(state, pos) {
   const W = settings.world;
   const r = settings.player.radius;
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
-  let rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : W.halfX) - r;
-
-  let leftLim = -limX;
-  const M = settings.supermarket;
-  const throughRestockDoor =
-    state.supermarket.unlocked && Math.abs(pos.z - M.restockDoorZ) <= W.gateHalf - r;
-  // Once unlocked, the player can step OUT through the restock door's z-gap to
-  // the exterior pile (which sits north of the door, not dead-centre on it),
-  // roam the exterior strip, and walk back in. The rest of the left wall stays
-  // solid, so crossing it — out OR back — is only ever possible within the
-  // door's z-band. Without this, leaving the band snapped the player back
-  // inside before they could ever reach the pile.
-  const outside = state.supermarket.unlocked && pos.x < -W.halfX;
-  if (throughRestockDoor || outside) leftLim = M.exteriorLimitX + r;
-  if (outside && !throughRestockDoor) rightLim = -W.halfX - r; // solid wall blocks re-entry off-door
+  const rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : W.halfX) - r;
+  const leftLim = -limX;
 
   pos.x = Math.max(leftLim, Math.min(rightLim, pos.x));
   pos.z = Math.max(-limZ, Math.min(limZ, pos.z));

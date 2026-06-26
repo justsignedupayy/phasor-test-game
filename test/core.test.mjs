@@ -30,7 +30,19 @@ import {
   supermarketCost,
   marketWorkerHireCost,
   marketWorkerTrainCost,
+  buyBreakRoom,
+  buyMarketBreakRoom,
+  buyTruckFrequency,
+  truckFrequencyCost,
 } from '../src/core/upgrades.js';
+import {
+  createBreakState,
+  incrementJobCount,
+  tickBreak,
+  endBreak,
+  breakDuration,
+  breakRemaining,
+} from '../src/core/breaks.js';
 import {
   getEffectiveReputation,
   buyAdvertising,
@@ -47,6 +59,11 @@ import {
   checkoutCustomer,
   frontCustomer,
   computeTotal,
+  takeRestockUnit,
+  tickTruck,
+  deliverStock,
+  callTruckEarly,
+  truckDeliveryInterval,
 } from '../src/core/supermarket.js';
 import settings from '../src/config/settings.js';
 
@@ -1021,6 +1038,268 @@ check('a level-1 worker does NOT restock — that still needs the player until t
   s.supermarket.shelves[1].stock = 0;
   for (let i = 0; i < 200; i++) tickSupermarket(s, 0.1);
   assert.equal(s.supermarket.shelves[1].stock, 0, 'untrained worker leaves restocking alone');
+});
+
+// --- restock box + delivery truck -------------------------------------------
+console.log('\ncore restock box + truck');
+
+check('restock box starts full at maxUnits', () => {
+  const s = createInitialState();
+  const max = settings.supermarket.restockBox.maxUnits;
+  assert.equal(s.supermarket.restockBox.maxUnits, max);
+  assert.equal(s.supermarket.restockBox.units, max);
+});
+
+check('takeRestockUnit decrements until empty, then returns false', () => {
+  const s = createInitialState();
+  const max = settings.supermarket.restockBox.maxUnits;
+  for (let i = 0; i < max; i++) assert.equal(takeRestockUnit(s), true);
+  assert.equal(s.supermarket.restockBox.units, 0);
+  assert.equal(takeRestockUnit(s), false, 'empty box yields nothing');
+  assert.equal(s.supermarket.restockBox.units, 0, 'never goes negative');
+});
+
+check('truckDeliveryInterval follows the upgrade level', () => {
+  const s = createInitialState();
+  const intervals = settings.supermarket.truck.intervals;
+  assert.equal(truckDeliveryInterval(s), intervals[0]);
+  s.supermarket.truckUpgradeLevel = 2;
+  assert.equal(truckDeliveryInterval(s), intervals[2]);
+});
+
+check('tickTruck dispatches at the interval; deliverStock refills and clears the flag', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.restockBox.units = 0;
+  const interval = truckDeliveryInterval(s);
+
+  tickTruck(s, interval - 0.01);
+  assert.equal(s.supermarket.truckArriving, false, 'not due yet');
+  tickTruck(s, 0.02); // crosses the interval
+  assert.equal(s.supermarket.truckArriving, true, 'truck dispatched');
+  assert.equal(s.supermarket.truckTimer, 0, 'timer reset on dispatch');
+  assert.equal(s.supermarket.restockBox.units, 0, 'box not filled until the truck lands');
+
+  deliverStock(s);
+  assert.equal(s.supermarket.restockBox.units, s.supermarket.restockBox.maxUnits, 'topped up to max');
+  assert.equal(s.supermarket.truckArriving, false, 'arrival cleared');
+});
+
+check('tickTruck holds the clock while a truck is already in flight', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.truckArriving = true;
+  s.supermarket.truckTimer = 0;
+  tickTruck(s, 100);
+  assert.equal(s.supermarket.truckTimer, 0, 'no accrual mid-delivery');
+});
+
+check('deliverStock never exceeds maxUnits', () => {
+  const s = createInitialState();
+  const max = settings.supermarket.restockBox.maxUnits;
+  s.supermarket.restockBox.units = max - 1;
+  deliverStock(s);
+  assert.equal(s.supermarket.restockBox.units, max, 'tops up, never overfills');
+});
+
+check('callTruckEarly fast-forwards so the next tick dispatches a delivery', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.truckTimer = 0;
+  callTruckEarly(s);
+  assert.equal(s.supermarket.truckArriving, false, 'not dispatched until the next tick');
+  tickTruck(s, 0); // a zero-dt tick still sees timer >= interval
+  assert.equal(s.supermarket.truckArriving, true, 'early call dispatched on the next tick');
+});
+
+check('callTruckEarly is a no-op while a truck is already in flight', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.truckArriving = true;
+  s.supermarket.truckTimer = 5;
+  callTruckEarly(s);
+  assert.equal(s.supermarket.truckTimer, 5, 'left alone mid-delivery');
+});
+
+check('buyTruckFrequency steps the level with geometric cost, gated and capped', () => {
+  const s = createInitialState();
+  assert.equal(buyTruckFrequency(s), false, 'market not open yet');
+  s.supermarket.unlocked = true;
+
+  const maxLevel = settings.supermarket.truck.intervals.length - 1;
+  let prevCost = 0;
+  for (let lvl = 0; lvl < maxLevel; lvl++) {
+    const cost = truckFrequencyCost(s);
+    assert.ok(cost > prevCost || lvl === 0, 'cost climbs geometrically');
+    prevCost = cost;
+    s.cash = cost;
+    assert.equal(buyTruckFrequency(s), true);
+    assert.equal(s.supermarket.truckUpgradeLevel, lvl + 1);
+  }
+  s.cash = 1e9;
+  assert.equal(buyTruckFrequency(s), false, 'capped at the fastest level');
+});
+
+check('a level-2 worker waits while the box is empty, then restocks after a delivery', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buySupermarket(s);
+  hireMarketWorker(s);
+  trainMarketWorker(s);
+  s.supermarket.spawnTimer = -1e9; // isolate restocking from customers
+  s.supermarket.shelves[2].stock = 0;
+  s.supermarket.restockBox.units = 0;
+
+  // A window well under the delivery interval, so no truck arrives to refill it.
+  const window = truckDeliveryInterval(s) * 0.4;
+  for (let t = 0; t < window; t += 0.1) tickSupermarket(s, 0.1);
+  assert.equal(s.supermarket.shelves[2].stock, 0, 'no restock while the box is empty');
+  assert.equal(s.supermarket.restockBox.units, 0, 'box still empty (no early truck)');
+
+  // Stock the box and let the worker run: it restocks the empty shelf hands-free.
+  deliverStock(s);
+  for (let i = 0; i < 2000 && s.supermarket.shelves[2].stock < settings.supermarket.shelfCapacity; i++) {
+    tickSupermarket(s, 0.1);
+  }
+  assert.equal(s.supermarket.shelves[2].stock, settings.supermarket.shelfCapacity, 'restocked once stock arrived');
+  assert.ok(s.supermarket.restockBox.units < s.supermarket.restockBox.maxUnits, 'a unit was consumed for the refill');
+});
+
+// --- worker breaks ----------------------------------------------------------
+console.log('\ncore worker breaks');
+
+check('createBreakState: fresh counter, not on break', () => {
+  const b = createBreakState('carMechanic');
+  assert.equal(b.kind, 'carMechanic');
+  assert.equal(b.jobCount, 0);
+  assert.equal(b.onBreak, false);
+  assert.equal(b.breakTimer, 0);
+  assert.equal(b.breakDurationUpgraded, false);
+});
+
+check('incrementJobCount trips a break at the threshold and zeroes the counter', () => {
+  const b = createBreakState('carMechanic');
+  const T = settings.breakThresholds.carMechanic;
+  for (let i = 0; i < T - 1; i++) incrementJobCount(b);
+  assert.equal(b.onBreak, false);
+  assert.equal(b.jobCount, T - 1);
+  incrementJobCount(b); // hits the threshold
+  assert.equal(b.onBreak, true);
+  assert.equal(b.jobCount, 0);
+  incrementJobCount(b); // no accrual while already on break
+  assert.equal(b.jobCount, 0);
+});
+
+check('tickBreak auto-ends the break after the full duration', () => {
+  const b = createBreakState('marketWorker');
+  b.onBreak = true;
+  const dur = breakDuration(b);
+  tickBreak(b, dur - 0.01);
+  assert.equal(b.onBreak, true);
+  assert.ok(breakRemaining(b) > 0);
+  tickBreak(b, 0.02); // crosses the duration
+  assert.equal(b.onBreak, false);
+  assert.equal(b.breakTimer, 0);
+  assert.equal(breakRemaining(b), 0);
+});
+
+check('endBreak clears the break and resets the counter (the rewarded-ad path)', () => {
+  const b = createBreakState('carMechanic');
+  b.onBreak = true;
+  b.breakTimer = 3;
+  b.jobCount = 0;
+  endBreak(b);
+  assert.equal(b.onBreak, false);
+  assert.equal(b.breakTimer, 0);
+  assert.equal(b.jobCount, 0);
+});
+
+check('breakDuration halves once the break room is upgraded', () => {
+  const b = createBreakState('carMechanic');
+  assert.equal(breakDuration(b), settings.breakDurations.base);
+  b.breakDurationUpgraded = true;
+  assert.equal(breakDuration(b), settings.breakDurations.upgraded);
+});
+
+check('a mechanic goes on break after breakThreshold repairs and stops auto-repairing', () => {
+  const s = createInitialState();
+  s.permanentReputation = 0; // rusty cars → pit 0
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.pits[0].tiresRemaining = 1e9; // never run dry over the run
+
+  let guard = 0;
+  while (!s.pits[0].break.onBreak && guard < 200000) {
+    tick(s, 0.05);
+    guard += 1;
+  }
+  assert.equal(s.pits[0].break.onBreak, true, 'worker eventually takes a break');
+  assert.equal(s.pits[0].break.jobCount, 0);
+
+  // While seated, the car in the pit makes no repair progress.
+  const car = s.pits[0].car;
+  if (car) {
+    const before = car.ticksDone;
+    for (let i = 0; i < 50; i++) tick(s, 0.05); // 2.5s, well under the break duration
+    if (s.pits[0].car === car) assert.equal(s.pits[0].car.ticksDone, before, 'no auto-repair while on break');
+  }
+
+  // Ending the break (ad reward) lets it work again: with no cashier and nobody
+  // standing at the pit, finished-car pay parks at the pit (pendingCash), which
+  // only ever grows here — so any progress proves the worker resumed repairing.
+  endBreak(s.pits[0].break);
+  s.pits[0].playerPresent = false;
+  s.pits[0].pendingCash = 0;
+  for (let i = 0; i < 4000; i++) tick(s, 0.05);
+  assert.ok(s.pits[0].pendingCash > 0, 'work resumes (and pay accrues) after the break ends');
+});
+
+check('a manual-tap completion with no mechanic never accrues a break', () => {
+  const s = createInitialState();
+  s.permanentReputation = 0; // rusty → pit 0
+  tick(s, settings.spawn.interval);
+  s.pits[0].playerPresent = true;
+  const car = s.pits[0].car;
+  while (s.pits[0].car === car) tapRepair(s, 0);
+  assert.equal(s.pits[0].break.jobCount, 0, 'no worker → no break counter movement');
+  assert.equal(s.pits[0].break.onBreak, false);
+});
+
+check('the market worker accrues a break per checkout and eventually sits', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buySupermarket(s);
+  hireMarketWorker(s);
+  trainMarketWorker(s); // level 2: serves + restocks hands-free
+  s.supermarket.restockBox.units = 1e9; // keep the box stocked so restocking never stalls this break test
+
+  let guard = 0;
+  while (!s.supermarket.worker.break.onBreak && guard < 300000) {
+    tickSupermarket(s, 0.1);
+    guard += 1;
+  }
+  assert.equal(s.supermarket.worker.break.onBreak, true, 'market worker eventually takes a break');
+});
+
+check('buyBreakRoom needs a hired mechanic and is one-time per worker', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(buyBreakRoom(s, 0), false, 'no mechanic yet');
+  hireMechanic(s, 0);
+  assert.equal(buyBreakRoom(s, 0), true);
+  assert.equal(s.pits[0].break.breakDurationUpgraded, true);
+  assert.equal(buyBreakRoom(s, 0), false, 'one-time');
+});
+
+check('buyMarketBreakRoom needs a hired market worker and is one-time', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(buyMarketBreakRoom(s), false, 'no worker yet');
+  buySupermarket(s);
+  hireMarketWorker(s);
+  assert.equal(buyMarketBreakRoom(s), true);
+  assert.equal(s.supermarket.worker.break.breakDurationUpgraded, true);
+  assert.equal(buyMarketBreakRoom(s), false, 'one-time');
 });
 
 console.log(`\n${passed} passed`);

@@ -28,6 +28,13 @@ export class PitView {
     this.lotScale = 0; // animated 0..1
     this.stationScale = 0; // animated 0..1
 
+    // Break chair: appears once this pit has a hired worker, swapped for a couch
+    // when its break room is upgraded. chairPos is where the worker walks to sit.
+    const B = settings.breaks;
+    this.chairPos = { x: this.pos.x + B.chairOffset.x, z: this.pos.z + B.chairOffset.z };
+    this.seat = null; // the Chair/couch clone (tapped to open the break UI while seated)
+    this._seatModelKey = null; // 'chair' | 'couch' — current seat model, for swap detection
+
     this.boxes = []; // decorative shelf-box clones (a full grid; always shown when equipped)
     this.travelBoxes = []; // boxes currently riding the conveyor belt (one per delivery)
     this._labelText = ''; // last storage-label text drawn (skip redraw if unchanged)
@@ -234,6 +241,24 @@ export class PitView {
     }
   }
 
+  /**
+   * Build (or swap) this pit's break seat: a Chair by default, a couch once the
+   * break room is upgraded. Cloned/disposed the same way as the storage props.
+   */
+  #ensureSeat(upgraded) {
+    const key = upgraded ? 'couch' : 'chair';
+    if (this._seatModelKey === key) return;
+    if (this.seat) disposeStorageMesh(this.sm, this.seat);
+    const B = settings.breaks;
+    const seat = cloneStorageModel(key);
+    seat.scale.setScalar(upgraded ? B.couchScale : B.chairScale);
+    seat.position.set(this.chairPos.x, 0, this.chairPos.z);
+    seat.rotation.y = B.chairFacing;
+    this.sm.add(seat);
+    this.seat = seat;
+    this._seatModelKey = key;
+  }
+
   update(dt, pit, state) {
     this.#updateStorage(dt, pit, state);
 
@@ -251,13 +276,22 @@ export class PitView {
     applyAppear(this.lot, this.lotScale);
     applyAppear(this.station, this.stationScale);
 
-    // Spawn this pit's worker the moment one is hired.
+    // Spawn this pit's worker (and its break chair) the moment one is hired.
     if (pit.hasMechanic && !this.mechanic) {
       this.mechanic = new Mechanic(this.pos, this.gltf);
       this.sm.add(this.mechanic.root);
     }
+    if (pit.hasMechanic) this.#ensureSeat(pit.break.breakDurationUpgraded);
     if (this.mechanic) {
-      this.mechanic.update(dt, { carPresent: !!pit.car, hurrying: pit.hurryTimer > 0 });
+      const B = settings.breaks;
+      this.mechanic.update(dt, {
+        carPresent: !!pit.car,
+        hurrying: pit.hurryTimer > 0,
+        onBreak: pit.break.onBreak,
+        chairPos: this.chairPos,
+        chairFacing: B.chairFacing,
+        seatOffset: pit.break.breakDurationUpgraded ? B.sitOffset.couch : B.sitOffset.chair,
+      });
     }
 
     // Highlight only when the player can usefully tap here (equipped, a car

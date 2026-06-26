@@ -74,12 +74,21 @@ export const settings = {
       // speed (MarketCustomer.js, post-checkout) — the walkSlow counterpart to
       // the run-paced 'carry'.
       carryWalk: 'carryWalk',
+      // played by any worker (mechanic or market worker) while seated on a break
+      // (see core/breaks.js + Mechanic.js / MarketWorker.js); sourced from
+      // character_sitting.glb, merged in CharacterModel.js.
+      sitting: 'sitting',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
     cashierTint: 0x3ad06a, // green tint for the cashier clone (see scene/Cashier.js)
     marketWorkerTint: 0x4a9fd8, // the supermarket worker clone (see scene/MarketWorker.js)
-    customerTint: 0xc9956a, // supermarket customer clones (see scene/MarketCustomer.js)
+    // Each spawned customer (core/supermarket.js spawnCustomer) gets one of these,
+    // never repeating the immediately preceding customer's — otherwise the one
+    // walking out and the new one walking in (same model, same tint) read as the
+    // same person. Distinct from workerTint/cashierTint/marketWorkerTint so a
+    // customer is never mistaken for staff at a glance.
+    customerTints: [0xc9956a, 0x6a8fc9, 0xc96a8a, 0x8ac96a, 0xc9b06a, 0x9a6ac9],
   },
 
   // Shared transform applied to every car glb when cloned (see CarView.js).
@@ -169,6 +178,20 @@ export const settings = {
     // pile and land straight in cash. Flat cost (no growth — it's bought once).
     cashier: {
       baseCost: 1, // TESTING: cheap for iteration (was 500)
+    },
+    // One-time, PER-WORKER "Upgrade Break Room": halves that worker's break
+    // duration (breakDurations.base -> .upgraded) and swaps its chair for a
+    // couch. Bought separately for each pit mechanic and the market worker.
+    breakRoom: {
+      baseCost: 1, // TESTING: cheap for iteration (was 200)
+    },
+    // Global "Faster Deliveries": 3 levels, each steps the supermarket restock
+    // truck down one entry in settings.supermarket.truck.intervals (300→240→180
+    // →120s). Geometric cost like the rest. Not per-worker — one truck serves
+    // the whole market (see core/supermarket.truckDeliveryInterval).
+    truckFrequency: {
+      baseCost: 1, // TESTING: cheap for iteration (was 150)
+      costGrowth: 1.6,
     },
   },
 
@@ -298,34 +321,68 @@ export const settings = {
     workerMoveSpeed: 3.4, // world units/second, market worker only
     arriveEpsilon: 0.05, // distance under which a mover counts as "arrived"
 
-    // World layout, inside the left lobby (settings.colors.lobby). Customers
-    // get their OWN entry + exit doors, same shape as a car's: a back-wall
-    // door to walk in (marketX, world.halfZ) and a separate front-wall door to
-    // walk out (marketX, -world.halfZ) — see Garage.js's marketEntryDoor /
-    // marketExitDoor, built the same way as a pit's back/front doors, just at
-    // a fixed x instead of per-pit. Customers drive straight through on z,
-    // exactly like cars do, just slower and on foot. A third, separate door in
-    // the LEFT wall (restockDoorZ) is for restocking only — the player/worker
-    // carrying boxes, never customers. STARTING VALUES — tune by eye once visible.
+    // World layout, inside the left lobby (settings.colors.lobby). Customers get
+    // their OWN entry + exit doors, BOTH on the back wall (unlike a car's
+    // back/front pair) — the exit sits to the entry's left (west, toward the
+    // checkout/shelves corner) instead of clear across the building — see
+    // Garage.js's marketEntryDoor/marketExitDoor, built the same way as a pit's
+    // doors, just at fixed x's instead of per-pit. Customers drive straight
+    // through on z, exactly like cars do, just slower and on foot. A third,
+    // separate delivery door in the FRONT wall (deliveryDoorX, parallel to the
+    // pit exit doors) is for the restock TRUCK only — it pulls up to that gate
+    // from the exterior road, drops stock into the box just inside, and reverses
+    // out; never customers. STARTING VALUES — tune by eye once visible.
     //
     // Shelf x-offsets from marketX are doubled (±6, was ±3) to double the
     // market's total floor footprint (width x depth) — world.halfX was grown
     // to make room. Depth (z) is left as-is: it's already close to the room's
     // existing front/back walls, shared with the car system's doorZ/exitDoorZ.
-    marketX: -38, // shared x for both customer doors, clear of every pit lot
+    marketX: -38, // entry door's x, clear of every pit lot
+    marketExitX: -44, // exit door's x — same (back) wall as entry, to its left; lines up near the checkout
     customerEntryOutside: { x: -38, z: 11.5 }, // = { marketX, world.halfZ + 1.5 }, mirrors pit.doorZ
-    customerExitOutside: { x: -38, z: -11.5 }, // = { marketX, -(world.halfZ + 1.5) }, mirrors pit.exitDoorZ
+    customerExitOutside: { x: -44, z: 11.5 }, // = { marketExitX, world.halfZ + 1.5 } — same side as entry, just left of it
 
-    restockDoorZ: -8, // the restock-only door's gap centre along the LEFT wall (z-axis); width = world.gateHalf
-    exteriorLimitX: -54.5, // how far out the player may walk to reach the restock pile
-
+    deliveryDoorX: -38, // restock TRUCK's gate in the FRONT wall (z = -halfZ), in the aisle between the shelf clusters
     shelves: [
       { x: -42, z: -9, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
       { x: -34, z: -9, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
       { x: -44, z: -9, productType: 'C', model: 'freezer', offset: { x: 0, z: 0 } },
       { x: -32, z: -9, productType: 'D', model: 'freezer', offset: { x: 0, z: 0 } },
     ],
-    restockBoxPosition: { x: -53.5, z: -5 },
+    // The single restock box: just INSIDE the front-wall delivery door
+    // (deliveryDoorX), in the aisle between the two shelf clusters (x≈-38) and up
+    // against the car-exit (front) wall — so it reads as a loading dock, parallel
+    // to the pit exit doors. Picked so it sits in a clear A* cell: no shelf at
+    // x=-38, and z=-8.5 clears both the shelves' inflated margin and the front
+    // wall's, so the worker can path right onto it. STARTING VALUES — tune by eye.
+    restockBoxPosition: { x: -41, z: -15.5 },
+
+    // The restock box holds a SHARED, limited inventory (one unit restocks any
+    // one shelf fully, to shelfCapacity). A delivery truck tops it back up to
+    // maxUnits on a timer (see truck below + core/supermarket.tickTruck). When
+    // it hits 0 the player/worker can't restock until the next truck — a
+    // rewarded ad can summon one early (core/supermarket.callTruckEarly).
+    restockBox: {
+      maxUnits: 4,
+    },
+
+    // Delivery truck. Every `intervals[truckUpgradeLevel]` seconds it drives up
+    // the front-wall exterior road to the delivery gate (deliveryDoorX), STAYS at
+    // the gate (just outside the wall — it never enters the room), tops the box up
+    // to restockBox.maxUnits, then reverses back out the way it came. The "Faster
+    // Deliveries" upgrade (3 levels, see upgrades.js) steps the interval down this
+    // array. Scene choreography (Truck.glb, loaded once) lives in scene/TruckView.js.
+    // Offsets are along z (front-wall approach), relative to restockBoxPosition.
+    truck: {
+      // TESTING: short intervals for cheap iteration. Real: [300, 240, 180, 120].
+      intervals: [30, 20, 15, 10], // seconds, index = truckUpgradeLevel (0..3)
+      deliverOffset: { x: 0, z: -3.5 }, // where the truck stops: at the gate, just OUTSIDE the front wall (box.z - 3.5 ≈ -12)
+      startOffset: { x: 0, z: -25.5 }, // off-screen start/end point down the front road it drives in from / out to
+      waitDuration: 1.5, // seconds paused at the gate before driving back out
+      driveDuration: 1.6, // seconds for the drive-in / drive-out tween (mirrors a car's, slower)
+      modelScale: 1, // Truck.glb size fixup — tune by eye once visible
+      modelYRotationOffset: 0, // facing fixup (radians); flip ±π if it drives backwards
+    },
     checkoutPosition: { x: -44.5, z: 7.596 },
     // Where the served customer actually stands to check out: in FRONT of the
     // checkout (checkoutPosition with z + 1.5), clear of its collision box, so the
@@ -386,6 +443,14 @@ export const settings = {
     shelfEnd: 'shelf_end.glb',
     freezer: 'freezers_standing.glb',
     bag: 'Bag.glb',
+    // Break-room seats: every worker gets a Chair by default; the per-worker
+    // "Upgrade Break Room" purchase swaps it for the couch (see settings.breaks
+    // + core/breaks.js). Loaded once, cloned per worker like the other props.
+    chair: 'Chair.glb',
+    couch: 'couch_small.glb',
+    // The supermarket restock-delivery truck (loaded once, single reused
+    // instance — see scene/TruckView.js). Drives in, drops off stock, drives out.
+    truck: 'Truck.glb',
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close
@@ -421,6 +486,50 @@ export const settings = {
     offsetX: 2.1,
     offsetZ: 0.2,
     facingOffset: 0, // radians, added on top of the atan2 facing calc — flip 180° if facing is wrong
+  },
+
+  // How many jobs each worker completes before it earns a break (see
+  // core/breaks.js). A car mechanic's job = one finished repair; the market
+  // worker's job = one checked-out customer. Each worker tracks its own count.
+  // TESTING: slashed to 5/3 for cheap iteration (real values in comments).
+  breakThresholds: {
+    carMechanic: 50, // real: 100
+    marketWorker: 25, // real: 50
+  },
+
+  // How long (real seconds) a break lasts. The per-worker "Upgrade Break Room"
+  // purchase swaps `base` for `upgraded`. TESTING: slashed to 10/5 (real in comments).
+  breakDurations: {
+    base: 100, // real: 300 (5 min)
+    upgraded: 50, // real: 150 (2.5 min)
+  },
+
+  // Break-room layout + per-model fixups (tune by eye once visible, like the
+  // storage/supermarket scales). Each worker walks to its own seat and sits
+  // for breakDurations seconds; the only early wake-up is a rewarded ad.
+  breaks: {
+    // Mechanic seat: offset from the pit centre, placed to the right of that
+    // pit's shelf (shelf is at settings.storage.shelfOffset from the pit).
+    chairOffset: { x: 5.2, z: -13.0 },
+    chairFacing: 0, // radians the seated mechanic (and its chair) faces
+    // Market worker seat: a fixed spot just left of the restock door, inside the room.
+    marketChairPosition: { x: -47, z: -3 },
+    marketChairFacing: 1.5,
+    // The stationary mechanic isn't core-driven, so the scene walks it to/from
+    // its chair at this pace (world units/sec) when a break starts/ends.
+    mechanicWalkSpeed: 3,
+    chairScale: 1,
+    couchScale: 0.7,
+    // Once seated, nudge the worker's body relative to its seat so it rests ON
+    // the seat instead of clipping into its frame — the couch is bulkier than
+    // the chair, so its occupant sinks into the cushion/back without this. Per
+    // seat type, applied in the seat's OWN frame (rotated by its facing):
+    // `forward` = toward the seat front, `side` = across it, `lift` = raise onto
+    // the cushion. Tune by eye in `npm run dev`.
+    sitOffset: {
+      chair: { side: 0, forward: 0, lift: 0 },
+      couch: { side: 0, forward: 0.45, lift: 0 },
+    },
   },
 
   colors: {

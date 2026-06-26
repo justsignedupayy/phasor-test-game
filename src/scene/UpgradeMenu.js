@@ -10,6 +10,9 @@ import {
   buySupermarket,
   hireMarketWorker,
   trainMarketWorker,
+  buyBreakRoom,
+  buyMarketBreakRoom,
+  buyTruckFrequency,
 } from '../core/upgrades.js';
 import { saveGame } from '../platform/storage.js';
 
@@ -295,6 +298,15 @@ export class UpgradeMenu {
         break;
       case 'trainMarketWorker':
         ok = trainMarketWorker(this.state);
+        break;
+      case 'breakRoom':
+        ok = buyBreakRoom(this.state, pitIndex);
+        break;
+      case 'marketBreakRoom':
+        ok = buyMarketBreakRoom(this.state);
+        break;
+      case 'truckFrequency':
+        ok = buyTruckFrequency(this.state);
         break;
     }
     if (ok) {

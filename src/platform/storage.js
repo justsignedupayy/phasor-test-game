@@ -5,7 +5,7 @@
  * future format change can migrate or safely discard old saves.
  */
 const SAVE_KEY = 'garageIdleSave';
-const SAVE_VERSION = 6; // v6: supermarket (shelves/customers/worker); v5: per-pit tires/shelf + conveyor + carried box; v4: pendingCash + cashier; v3: 5 pits
+const SAVE_VERSION = 9; // v9: restock box moved to the front-wall delivery dock (saved restockBoxPosition); v8: supermarket restock box (limited units) + delivery truck (timer/upgrade); v7: per-worker break state (pit.break / worker.break); v6: supermarket (shelves/customers/worker); v5: per-pit tires/shelf + conveyor + carried box; v4: pendingCash + cashier; v3: 5 pits
 
 const backend = {
   read() {

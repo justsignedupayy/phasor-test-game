@@ -115,6 +115,25 @@ export function attachToHand(model, prop, offset, rotation) {
   return parent;
 }
 
+/**
+ * A seat offset ({ side, forward, lift }) resolved into a world-space delta for
+ * a seat facing `facing` (radians; 0 faces +z, matching the game's atan2(dx,dz)
+ * convention). `forward` runs along the facing, `side` across it, `lift` straight
+ * up. Shared by Mechanic.js / MarketWorker.js so a seated worker rests on its
+ * seat instead of clipping into it (see settings.breaks.sitOffset).
+ */
+export function seatOffsetDelta(facing, offset) {
+  const fwdX = Math.sin(facing);
+  const fwdZ = Math.cos(facing);
+  const sideX = Math.cos(facing);
+  const sideZ = -Math.sin(facing);
+  return {
+    x: offset.side * sideX + offset.forward * fwdX,
+    y: offset.lift,
+    z: offset.side * sideZ + offset.forward * fwdZ,
+  };
+}
+
 /** Shortest-path angle interpolation (handles wrap-around), used by every moving character. */
 export function lerpAngle(a, b, t) {
   let d = b - a;

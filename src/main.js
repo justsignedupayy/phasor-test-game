@@ -3,7 +3,14 @@ import settings from './config/settings.js';
 import { createInitialState } from './core/GameState.js';
 import { tick, tapRepair, hurry } from './core/simulation.js';
 import { seedIdCounter } from './core/Car.js';
-import { tickSupermarket, buyProduct, placeAtCheckout, restockShelf, hurryMarketWorker } from './core/supermarket.js';
+import {
+  tickSupermarket,
+  buyProduct,
+  placeAtCheckout,
+  restockShelf,
+  hurryMarketWorker,
+  takeRestockUnit,
+} from './core/supermarket.js';
 import { SceneManager } from './scene/SceneManager.js';
 import { Input } from './scene/Input.js';
 import { Character } from './scene/Character.js';
@@ -21,6 +28,8 @@ import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
 import { preloadStorageModels } from './scene/StorageModels.js';
 import { CarriedBox } from './scene/CarriedBox.js';
 import { SupermarketView } from './scene/SupermarketView.js';
+import { BreakMenu } from './scene/BreakMenu.js';
+import { TruckMenu } from './scene/TruckMenu.js';
 
 const container = document.getElementById('app');
 
@@ -60,6 +69,8 @@ async function main() {
   const pitMoney = new PitMoney(sceneManager);
   const carriedBox = new CarriedBox(sceneManager);
   const supermarketView = new SupermarketView(sceneManager, gltf);
+  const breakMenu = new BreakMenu(state); // opened by tapping a seated worker's chair
+  const truckMenu = new TruckMenu(state); // opened by tapping an empty restock box
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -76,6 +87,18 @@ async function main() {
 
     if (computer.raycastTap(raycaster)) {
       adMenu.open();
+      return;
+    }
+
+    // A seated worker's chair opens the break panel (works from anywhere, like a
+    // remote hurry tap). Checked before the worker/car raycasts so the chair wins.
+    const chairPit = carYard.raycastChair(raycaster, state);
+    if (chairPit >= 0) {
+      breakMenu.open(state.pits[chairPit].break, `Worker ${String.fromCharCode(65 + chairPit)}`);
+      return;
+    }
+    if (supermarketView.raycastChair(raycaster, state)) {
+      breakMenu.open(state.supermarket.worker.break, 'Market Worker');
       return;
     }
 
@@ -127,8 +150,13 @@ async function main() {
     } else if (hit.kind === 'checkout') {
       if (market.workerLevel === 0 && near(M.checkoutPosition)) placeAtCheckout(state);
     } else if (hit.kind === 'restockBox') {
-      if (market.workerLevel < 2 && !state.player.carryingRestockBox && near(market.restockBoxPosition)) {
-        state.player.carryingRestockBox = true;
+      // Empty box: a tap (from anywhere) opens the "waiting for truck" panel with
+      // the Call-Truck-Early ad button, instead of any pickup.
+      if (market.restockBox.units <= 0) {
+        truckMenu.open();
+      } else if (market.workerLevel < 2 && !state.player.carryingRestockBox && near(market.restockBoxPosition)) {
+        // Pick up one unit (decrements the box) to carry to a shelf.
+        if (takeRestockUnit(state)) state.player.carryingRestockBox = true;
       }
     }
   }
@@ -180,6 +208,8 @@ async function main() {
     supermarketView.update(dt, state);
     pitMoney.update(dt, state, state.player.position);
     adMenu.update();
+    breakMenu.update();
+    truckMenu.update();
     hud.update(state.cash, state.repBoostRemaining);
     menu.update(state);
 

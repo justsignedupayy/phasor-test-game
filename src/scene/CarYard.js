@@ -58,6 +58,20 @@ export class CarYard {
     return -1;
   }
 
+  /**
+   * Raycast the break chairs; returns the pit index whose SEATED worker's chair
+   * was hit (so main.js can open the break panel), or -1. Only a chair whose
+   * worker is actually on break is a hit — an empty chair isn't tappable.
+   */
+  raycastChair(raycaster, state) {
+    for (let i = 0; i < this.pitViews.length; i++) {
+      const view = this.pitViews[i];
+      if (!view.seat || !state.pits[i].break.onBreak) continue;
+      if (raycaster.intersectObject(view.seat, true).length > 0) return i;
+    }
+    return -1;
+  }
+
   update(dt, state) {
     state.pits.forEach((pit, i) => this.#syncPitCar(state, pit, i));
     this.#syncQueues(state);

@@ -3,6 +3,7 @@
  * All mutation goes through the simulation / upgrades modules.
  */
 import settings from '../config/settings.js';
+import { createBreakState } from './breaks.js';
 
 /**
  * One repair pit. Two-stage unlock: roomUnlocked (empty floor) then equipped
@@ -39,6 +40,9 @@ function createPit(index) {
     // written by the scene each frame (null when the pit has no visible conveyor).
     // simulation.js reads it to repel the player so they can't walk through it.
     conveyorBounds: null,
+    // This pit mechanic's break clock (see core/breaks.js): a finished repair
+    // counts a job; after enough the worker sits at its chair for a while.
+    break: createBreakState('carMechanic'),
   };
 }
 
@@ -66,7 +70,19 @@ function createSupermarketState() {
     checkoutBag: null, // { customerId, items, total } once fully assembled and placed at the counter
     worker: null, // { position:{x,z}, rotation, moving, carrying, state:'idle'|'packaging'|'restocking', ... } once workerLevel >= 1
     restockBoxPosition: { ...settings.supermarket.restockBoxPosition },
+    // The restock box's shared inventory (one unit = one full shelf refill). A
+    // delivery truck tops it back up to maxUnits on a timer; at 0 nobody can
+    // restock until the next truck (see core/supermarket.js: takeRestockUnit /
+    // tickTruck / deliverStock / callTruckEarly). Starts full.
+    restockBox: {
+      units: settings.supermarket.restockBox.maxUnits,
+      maxUnits: settings.supermarket.restockBox.maxUnits,
+    },
+    truckTimer: 0, // counts up; at >= truckDeliveryInterval() the next truck is dispatched
+    truckUpgradeLevel: 0, // "Faster Deliveries" level (0..3); indexes settings.supermarket.truck.intervals
+    truckArriving: false, // true while the truck's drive-in animation is in flight (scene drives this back to false via deliverStock)
     paidThisTick: 0, // one-tick render signal (the scene pops "+$" at checkout when this is > 0), mirrors pit.collectedThisTick
+    lastCustomerTint: null, // the most recently spawned customer's tint, so spawnCustomer never repeats it back-to-back
   };
 }
 
@@ -110,7 +126,7 @@ export class GameState {
       moving: false,
       carryingBox: false, // is the player holding a box right now?
       carryingBoxPitIndex: null, // which pit's shelf the carried box came from
-      carryingRestockBox: false, // manual market restocking: carrying a box from the outside pile
+      carryingRestockBox: false, // manual market restocking: carrying a box from the restock dock
     };
 
     // Desired move direction in WORLD space (x/z), magnitude 0..1.

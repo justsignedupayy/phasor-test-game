@@ -69,8 +69,13 @@ export function buildGrid(s) {
 }
 
 function cellOf(grid, p) {
-  const col = Math.floor((p.x - grid.minX) / grid.cellSize);
-  const row = Math.floor((p.z - grid.minZ) / grid.cellSize);
+  let col = Math.floor((p.x - grid.minX) / grid.cellSize);
+  let row = Math.floor((p.z - grid.minZ) / grid.cellSize);
+  // The lower grid boundary is naturally inclusive (floor() puts it in cell 0);
+  // a point sitting exactly ON the upper boundary (e.g. a door gate at +halfX/
+  // +halfZ) floors to one-past-the-last cell, so snap it back in to match.
+  if (col === grid.cols) col = grid.cols - 1;
+  if (row === grid.rows) row = grid.rows - 1;
   if (col < 0 || col >= grid.cols || row < 0 || row >= grid.rows) return null;
   return { col, row };
 }

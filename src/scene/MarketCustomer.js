@@ -8,16 +8,18 @@ const HEAD_LABEL_Y = 2.1; // floats just above the head
 
 /**
  * MarketCustomer — one shopper NPC, the same rigged glTF as the player/workers,
- * cloned + tinted (customerTint). Walks in, queues, walks to checkout, walks
- * out (core/supermarket.js owns its position/rotation/state; this only
- * renders it). Walks in idle/walkSlow until it collects at checkout, then hauls
- * a Bag.glb (parented to its hand bone) out on the 'carryWalk' clip until it
- * exits and is disposed.
+ * cloned + tinted with its own customer.tint (core/supermarket.js's spawnCustomer
+ * picks one per spawn, never repeating the previous customer's — see
+ * settings.character.customerTints — so consecutive customers never look like
+ * the same person). Walks in, queues, walks to checkout, walks out (core owns
+ * its position/rotation/state; this only renders it). Walks in idle/walkSlow
+ * until it collects at checkout, then hauls a Bag.glb (parented to its hand
+ * bone) out on the 'carryWalk' clip until it exits and is disposed.
  * Shows its order (e.g. "2A 1C") on a head-label sprite for its whole
  * lifetime — the request never changes after spawn, so it's drawn once.
  */
 export class MarketCustomer {
-  /** @param {object} customer the customer this view renders (read once, for its order label) */
+  /** @param {object} customer the customer this view renders (read once, for its tint + order label) */
   constructor(gltf, customer) {
     const cfg = settings.character;
 
@@ -29,7 +31,7 @@ export class MarketCustomer {
     this.model.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
-        tintMesh(o, cfg.customerTint);
+        tintMesh(o, customer.tint);
       }
     });
     this.root.add(this.model);

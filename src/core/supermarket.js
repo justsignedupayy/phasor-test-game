@@ -15,18 +15,20 @@
  * Customer states: walkingIn -> waiting -> walkingToCheckout -> walkingOut (then
  * removed). Only the front-of-line customer (the first one fully 'waiting') is
  * ever served — checkoutBag/assemblingBag both key off its id, mirroring the
- * single-active-car-per-pit shape in simulation.js. Customers drive straight
- * through on z just like cars: in from settings.supermarket.customerEntryOutside
- * (a back-wall door), out through customerExitOutside (a separate front-wall
- * door) — see Garage.js's marketEntryDoor/marketExitDoor.
+ * single-active-car-per-pit shape in simulation.js. Customers walk in from
+ * settings.supermarket.customerEntryOutside and back out through
+ * customerExitOutside — a separate door just to the entry's left, on the SAME
+ * (back) wall, not a straight drive-through like the cars — see Garage.js's
+ * marketEntryDoor/marketExitDoor.
  *
  * Worker FSM (workerLevel >= 1): idle -> packaging (walk shelf-to-shelf
  * gathering the front order, then to the checkout) -> idle. workerLevel >= 2
- * adds restocking (walk to the outside box, then to the emptiest shelf) when
- * no customer needs packaging.
+ * adds restocking (walk to the restock box, then to the emptiest shelf) when
+ * no customer needs packaging and the box still has a unit to carry.
  */
 import settings from '../config/settings.js';
 import { grid, findPath } from './pathfinding.js';
+import { createBreakState, tickBreak, incrementJobCount } from './breaks.js';
 
 // Every market NPC (worker + customers) shares the player's body radius — they all
 // clone the same character model. Obstacle inflation in the pathfinding grid uses
@@ -59,21 +61,19 @@ function clearPath(mover) {
 }
 
 /**
- * Plan a mover's route to target — normally plain A* (findPath), but for trips that
- * must pass through a DOOR GAP (rather than straight through a solid wall) or AROUND
- * the checkout it threads a mandatory gap waypoint first:
+ * Plan a mover's route to target — normally plain A* (findPath), with one special
+ * case that threads a mandatory gap waypoint first:
  *
- *  • Worker restock OUT (target = exterior pile, worker still inside the room): A* to
- *    the LEFT-wall restock-door gap { -halfX, restockDoorZ }, then a direct leg out to
- *    the pile — so it crosses at the gap, never through the wall.
- *  • Worker restock BACK (already outside, heading to an interior target): in through
- *    the restock-door gap, then A* across the room to the target.
- *  • Customer EXIT (target = the outside exit point): A* to the FRONT-wall exit-door
- *    gap { marketX, -halfZ } — which routes the customer AROUND the inflated checkout
- *    box instead of straight through it — then a direct leg out through the gap.
- *    (Entry needs none: its straight path already clears the box and its own door.)
+ *  • Customer EXIT (target = the outside exit point): A* to the BACK-wall exit-door
+ *    gap { marketExitX, halfZ } — which routes the customer AROUND the inflated
+ *    checkout box instead of straight through it — then a direct leg out through the
+ *    gap. (Entry needs none: its straight path already clears the box and its own door.)
  *
- * Each special route still uses findPath for the in-room legs, so the A* grid is the
+ * The restock box now lives INSIDE the room (settings.restockBoxPosition, in the
+ * aisle in front of the shelves), so worker restock trips are plain A* — no
+ * restock-door threading needed any more (the truck, not the worker, uses that door).
+ *
+ * The special route still uses findPath for the in-room leg, so the A* grid is the
  * single source of static obstacle avoidance; only the gap waypoint is threaded in.
  */
 function planRoute(mover, target) {
@@ -81,20 +81,9 @@ function planRoute(mover, target) {
   const M = settings.supermarket;
   const pos = mover.position;
 
-  // Worker → exterior restock pile: A* to the restock door, then direct out.
-  const restockDoor = { x: -W.halfX, z: M.restockDoorZ };
-  if (samePoint(target, M.restockBoxPosition) && pos.x > -W.halfX) {
-    const toDoor = findPath(grid, pos, restockDoor);
-    return toDoor ? [...toDoor, restockDoor] : [restockDoor];
-  }
-  // Worker returning from the exterior: in through the restock door, then A* inside.
-  if (pos.x < -W.halfX && target.x >= -W.halfX) {
-    const fromDoor = findPath(grid, restockDoor, target);
-    return fromDoor ? [restockDoor, ...fromDoor] : [restockDoor];
-  }
   // Customer leaving: A* to the exit door (routes around the checkout box), then out.
   if (samePoint(target, M.customerExitOutside)) {
-    const exitDoor = { x: M.marketX, z: -W.halfZ };
+    const exitDoor = { x: M.marketExitX, z: W.halfZ };
     const toDoor = findPath(grid, pos, exitDoor);
     return toDoor ? [...toDoor, exitDoor] : [exitDoor];
   }
@@ -108,8 +97,8 @@ function planRoute(mover, target) {
  * (so callers drive `.moving` and their FSM transitions exactly as before).
  *
  *  • On a target change, request a fresh path (findPath) and cache it on the mover.
- *    A null path (target/start off the grid, e.g. the worker's exterior restock pile
- *    or a customer's outside door) falls back to moving straight at the target.
+ *    A null path (target/start off the grid, e.g. a customer's outside door) falls
+ *    back to moving straight at the target.
  *  • Each frame, move toward the next waypoint; advance the cursor once within
  *    WP_REACH of it. With all waypoints consumed (or on a direct path) it heads to
  *    the real target — A* stops at the edge of an inflated obstacle, so this last
@@ -166,9 +155,9 @@ function waypointNpc(state, mover, target, speed, dt) {
   }
 
   // A null path means a direct moveToward with no A* wall routing (an off-grid
-  // target: the worker's exterior restock pile, a customer's outside door). Enforce
-  // the world bounds here so the mover can't walk through a solid wall. Applied
-  // before the cap below, so any clamp correction is smoothed to ≤ speed*dt.
+  // target: a customer's outside door). Enforce the world bounds here so the mover
+  // can't walk through a solid wall. Applied before the cap below, so any clamp
+  // correction is smoothed to ≤ speed*dt.
   if (!path) clampFallbackToWalls(mover.position, NPC_RADIUS, target);
 
   // Per-frame displacement cap (the step above is already ≤ speed*dt; this guards
@@ -185,25 +174,21 @@ function waypointNpc(state, mover, target, speed, dt) {
 
 /**
  * Wall clamp for the null-path direct fallback. Mirrors simulation.clampToBounds,
- * with two door relaxations so a legitimate crossing is never blocked:
- *  • LEFT wall opens when the mover targets the restock pile or is already outside it
- *    (x < -halfX) — the worker's restock-door access, relaxed exactly as before.
+ * with one door relaxation so a legitimate crossing is never blocked:
  *  • A z-wall opens when the mover is at or heading beyond it — a customer crossing
  *    its entry/exit door (only customers ever target a z beyond the room; the worker
  *    stays within z, so it's always clamped there).
- * The right wall is always solid.
+ * The left/right walls are always solid here: the worker's restock box is now
+ * inside the room (reached by plain A*, never this fallback), so no left-wall
+ * door access is needed any more.
  */
 function clampFallbackToWalls(pos, r, target) {
   const W = settings.world;
-  const M = settings.supermarket;
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
 
   if (pos.x > limX) pos.x = limX; // right wall — always solid
-
-  const restocking = target && samePoint(target, M.restockBoxPosition);
-  const outsideLeft = pos.x < -W.halfX;
-  if (!restocking && !outsideLeft && pos.x < -limX) pos.x = -limX; // left wall (unless restock-door access)
+  if (pos.x < -limX) pos.x = -limX; // left wall — always solid
 
   const crossingZ = (target && Math.abs(target.z) > W.halfZ) || Math.abs(pos.z) > W.halfZ;
   if (!crossingZ) {
@@ -352,6 +337,21 @@ function emptiestShelfIndex(state) {
 
 // --- customers --------------------------------------------------------------
 
+/**
+ * A tint for a freshly spawned customer, never the one the immediately preceding
+ * customer got — without this, a customer walking out through the exit and the
+ * next one walking in through the entry (same model, same tint) read as the same
+ * person doing a loop. See settings.character.customerTints.
+ */
+function pickCustomerTint(state) {
+  const palette = settings.character.customerTints;
+  const last = state.supermarket.lastCustomerTint;
+  const choices = palette.length > 1 ? palette.filter((t) => t !== last) : palette;
+  const tint = choices[Math.floor(Math.random() * choices.length)];
+  state.supermarket.lastCustomerTint = tint;
+  return tint;
+}
+
 /** Create one customer with a random 1-5 unit order (any mix of A/B/C/D). */
 export function spawnCustomer(state) {
   const M = settings.supermarket;
@@ -371,6 +371,7 @@ export function spawnCustomer(state) {
     position: { ...M.customerEntryOutside },
     rotation: 0,
     moving: true,
+    tint: pickCustomerTint(state),
   };
   state.supermarket.customerQueue.push(customer);
   return customer;
@@ -485,6 +486,9 @@ export function checkoutCustomer(state) {
 
   state.cash += bag.total;
   S.paidThisTick = bag.total;
+  // One delivered customer = one job toward the market worker's break (the
+  // worker exists only at workerLevel >= 1; at level 0 the player serves).
+  if (S.worker) incrementJobCount(S.worker.break);
   customer.state = 'walkingOut';
   customer.moving = true;
   return true;
@@ -504,6 +508,7 @@ export function createMarketWorker() {
     targetShelfIndex: null,
     _gatheredItem: false, // true once ≥1 order item is in hand this packaging trip (drives the carry clip + bag prop)
     hurryTimer: 0, // seconds of remaining speed boost, set by hurryMarketWorker (mirrors pit.hurryTimer)
+    break: createBreakState('marketWorker'), // its own break clock (see core/breaks.js)
   };
 }
 
@@ -521,6 +526,7 @@ function updateWorker(state, dt) {
   const M = settings.supermarket;
 
   if (w.hurryTimer > 0) w.hurryTimer = Math.max(0, w.hurryTimer - dt);
+  tickBreak(w.break, dt); // advance a running break; may auto-end it this frame
   const speed = M.workerMoveSpeed * (w.hurryTimer > 0 ? settings.hurry.multiplier : 1);
 
   if (w.phase === 'toShelf') {
@@ -560,8 +566,17 @@ function updateWorker(state, dt) {
     const arrived = waypointNpc(state, w, S.restockBoxPosition, speed, dt);
     w.moving = !arrived;
     if (arrived) {
-      w.carrying = true;
-      w.phase = 'toRestockShelf';
+      // Take one unit out of the box to carry to the shelf. If it emptied between
+      // deciding to restock and arriving (e.g. the player grabbed the last unit),
+      // abort and drop back to idle — the worker waits for the next delivery.
+      if (takeRestockUnit(state)) {
+        w.carrying = true;
+        w.phase = 'toRestockShelf';
+      } else {
+        w.phase = null;
+        w.carrying = false;
+        w.state = 'idle';
+      }
     }
     return;
   }
@@ -577,6 +592,22 @@ function updateWorker(state, dt) {
       w.carrying = false;
       w.state = 'idle';
     }
+    return;
+  }
+
+  // On break: the worker has finished its last task (it only reaches this idle
+  // decision with no phase in progress), so it now walks to its chair and sits.
+  // Customers/queue keep building meanwhile — exactly like an idle worker with
+  // no job, just seated. tickBreak (above) ends the break automatically; an ad
+  // can end it early (endBreak). It then drops straight back into normal work.
+  if (w.break.onBreak) {
+    const B = settings.breaks;
+    const arrived = waypointNpc(state, w, B.marketChairPosition, speed, dt);
+    w.moving = !arrived;
+    w.state = 'onBreak';
+    w.carrying = false;
+    w._gatheredItem = false;
+    if (arrived) w.rotation = B.marketChairFacing; // settle into the seat's facing
     return;
   }
 
@@ -604,7 +635,7 @@ function updateWorker(state, dt) {
       w._gatheredItem = true;
       return;
     }
-    if (S.workerLevel >= 2) {
+    if (S.workerLevel >= 2 && S.restockBox.units > 0) {
       const blocked = neededEmptyShelfIndex(state, customer);
       if (blocked !== null) {
         w.state = 'restocking';
@@ -621,7 +652,7 @@ function updateWorker(state, dt) {
     w._gatheredItem = false;
     return;
   }
-  if (S.workerLevel >= 2) {
+  if (S.workerLevel >= 2 && S.restockBox.units > 0) {
     const idx = emptiestShelfIndex(state);
     const restockAt = M.shelfCapacity * RESTOCK_THRESHOLD_FRACTION;
     if (idx !== null && S.shelves[idx].stock <= restockAt) {
@@ -639,6 +670,65 @@ function updateWorker(state, dt) {
   w._gatheredItem = false;
 }
 
+// --- restock box + delivery truck -------------------------------------------
+
+/** Seconds between truck deliveries at the current "Faster Deliveries" level. */
+export function truckDeliveryInterval(state) {
+  const intervals = settings.supermarket.truck.intervals;
+  const lvl = Math.min(state.supermarket.truckUpgradeLevel, intervals.length - 1);
+  return intervals[lvl];
+}
+
+/**
+ * Take one unit out of the restock box (one unit = one full shelf refill).
+ * Returns false (taking nothing) when the box is empty — the caller then can't
+ * restock until the next truck arrives.
+ */
+export function takeRestockUnit(state) {
+  const box = state.supermarket.restockBox;
+  if (box.units <= 0) return false;
+  box.units -= 1;
+  return true;
+}
+
+/**
+ * Advance the delivery-truck clock. Once truckTimer reaches the current interval
+ * a truck is dispatched (truckArriving = true) and the timer resets; the scene
+ * plays the drive-in and calls deliverStock() when it lands. While a truck is in
+ * flight the timer holds, so the next interval only starts counting after the
+ * delivery completes.
+ */
+export function tickTruck(state, dt) {
+  const S = state.supermarket;
+  if (S.truckArriving) return; // a truck is already on its way — hold the clock
+  S.truckTimer += dt;
+  if (S.truckTimer >= truckDeliveryInterval(state)) {
+    S.truckArriving = true;
+    S.truckTimer = 0;
+  }
+}
+
+/**
+ * The truck finished its drive-in: top the box back up to maxUnits (never past
+ * it) and clear truckArriving so the delivery clock resumes. Called by the scene
+ * (TruckView) at the drive-in → wait transition.
+ */
+export function deliverStock(state) {
+  const box = state.supermarket.restockBox;
+  box.units = Math.min(box.units + box.maxUnits, box.maxUnits);
+  state.supermarket.truckArriving = false;
+}
+
+/**
+ * Summon the truck immediately (the rewarded-ad "Call Truck Early" path): fast-
+ * forward the clock so the very next tickTruck dispatches a delivery. No-op if a
+ * truck is already in flight.
+ */
+export function callTruckEarly(state) {
+  if (state.supermarket.truckArriving) return;
+  state.supermarket.truckTimer = truckDeliveryInterval(state);
+}
+
 // --- top-level tick -----------------------------------------------------------
 
 export function tickSupermarket(state, dt) {
@@ -649,5 +739,6 @@ export function tickSupermarket(state, dt) {
   updateCustomerSpawning(state, dt);
   updateCustomers(state, dt);
   if (state.supermarket.workerLevel >= 1) updateWorker(state, dt);
+  tickTruck(state, dt); // advance the delivery-truck clock; dispatches on interval
   separateMovingAgents(state); // light agent-agent overlap net, after everyone has moved
 }

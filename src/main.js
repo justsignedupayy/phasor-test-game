@@ -19,8 +19,6 @@ import { Garage } from './scene/Garage.js';
 import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
-import { Computer } from './scene/Computer.js';
-import { AdvertisingMenu } from './scene/AdvertisingMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
 import { preloadCarModels } from './scene/CarView.js';
@@ -43,8 +41,6 @@ const hud = new Hud();
 const menu = new UpgradeMenu(state);
 
 const garage = new Garage(sceneManager);
-const computer = new Computer(sceneManager);
-const adMenu = new AdvertisingMenu(state);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
 
@@ -84,11 +80,6 @@ async function main() {
     ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, sceneManager.camera);
-
-    if (computer.raycastTap(raycaster)) {
-      adMenu.open();
-      return;
-    }
 
     // A seated worker's chair opens the break panel (works from anywhere, like a
     // remote hurry tap). Checked before the worker/car raycasts so the chair wins.
@@ -195,7 +186,7 @@ async function main() {
 
     // Cashier NPC: appears at the desk the moment one is hired, then idles forever.
     if (state.hasCashier && !cashier) {
-      cashier = new Cashier(gltf);
+      cashier = new Cashier(gltf, sceneManager);
       sceneManager.add(cashier.root);
     }
     if (cashier) cashier.update(dt);
@@ -204,10 +195,8 @@ async function main() {
     carriedBox.update(state.player);
     garage.update(dt, state);
     carYard.update(dt, state);
-    computer.update(dt, state);
     supermarketView.update(dt, state);
     pitMoney.update(dt, state, state.player.position);
-    adMenu.update();
     breakMenu.update();
     truckMenu.update();
     hud.update(state.cash, state.repBoostRemaining);

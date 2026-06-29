@@ -17,7 +17,7 @@ import { deliverStock } from '../core/supermarket.js';
  * restock pile) are exposed via raycastTap() for main.js to dispatch into
  * core/supermarket.js, same split as CarYard.raycast() + PitView's rings.
  */
-const RING_PULSE_HZ = 5; // matches PitView/Computer's highlight pulse
+const RING_PULSE_HZ = 5; // matches PitView's highlight pulse
 
 export class SupermarketView {
   constructor(sceneManager, gltf) {
@@ -39,8 +39,6 @@ export class SupermarketView {
     this.#buildCheckout();
     this.#buildRestockPile();
     this.#buildCarriedBox();
-
-    logCollisionTuning();
   }
 
   #buildShelves() {
@@ -307,22 +305,6 @@ function disposeSeat(sceneManager, mesh) {
       mats.forEach((m) => m.dispose());
     }
   });
-}
-
-// Dump the supermarket collision tuning to the console once at startup, so the
-// values can be read off (and tweaked) live in `npm run dev` without digging
-// through settings.js. Half-extents drive how far each obstacle blocks; the
-// offsets nudge a box's collision centre off its visual model position.
-function logCollisionTuning() {
-  const M = settings.supermarket;
-  console.log(
-    '[supermarket collision tuning] ' +
-      `shelfHalf=(${M.shelfCollisionHalf.x}, ${M.shelfCollisionHalf.z}) ` +
-      `freezerHalf=(${M.freezerCollisionHalf.x}, ${M.freezerCollisionHalf.z}) ` +
-      `checkoutHalf=(${M.checkoutCollisionHalf.x}, ${M.checkoutCollisionHalf.z}) ` +
-      `shelfOffset=(${M.shelfCollisionOffset.x}, ${M.shelfCollisionOffset.z}) ` +
-      `freezerOffset=(${M.freezerCollisionOffset.x}, ${M.freezerCollisionOffset.z})`
-  );
 }
 
 // A camera-facing text label rendered to a small canvas texture (mirrors PitView's storage label).

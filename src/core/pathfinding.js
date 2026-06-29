@@ -17,11 +17,17 @@
  * A ready-built `grid` for the live settings is exported too; steering imports it.
  */
 import settings from '../config/settings.js';
+import { buildObstacleList } from './collision.js';
 
 const NPC_RADIUS = settings.player.radius;
 
-/** Build the inflated walkability grid from world bounds + market obstacle boxes. */
-export function buildGrid(s) {
+/**
+ * Build the inflated walkability grid from world bounds + market obstacle boxes.
+ * `extraBoxes` ({ x, z, halfX, halfZ }) are dynamic obstacles that change with game
+ * state (the room's right/fence wall, which moves as pits unlock) — passed in by
+ * rebuildGrid so this stays a pure function of its arguments.
+ */
+export function buildGrid(s, extraBoxes = []) {
   const W = s.world;
   const M = s.supermarket;
   const cellSize = s.pathfinding.cellSize;
@@ -32,31 +38,41 @@ export function buildGrid(s) {
   const blocked = new Uint8Array(cols * rows);
   const r = NPC_RADIUS;
 
-  // Obstacle rectangles { x, z, hx, hz } — same collision halves/offsets the player's
-  // resolveSupermarketCollisions uses, so the grid and that safety net agree.
-  const rects = [];
-  for (const shelf of M.shelves) {
-    const freezer = shelf.model === 'freezer';
-    const half = freezer ? M.freezerCollisionHalf : M.shelfCollisionHalf;
-    const off = freezer ? M.freezerCollisionOffset : M.shelfCollisionOffset;
-    rects.push({ x: shelf.x + off.x, z: shelf.z + off.z, hx: half.x, hz: half.z });
-  }
-  rects.push({
-    x: M.checkoutPosition.x,
-    z: M.checkoutPosition.z,
-    hx: M.checkoutCollisionHalf.x,
-    hz: M.checkoutCollisionHalf.z,
-  });
+  // Obstacle rectangles { x, z, halfX, halfZ } from the shared geometry builder — the
+  // SAME list (market shelves/freezers/checkout + every pit's shelf/tire/chair) the
+  // player/mechanic push-out uses, so the grid and that safety net can never drift.
+  // allPits: the grid is state-free, so it bakes in every pit's props (harmless —
+  // market NPCs never reach the bay row). The moving fence wall arrives as extraBoxes.
+  const rects = buildObstacleList(null, s, { allPits: true, walls: extraBoxes });
+
+  // Door gaps: a boundary cell within gateHalf of a door's x on that wall stays
+  // walkable, so NPCs can route THROUGH the gate via A* instead of only the direct
+  // fallback. Front wall (z = -halfZ): the supermarket delivery/restock gate
+  // (deliveryDoorX). Back wall (z = +halfZ): the customer entry (marketX) + exit
+  // (marketExitX) doors. Mirrors the gate gaps Garage.js carves in the wall meshes.
+  const g = W.gateHalf;
+  const frontDoorXs = [M.deliveryDoorX];
+  const backDoorXs = [M.marketX, M.marketExitX];
+  const inGap = (xs, cx) => xs.some((dx) => Math.abs(cx - dx) <= g);
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const cx = minX + (col + 0.5) * cellSize;
       const cz = minZ + (row + 0.5) * cellSize;
-      // Walls: inflate the room boundary inward by r (out-of-bounds cells unwalkable).
-      let block = cx < minX + r || cx > W.halfX - r || cz < minZ + r || cz > W.halfZ - r;
+      // Walls: inflate the room boundary inward by r (out-of-bounds cells
+      // unwalkable), but leave each door's gate cells open.
+      const nearLeft = cx < minX + r;
+      const nearRight = cx > W.halfX - r;
+      const nearFront = cz < minZ + r;
+      const nearBack = cz > W.halfZ - r;
+      let block =
+        nearLeft ||
+        nearRight ||
+        (nearFront && !inGap(frontDoorXs, cx)) ||
+        (nearBack && !inGap(backDoorXs, cx));
       if (!block) {
         for (const b of rects) {
-          if (Math.abs(cx - b.x) <= b.hx + r && Math.abs(cz - b.z) <= b.hz + r) {
+          if (Math.abs(cx - b.x) <= b.halfX + r && Math.abs(cz - b.z) <= b.halfZ + r) {
             block = true;
             break;
           }
@@ -194,5 +210,17 @@ function reconstruct(grid, came, current) {
   return cells;
 }
 
-// Built once for the live settings — obstacles are static, so the grid never changes.
+// Built once for the live settings. Static obstacles (market props, garage props)
+// are baked in here; the only dynamic obstacle is the room's fence wall, folded in
+// by rebuildGrid whenever a pit is unlocked (see below).
 export const grid = buildGrid(settings);
+
+/**
+ * Re-block the grid in place with the current dynamic obstacles (`extraBoxes`, the
+ * moved fence wall). Keeps the SAME grid object + dimensions (only its occupancy
+ * changes), so every module that imported `grid` keeps routing against the live
+ * walls. Called from upgrades.buyExpandRoom the moment a room unlocks.
+ */
+export function rebuildGrid(extraBoxes = []) {
+  grid.blocked = buildGrid(settings, extraBoxes).blocked;
+}

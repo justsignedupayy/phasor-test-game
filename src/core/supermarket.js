@@ -28,6 +28,7 @@
  */
 import settings from '../config/settings.js';
 import { grid, findPath } from './pathfinding.js';
+import { resolveGarageCollisions } from './collision.js';
 import { createBreakState, tickBreak, incrementJobCount } from './breaks.js';
 
 // Every market NPC (worker + customers) shares the player's body radius — they all
@@ -86,6 +87,23 @@ function planRoute(mover, target) {
     const exitDoor = { x: M.marketExitX, z: W.halfZ };
     const toDoor = findPath(grid, pos, exitDoor);
     return toDoor ? [...toDoor, exitDoor] : [exitDoor];
+  }
+
+  // Crossing the FRONT wall (the restock box sits just outside it) now that the
+  // wall is solid except at the delivery-door gate: thread that gate so the route
+  // honours the wall instead of walking through it. The off-wall leg is a straight
+  // shot (no A* grid out there) — same shape as the customer-exit case above, just
+  // through the front gate, and handling both directions (out to the box / back in).
+  const frontGate = { x: M.deliveryDoorX, z: -W.halfZ };
+  const targetOutsideFront = target.z < -W.halfZ;
+  const posOutsideFront = pos.z < -W.halfZ;
+  if (targetOutsideFront && !posOutsideFront) {
+    const toGate = findPath(grid, pos, frontGate);
+    return toGate ? [...toGate, frontGate] : [frontGate];
+  }
+  if (posOutsideFront && !targetOutsideFront) {
+    const fromGate = findPath(grid, frontGate, target);
+    return fromGate ? [frontGate, ...fromGate] : [frontGate];
   }
 
   return findPath(grid, pos, target);
@@ -173,28 +191,39 @@ function waypointNpc(state, mover, target, speed, dt) {
 }
 
 /**
- * Wall clamp for the null-path direct fallback. Mirrors simulation.clampToBounds,
- * with one door relaxation so a legitimate crossing is never blocked:
- *  • A z-wall opens when the mover is at or heading beyond it — a customer crossing
- *    its entry/exit door (only customers ever target a z beyond the room; the worker
- *    stays within z, so it's always clamped there).
- * The left/right walls are always solid here: the worker's restock box is now
- * inside the room (reached by plain A*, never this fallback), so no left-wall
- * door access is needed any more.
+ * Wall clamp for the null-path direct fallback. Enforces ALL FOUR walls, mirroring
+ * simulation.clampToBounds (left/right via the x bound, front/back via the z bound).
+ *
+ * Crossing is gated STRICTLY by door x: a mover may only pass through a wall while it
+ * is within gateHalf of that wall's door — the front (-z) wall's delivery gate
+ * (deliveryDoorX), or the back (+z) wall's customer entry/exit doors (marketX /
+ * marketExitX). Everywhere else those walls are completely solid. The earlier
+ * "target lies past the wall" / "pos already past the wall by any epsilon" relaxations
+ * are gone: they opened the whole wall at every x (the target term) or let a one-frame
+ * penetration self-justify (clamp threshold == relaxation threshold), which is what let
+ * movers walk through the wall anywhere. The gate band is enforced against the true wall
+ * plane (halfZ), a full radius beyond the clamp (limZ), so a mover can only get past the
+ * clamp line at all while standing in the gate; once fully past the wall plane it is on
+ * the far side and moves freely there. Left/right walls are always solid.
  */
 function clampFallbackToWalls(pos, r, target) {
   const W = settings.world;
+  const M = settings.supermarket;
+  const g = W.gateHalf;
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
 
-  if (pos.x > limX) pos.x = limX; // right wall — always solid
-  if (pos.x < -limX) pos.x = -limX; // left wall — always solid
+  // Left + right walls: always solid (mirrors clampToBounds' x clamp). Market NPCs
+  // never reach the bay's right fence, so the full-width halfX bound is the wall here.
+  pos.x = Math.max(-limX, Math.min(limX, pos.x));
 
-  const crossingZ = (target && Math.abs(target.z) > W.halfZ) || Math.abs(pos.z) > W.halfZ;
-  if (!crossingZ) {
-    if (pos.z > limZ) pos.z = limZ;
-    else if (pos.z < -limZ) pos.z = -limZ;
-  }
+  // Front (-z) + back (+z) walls: solid except within gateHalf of that wall's door x.
+  const atFrontGate = Math.abs(pos.x - M.deliveryDoorX) <= g;
+  const atBackGate = Math.abs(pos.x - M.marketX) <= g || Math.abs(pos.x - M.marketExitX) <= g;
+  const crossingBack = atBackGate || pos.z > W.halfZ;
+  const crossingFront = atFrontGate || pos.z < -W.halfZ;
+  if (!crossingBack && pos.z > limZ) pos.z = limZ;
+  if (!crossingFront && pos.z < -limZ) pos.z = -limZ;
 }
 
 /**
@@ -203,10 +232,21 @@ function clampFallbackToWalls(pos, r, target) {
  * A settled agent standing on its interaction spot (a waiting customer, the worker
  * at the checkout) is never disturbed and never blocks another agent's arrival, so
  * this can't stall the FSM. Static obstacles are handled by A*, not here.
+ *
+ * As a final net it also pushes every in-transit agent out of any garage prop
+ * (shelves/tires/chairs) it overlaps — a safety backstop to the A* grid, which
+ * already routes them clear. Market NPCs stay in the left lobby, well clear of the
+ * pit row, so in practice this never fires; it just guarantees no clipping if a
+ * future NPC navigates the garage proper.
  */
 function separateMovingAgents(state) {
   const S = state.supermarket;
   const agents = S.worker ? [...S.customerQueue, S.worker] : S.customerQueue;
+
+  for (const a of agents) {
+    if (a.moving) resolveGarageCollisions(state, a.position, NPC_RADIUS);
+  }
+
   const minDist = 2 * NPC_RADIUS;
   for (let i = 0; i < agents.length; i++) {
     for (let j = i + 1; j < agents.length; j++) {

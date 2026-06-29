@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  * clip), character_run.glb (run clip), character_repair.glb (repair clip),
  * character_yell.glb (yell clip), character_carry_run.glb (carry-while-walking
  * clip), character_carry_idle.glb (carry-while-standing clip),
- * character_walk.glb (a genuine walking-pace clip), character_carry_walk.glb
+ * character_sassy_walk.glb (a genuine walking-pace clip), character_carry_walk.glb
  * (a walking-pace carry cycle, for NPCs who haul a bag at walking speed), and
  * character_sitting.glb (a seated pose played while a worker is on break), all
  * sharing the same skeleton. They load exactly once and are merged into a single
@@ -19,7 +19,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  *
  * Note: 'walk' is actually sourced from the RUN clip — that's the pace the
  * player/mechanic/cashier move at, so it stays as-is. 'walkSlow' (from the
- * newer character_walk.glb) is the genuine walking-pace clip, used by NPCs
+ * newer character_sassy_walk.glb) is the genuine walking-pace clip, used by NPCs
  * that move well under run speed (market customers/worker) so their legs
  * don't look like they're sprinting in place — see settings.character.animationMap.
  */
@@ -65,18 +65,6 @@ export function loadCharacterModel() {
       walkSlowClip.name = 'walkSlow';
       carryWalkClip.name = 'carryWalk';
       sittingClip.name = 'sitting';
-
-      console.log(
-        'clip durations — idle:', idleClip.duration,
-        'walk:', walkClip.duration,
-        'repair:', repairClip.duration,
-        'yell:', yellClip.duration,
-        'carry:', carryClip.duration,
-        'carryIdle:', carryIdleClip.duration,
-        'walkSlow:', walkSlowClip.duration,
-        'carryWalk:', carryWalkClip.duration,
-        'sitting:', sittingClip.duration
-      );
 
       idleClip.uuid = MathUtils.generateUUID();
       walkClip.uuid = MathUtils.generateUUID();

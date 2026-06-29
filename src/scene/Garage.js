@@ -144,16 +144,6 @@ export class Garage {
     this.group.add(bay);
     this.bayPatch = { mesh: bay, leftX: lobbyRightX, baseW: bayW, maxRightX: W.halfX };
 
-    // A single yellow-line grid (both the centre-cross and the cell lines use the
-    // same yellow), reading as subtle lane markings on the floor. GridHelper draws
-    // only line segments, so there are no filled cells — just the floor showing
-    // through between the yellow lines.
-    const grid = new THREE.GridHelper(Math.max(floorW, floorD), Math.max(floorW, floorD), c.roadLine, c.roadLine);
-    grid.position.y = 0.01;
-    grid.material.transparent = true;
-    grid.material.opacity = 0.00;
-    this.group.add(grid);
-
     this.#buildLaneMarkings(floorD);
     this.#buildPitDividers(floorD);
   }
@@ -193,15 +183,14 @@ export class Garage {
     // meet edge-to-edge so an unlocked row reads as one continuous road.
     const laneWidth = positions.length > 1 ? Math.abs(positions[1].x - positions[0].x) : 4.5;
 
+    const R = W.road;
     const roadMat = new THREE.MeshStandardMaterial({ color: c.road });
-    const dashMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
-    const dashLen = 1.5;
-    const dashStep = dashLen; // dash + gap
 
-    // Entry: from the back wall out to where the last queue slot ends.
-    const entry = [W.halfZ, P.doorZ + settings.spawn.maxQueuePerPit * P.queueSlotDepth];
-    // Exit: from the front wall out to where exiting cars fully disappear.
-    const exit = [-W.halfZ, -(W.halfZ + P.queueSlotDepth * 2)];
+    // Roads run from each wall out to the road extent (past where cars spawn / drive
+    // off), so they reach toward the world edge instead of stopping short of it.
+    // Entry: behind the back wall (+z). Exit: in front of the front wall (-z).
+    const entry = [W.halfZ, W.halfZ + R.extent];
+    const exit = [-W.halfZ, -(W.halfZ + R.extent)];
 
     const addRoad = (group, x, [zNear, zFar]) => {
       const z0 = Math.min(zNear, zFar);
@@ -213,28 +202,13 @@ export class Garage {
       group.add(road);
     };
 
-    const addDashes = (group, dx, [zNear, zFar]) => {
-      const z0 = Math.min(zNear, zFar);
-      const z1 = Math.max(zNear, zFar);
-      for (let z = z0 + dashStep / 2; z <= z1; z += dashStep) {
-        const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, dashLen), dashMat);
-        dash.rotation.x = -Math.PI / 2;
-        dash.position.set(dx, 0.008, z);
-        group.add(dash);
-      }
-    };
-
-    // One road section per pit; visible only once that pit's land is bought.
+    // One road section (entry + exit slab) per pit; visible only once that pit's land
+    // is bought. The dashed centre line is drawn per lane by #buildLaneMarkings (one
+    // clean line on the slab) — no inter-lane divider dashes are painted here.
     this.roadSections = positions.map((pos, index) => {
       const group = new THREE.Group();
       addRoad(group, pos.x, entry);
       addRoad(group, pos.x, exit);
-      // Dashed divider against the previous (left) column.
-      if (index > 0) {
-        const dx = (positions[index - 1].x + pos.x) / 2;
-        addDashes(group, dx, entry);
-        addDashes(group, dx, exit);
-      }
       group.visible = false;
       this.group.add(group);
       return { index, group };
@@ -260,12 +234,31 @@ export class Garage {
    * pit's markings are grouped and shown only when that pit is roomUnlocked. */
   #buildLaneMarkings(floorD) {
     const c = settings.colors;
+    const W = settings.world;
+    const R = W.road;
+    const P = settings.pit;
     const stripeMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
     const laneHalf = 1.6; // half-width of the painted lane, inside the 4.2-wide pit footprint
 
-    this.laneMarkings = settings.pit.positions.map((pos, index) => {
+    const dashLen = R.dashLength;
+    const step = dashLen + R.dashGap; // dash + gap
+
+    // The dashed centre line is painted ONLY on the actual road slabs — the entry +
+    // exit slabs built in #buildExteriorRoads — never on the bare garage floor between
+    // them and never over a pit. These two [near, far] z spans MUST match the slabs.
+    const slabs = [
+      [W.halfZ, W.halfZ + R.extent], // entry road, behind the back wall
+      [-(W.halfZ + R.extent), -W.halfZ], // exit road, in front of the front wall
+    ];
+    // No dash may fall within a pit's full blue-spot footprint (defensive — the slabs
+    // are already clear of the pits, but this guarantees it even if they move).
+    const overPit = (z) =>
+      P.positions.some((pos) => Math.abs(z - pos.z) < P.spotDepth / 2 + dashLen / 2);
+
+    this.laneMarkings = P.positions.map((pos, index) => {
       const group = new THREE.Group();
 
+      // Lane edge stripes span the building floor depth (the lane through the garage).
       for (const side of [-1, 1]) {
         const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.12, floorD), stripeMat);
         edge.rotation.x = -Math.PI / 2;
@@ -273,14 +266,18 @@ export class Garage {
         group.add(edge);
       }
 
-      // Zebra-style dashed centre line.
-      const dashLen = 1.0;
-      const step = dashLen + 50; // dash + gap
-      for (let z = -floorD / 2 + step / 2; z <= floorD / 2; z += step) {
-        const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, dashLen), stripeMat);
-        dash.rotation.x = -Math.PI / 2;
-        dash.position.set(pos.x, 0.014, z);
-        group.add(dash);
+      // One clean centre dash line per lane: a run of evenly-spaced dashes per road
+      // slab, each fully inside the slab (its ends never spill past the slab edge).
+      for (const [zNear, zFar] of slabs) {
+        const z0 = Math.min(zNear, zFar);
+        const z1 = Math.max(zNear, zFar);
+        for (let z = z0 + step / 2; z + dashLen / 2 <= z1; z += step) {
+          if (overPit(z)) continue; // never paint over a pit
+          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, dashLen), stripeMat);
+          dash.rotation.x = -Math.PI / 2;
+          dash.position.set(pos.x, 0.014, z);
+          group.add(dash);
+        }
       }
 
       group.visible = false;
@@ -351,8 +348,11 @@ export class Garage {
   #buildDoors() {
     // Pillars + lintels + outside road for both pit door rows (entry on the
     // back, exit on the front). dir is which way is "outward" from the building.
-    this.backDoors = this.#buildDoorRow(this.backWallZ, 1);
-    this.frontDoors = this.#buildDoorRow(this.frontWallZ, -1);
+    // No per-door centre dashes on the pit doors: the lane's single centre line
+    // (#buildLaneMarkings) already runs over these gate aprons, so a per-door line
+    // here would just double up on the same coordinates.
+    this.backDoors = this.#buildDoorRow(this.backWallZ, 1, undefined, false);
+    this.frontDoors = this.#buildDoorRow(this.frontWallZ, -1, undefined, false);
 
     // The supermarket's own entry/exit: same builder, but BOTH doors sit on the
     // back wall (dir 1, outward is +z) — the exit at marketExitX, to the
@@ -366,7 +366,7 @@ export class Garage {
     this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, -1, [settings.supermarket.deliveryDoorX])[0];
   }
 
-  #buildDoorRow(z, dir, xs = settings.pit.positions.map((p) => p.x)) {
+  #buildDoorRow(z, dir, xs = settings.pit.positions.map((p) => p.x), centerLine = true) {
     const c = settings.colors;
     const W = settings.world;
     const h = W.wallHeight;
@@ -411,14 +411,20 @@ export class Garage {
     const dashMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
     const dashLen = 1.0;
     const dashStep = dashLen + 0.8; // dash + gap
+    // Per-door apron centre line. Kept for the market doors (their own roads have no
+    // lane markings); suppressed for the pit doors (centerLine=false) so it doesn't
+    // double up on the lane centre line that already covers their aprons. The (empty)
+    // group is still returned so the caller's visibility toggle stays uniform.
     const roadCenterLine = (x) => {
       const grp = new THREE.Group();
       grp.position.set(x, 0, roadZ);
       grp.visible = false;
-      for (let dz = -roadLength / 2 + dashStep / 2; dz <= roadLength / 2; dz += dashStep) {
-        const dash = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, dashLen), dashMat);
-        dash.position.set(0, 0.02, dz);
-        grp.add(dash);
+      if (centerLine) {
+        for (let dz = -roadLength / 2 + dashStep / 2; dz <= roadLength / 2; dz += dashStep) {
+          const dash = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, dashLen), dashMat);
+          dash.position.set(0, 0.02, dz);
+          grp.add(dash);
+        }
       }
       this.group.add(grp);
       return grp;

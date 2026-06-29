@@ -16,6 +16,8 @@ import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
 import { createMarketWorker } from './supermarket.js';
 import { breakDuration } from './breaks.js';
+import { roomWallBox } from './collision.js';
+import { rebuildGrid } from './pathfinding.js';
 
 const U = settings.upgrades;
 
@@ -108,9 +110,9 @@ export function breakRoomCost(state) {
   return U.breakRoom.baseCost;
 }
 
-/** Flat, one-time cost of the garage-wide conveyor automation. */
-export function conveyorCost(state) {
-  return settings.storage.conveyorBaseCost;
+/** Flat, one-time cost of the garage-wide mechanic auto-restock upgrade. */
+export function autoRestockCost(state) {
+  return settings.storage.autoRestockBaseCost;
 }
 
 /** Flat, one-time cost to unlock the supermarket. */
@@ -146,6 +148,9 @@ export function buyExpandRoom(state) {
   if (state.cash < cost) return false;
   state.cash -= cost;
   next.roomUnlocked = true;
+  // The fence wall just slid right (ownedRightX changed) — re-block the A* grid so
+  // NPCs route around its new position immediately (see core/pathfinding.rebuildGrid).
+  rebuildGrid([roomWallBox(ownedRightX(state))]);
   return true;
 }
 
@@ -238,16 +243,17 @@ export function buyMarketBreakRoom(state) {
 }
 
 /**
- * Buy the garage-wide conveyor (one-time). From then on every pit's shelf
- * auto-delivers boxes to its tire stack on a timer (see simulation.updateStorage),
- * so tires never have to be hand-carried.
+ * Buy the garage-wide mechanic auto-restock upgrade (one-time). From then on each
+ * pit's hired mechanic fetches a box from its own shelf and refills its tire stack
+ * itself when it runs dry (see simulation.updateMechanic), so tires never have to be
+ * hand-carried.
  */
-export function buyConveyor(state) {
-  if (state.hasConveyor) return false;
-  const cost = conveyorCost(state);
+export function buyAutoRestock(state) {
+  if (state.autoRestock) return false;
+  const cost = autoRestockCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
-  state.hasConveyor = true;
+  state.autoRestock = true;
   return true;
 }
 
@@ -306,7 +312,7 @@ export function getMenuModel(state) {
   return {
     garage: garageRows(state),
     cashier: [cashierRow(state)],
-    automation: [conveyorRow(state)],
+    automation: [autoRestockRow(state)],
     supermarket: supermarketRows(state),
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
   };
@@ -356,22 +362,22 @@ function cashierRow(state) {
   };
 }
 
-/** Automation section: the one-time conveyor that auto-restocks every pit's tires. */
-function conveyorRow(state) {
-  if (state.hasConveyor) {
+/** Automation section: the one-time upgrade that lets each pit's mechanic auto-restock. */
+function autoRestockRow(state) {
+  if (state.autoRestock) {
     return {
-      kind: 'conveyor',
-      label: 'Conveyor',
-      effect: 'Auto-restocks tires at every pit',
+      kind: 'autoRestock',
+      label: 'Mechanic Auto-Restock',
+      effect: 'Mechanics refill their own pits',
       cost: 'OWNED',
       disabled: true,
     };
   }
-  const cost = conveyorCost(state);
+  const cost = autoRestockCost(state);
   return {
-    kind: 'conveyor',
-    label: 'Buy Conveyor',
-    effect: 'Auto-delivers boxes → tires, hands-free',
+    kind: 'autoRestock',
+    label: 'Mechanic Auto-Restock',
+    effect: 'Mechanics fetch boxes & restock, hands-free',
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

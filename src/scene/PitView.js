@@ -31,14 +31,12 @@ export class PitView {
     // Break chair: appears once this pit has a hired worker, swapped for a couch
     // when its break room is upgraded. chairPos is where the worker walks to sit.
     const B = settings.breaks;
-    this.chairPos = { x: this.pos.x + B.chairOffset.x, z: this.pos.z + B.chairOffset.z };
+    this.chairPos = { ...B.chairPositions[index] }; // = pos + chairOffset; the shared source (see settings)
     this.seat = null; // the Chair/couch clone (tapped to open the break UI while seated)
     this._seatModelKey = null; // 'chair' | 'couch' — current seat model, for swap detection
 
     this.boxes = []; // decorative shelf-box clones (a full grid; always shown when equipped)
-    this.travelBoxes = []; // boxes currently riding the conveyor belt (one per delivery)
     this._labelText = ''; // last storage-label text drawn (skip redraw if unchanged)
-    this._prevTires = undefined; // for detecting a conveyor delivery (tires 0 → full)
 
     this.#build();
     this.#buildStorage();
@@ -90,10 +88,9 @@ export class PitView {
   }
 
   /**
-   * The per-pit storage props: a shelf of boxes (player carries one to the
-   * worker to refill tires), the tire stack beside the worker, the conveyor
-   * that automates that delivery, and a live "tires / boxes" label. All hidden
-   * until the pit is equipped; the conveyor also needs state.hasConveyor.
+   * The per-pit storage props: a shelf of boxes (the player — or, with auto-restock,
+   * the mechanic — carries one to the worker to refill tires), the tire stack beside
+   * the worker, and a live "Tires N" label. All hidden until the pit is equipped.
    */
   #buildStorage() {
     const { x, z } = this.pos;
@@ -128,26 +125,6 @@ export class PitView {
     this.tires.visible = false;
     this.sm.add(this.tires);
 
-    // Conveyor spanning shelf → worker (a physical-looking barrier in the path).
-    this.conveyor = cloneStorageModel('conveyor');
-    this.conveyor.scale.setScalar(S.conveyorScale);
-    this.conveyor.position.set(x + S.conveyorOffset.x, 0, z + S.conveyorOffset.z);
-    this.conveyor.rotation.y = S.conveyorRotation;
-    this.conveyor.visible = false;
-    this.sm.add(this.conveyor);
-
-    // Precompute the belt's world footprint as an axis-aligned rectangle (the
-    // mesh transform is static). Core reads this off pit.conveyorBounds to block
-    // the player from walking through it. The AABB folds in the Y-rotation.
-    this.conveyor.updateWorldMatrix(true, true);
-    const cbox = new THREE.Box3().setFromObject(this.conveyor);
-    this._conveyorBounds = {
-      x: (cbox.min.x + cbox.max.x) / 2,
-      z: (cbox.min.z + cbox.max.z) / 2,
-      halfX: (cbox.max.x - cbox.min.x) / 2,
-      halfZ: (cbox.max.z - cbox.min.z) / 2,
-    };
-
     // Live "Tires N" label, just above the letter label.
     this.storageLabel = makeStorageSprite();
     this.storageLabel.position.set(x, 3.7, z);
@@ -155,88 +132,22 @@ export class PitView {
     this.sm.add(this.storageLabel);
   }
 
-  /** Reflect this pit's tire/box/conveyor state into the storage props each frame. */
-  #updateStorage(dt, pit, state) {
+  /** Reflect this pit's tire/box state into the storage props each frame. */
+  #updateStorage(pit) {
     const equipped = pit.equipped;
     this.shelf.visible = equipped;
     this.tires.visible = equipped && pit.tiresRemaining > 0;
-    this.conveyor.visible = equipped && state.hasConveyor;
     this.storageLabel.visible = equipped;
-
-    // Hand core the belt's footprint for player collision — only while it's
-    // actually present (equipped + conveyor owned), null otherwise.
-    pit.conveyorBounds = this.conveyor.visible ? this._conveyorBounds : null;
 
     // Shelf stock is decorative: always show the full grid when equipped, never
     // remove boxes as shelfBoxes drops.
     for (const box of this.boxes) box.visible = equipped;
-
-    // A conveyor delivery refills a fully-dry pit (tires 0 → full) on its timer
-    // — shelf stock is infinite, so the only signal is that 0→full jump while
-    // the conveyor is owned. When it happens, send a box riding down the belt.
-    if (state.hasConveyor && this._prevTires === 0 && pit.tiresRemaining > this._prevTires) {
-      this.#launchTravelBox();
-    }
-    this._prevTires = pit.tiresRemaining;
-    this.#updateTravelBoxes(dt);
 
     if (equipped) {
       const text = `Tires ${pit.tiresRemaining}`;
       if (text !== this._labelText) {
         this._labelText = text;
         drawStorageSprite(this.storageLabel, text);
-      }
-    }
-  }
-
-  /**
-   * Spawn one box that rides the conveyor belt end-to-end; #updateTravelBoxes
-   * drives it. The path is anchored on the conveyor mesh's actual world position
-   * and runs strictly along the belt's own facing axis (its longest horizontal
-   * local axis), staying at conveyorBeltY the whole way — so the box follows the
-   * belt surface instead of cutting a diagonal through the air to the worker.
-   */
-  #launchTravelBox() {
-    const S = settings.storage;
-    this.conveyor.updateWorldMatrix(true, true);
-    const beltPos = this.conveyor.getWorldPosition(new THREE.Vector3());
-    const q = this.conveyor.getWorldQuaternion(new THREE.Quaternion());
-
-    // The belt runs along whichever of its local horizontal axes is longest;
-    // travel strictly along that one (the direction the belt faces).
-    const size = new THREE.Box3().setFromObject(this.conveyor).getSize(new THREE.Vector3());
-    const axisX = new THREE.Vector3(1, 0, 0).applyQuaternion(q).setY(0).normalize();
-    const axisZ = new THREE.Vector3(0, 0, 1).applyQuaternion(q).setY(0).normalize();
-    const extentX = Math.abs(axisX.x) * size.x + Math.abs(axisX.z) * size.z;
-    const extentZ = Math.abs(axisZ.x) * size.x + Math.abs(axisZ.z) * size.z;
-    const axis = extentX >= extentZ ? axisX : axisZ;
-    const halfLen = 0.5 * Math.max(extentX, extentZ);
-
-    // Orient the axis so the box ends nearer the worker (shelf end → worker end).
-    const m = settings.mechanic;
-    const toWorker = new THREE.Vector3(this.pos.x + m.offsetX - beltPos.x, 0, this.pos.z + m.offsetZ - beltPos.z);
-    if (axis.dot(toWorker) < 0) axis.negate();
-
-    const from = new THREE.Vector3(beltPos.x - axis.x * halfLen, S.conveyorBeltY, beltPos.z - axis.z * halfLen);
-    const to = new THREE.Vector3(beltPos.x + axis.x * halfLen, S.conveyorBeltY, beltPos.z + axis.z * halfLen);
-
-    const mesh = cloneStorageModel('box');
-    mesh.scale.setScalar(S.boxScale); // original (non-shelf) scale, so it reads as a real box
-    mesh.position.copy(from);
-    this.sm.add(mesh);
-    this.travelBoxes.push({ mesh, t: 0, from, to });
-  }
-
-  /** Advance each in-flight belt box shelf→worker; dispose it on arrival. */
-  #updateTravelBoxes(dt) {
-    const dur = settings.storage.conveyorTravelDuration;
-    for (let i = this.travelBoxes.length - 1; i >= 0; i--) {
-      const b = this.travelBoxes[i];
-      b.t = Math.min(1, b.t + dt / dur);
-      b.mesh.position.lerpVectors(b.from, b.to, b.t);
-      if (b.t >= 1) {
-        disposeStorageMesh(this.sm, b.mesh);
-        this.travelBoxes.splice(i, 1);
       }
     }
   }
@@ -260,7 +171,7 @@ export class PitView {
   }
 
   update(dt, pit, state) {
-    this.#updateStorage(dt, pit, state);
+    this.#updateStorage(pit);
 
     // Reveal lot / station and animate their appearance.
     const lotVisible = pit.roomUnlocked && !pit.equipped;
@@ -278,17 +189,17 @@ export class PitView {
 
     // Spawn this pit's worker (and its break chair) the moment one is hired.
     if (pit.hasMechanic && !this.mechanic) {
-      this.mechanic = new Mechanic(this.pos, this.gltf);
+      this.mechanic = new Mechanic(this.gltf);
       this.sm.add(this.mechanic.root);
     }
     if (pit.hasMechanic) this.#ensureSeat(pit.break.breakDurationUpgraded);
-    if (this.mechanic) {
+    if (this.mechanic && pit.mechanic) {
       const B = settings.breaks;
       this.mechanic.update(dt, {
+        mechanic: pit.mechanic, // core-owned position + restock/break FSM
         carPresent: !!pit.car,
         hurrying: pit.hurryTimer > 0,
         onBreak: pit.break.onBreak,
-        chairPos: this.chairPos,
         chairFacing: B.chairFacing,
         seatOffset: pit.break.breakDurationUpgraded ? B.sitOffset.couch : B.sitOffset.chair,
       });

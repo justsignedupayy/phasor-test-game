@@ -2,8 +2,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import settings from '../config/settings.js';
 
 /**
- * StorageModels — loads the four static storage-system glbs (shelf, box, tires,
- * conveyor) exactly once at startup, same one-load-then-clone pattern as
+ * StorageModels — loads the static storage-system glbs (shelf, box, tires, …)
+ * exactly once at startup, same one-load-then-clone pattern as
  * preloadCarModels(). Keyed by the logical name from settings.models. Call (and
  * await) preloadStorageModels() before constructing any PitView / CarriedBox,
  * then read a base scene with getStorageModel(key) and clone it per instance.

@@ -10,7 +10,7 @@ import settings from '../config/settings.js';
 import { spawnCar } from './Car.js';
 import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z } from './upgrades.js';
 import { updateReputationTimer } from './reputation.js';
-import { resolveSupermarketCollisions } from './collision.js';
+import { resolveSupermarketCollisions, resolveGarageCollisions } from './collision.js';
 import { tickBreak, incrementJobCount } from './breaks.js';
 
 export function tick(state, dt) {
@@ -18,7 +18,7 @@ export function tick(state, dt) {
   // bills when it's > 0); clear it before any collection can set it this tick.
   for (const pit of state.pits) pit.collectedThisTick = 0;
   updatePlayer(state, dt);
-  updateStorage(state, dt);
+  updateStorage(state);
   updateYard(state, dt);
   for (const pit of state.pits) updatePit(state, pit, dt);
   // Collect after every pit has run, so pay a worker produces THIS tick is
@@ -50,10 +50,15 @@ export function hurry(state, pitIndex) {
 function updatePit(state, pit, dt) {
   if (pit.hurryTimer > 0) pit.hurryTimer = Math.max(0, pit.hurryTimer - dt);
   if (!pit.hasMechanic) return;
+  if (!pit.mechanic) pit.mechanic = createMechanic(pit.index); // lazily on first tick after hire
+
+  // Advance the break clock, then the mechanic's movement FSM (its break-walk and,
+  // with auto-restock owned, its box-fetch trip). Both run regardless of a car.
+  tickBreak(pit.break, dt); // advance a running break; may auto-end it this frame
+  updateMechanic(state, pit, dt);
 
   // On break: the worker sits at its chair and does no auto-repair. Cars still
   // queue/pull into the pit as usual (they just wait), identical to an idle pit.
-  tickBreak(pit.break, dt); // advance a running break; may auto-end it this frame
   if (pit.break.onBreak) return;
 
   const car = pit.car;
@@ -61,6 +66,116 @@ function updatePit(state, pit, dt) {
 
   const mult = pit.hurryTimer > 0 ? settings.hurry.multiplier : 1;
   applyRepair(state, pit, workerSpeed(pit) * mult * dt);
+}
+
+// --- the pit mechanic: a core-owned NPC, mirroring the market worker ----------
+
+/** A freshly hired mechanic, standing at its work spot beside the pit, facing the car. */
+function createMechanic(pitIndex) {
+  const pos = settings.pit.positions[pitIndex];
+  const M = settings.mechanic;
+  const x = pos.x + M.offsetX;
+  const z = pos.z + M.offsetZ;
+  return {
+    position: { x, z },
+    rotation: Math.atan2(pos.x - x, pos.z - z) + M.facingOffset,
+    moving: false,
+    carrying: false, // holding a restock box (the toWork leg)
+    state: 'idle', // 'idle' | 'restocking' | 'onBreak'
+    phase: null, // restock leg in progress: 'toShelf' | 'toWork'
+  };
+}
+
+/**
+ * Advance one pit mechanic each tick. Mirrors the market worker's restock FSM (go to
+ * source → pick up → carry back → deposit), but for the garage: when auto-restock is
+ * owned and the pit has run dry (tiresRemaining 0), the mechanic walks to ITS OWN
+ * shelf, picks up a box, carries it back to the pit, and refills the tire stack.
+ * A pending restock leg finishes first; a break wins over starting a new one (it
+ * walks to its chair and sits). Without the upgrade it just holds its work spot — the
+ * pit stays dry until the player restocks (unchanged behaviour).
+ */
+function updateMechanic(state, pit, dt) {
+  const m = pit.mechanic;
+  if (!m) return;
+  const M = settings.mechanic;
+  const S = settings.storage;
+  const pos = settings.pit.positions[pit.index];
+  const work = { x: pos.x + M.offsetX, z: pos.z + M.offsetZ };
+  const workFacing = Math.atan2(pos.x - work.x, pos.z - work.z) + M.facingOffset;
+  const speed = settings.breaks.mechanicWalkSpeed;
+
+  // Restock leg in progress: finish it before anything else (mirrors the market worker).
+  if (m.phase === 'toShelf') {
+    const shelf = { x: pos.x + S.shelfOffset.x, z: pos.z + S.shelfOffset.z };
+    const arrived = moveMechanic(state, pit, m, shelf, speed, dt);
+    m.moving = !arrived;
+    if (arrived) {
+      m.carrying = true; // picked up a box
+      m.phase = 'toWork';
+    }
+    return;
+  }
+  if (m.phase === 'toWork') {
+    const arrived = moveMechanic(state, pit, m, work, speed, dt);
+    m.moving = !arrived;
+    m.carrying = true;
+    if (arrived) {
+      pit.tiresRemaining = S.maxTiresPerPit; // delivered box refills the stack
+      m.carrying = false;
+      m.phase = null;
+      m.state = 'idle';
+      m.rotation = workFacing;
+    }
+    return;
+  }
+
+  // On break: walk to this pit's chair and sit (no restock/repair meanwhile).
+  if (pit.break.onBreak) {
+    const chair = settings.breaks.chairPositions[pit.index];
+    const arrived = moveMechanic(state, pit, m, chair, speed, dt);
+    m.moving = !arrived;
+    m.state = 'onBreak';
+    m.carrying = false;
+    if (arrived) m.rotation = settings.breaks.chairFacing;
+    return;
+  }
+
+  // Idle decision: start an auto-restock trip when owned and the pit has run dry;
+  // otherwise hold (return to) the work spot, facing the car.
+  if (state.autoRestock && pit.tiresRemaining === 0) {
+    m.state = 'restocking';
+    m.phase = 'toShelf';
+    m.carrying = false;
+    return;
+  }
+  const arrived = moveMechanic(state, pit, m, work, speed, dt);
+  m.moving = !arrived;
+  m.carrying = false;
+  m.state = 'idle';
+  if (arrived) m.rotation = workFacing;
+}
+
+/**
+ * Straight-line step toward `target` at `speed`, then push the mechanic out of every
+ * garage prop except its OWN pit's (so it can stand on its own shelf / work spot /
+ * chair) — the same push-out the player gets. Returns true once it reaches the target.
+ */
+function moveMechanic(state, pit, m, target, speed, dt) {
+  const dx = target.x - m.position.x;
+  const dz = target.z - m.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist <= 0.05) {
+    m.position.x = target.x;
+    m.position.z = target.z;
+    return true;
+  }
+  const step = Math.min(dist, speed * dt);
+  m.position.x += (dx / dist) * step;
+  m.position.z += (dz / dist) * step;
+  m.rotation = Math.atan2(dx, dz);
+  resolveGarageCollisions(state, m.position, settings.player.radius, { excludePitIndex: pit.index });
+  return false;
 }
 
 /**
@@ -86,35 +201,20 @@ function applyRepair(state, pit, ticks) {
 }
 
 /**
- * Tire logistics. The player ferries boxes from a pit's shelf to its worker to
- * refill that pit's tire stack; the Conveyor upgrade automates the same delivery
- * for every pit. Proximity flags (playerNearShelf / playerPresent) are written
- * by the scene each frame and only read here, matching the existing pattern.
+ * Manual tire logistics. The player ferries boxes from a pit's shelf to its worker
+ * to refill that pit's tire stack. The pickup only applies while auto-restock ISN'T
+ * owned — once it is, each pit's mechanic fetches boxes itself (see updateMechanic),
+ * so manual pickup is redundant. Proximity flags (playerNearShelf / playerPresent)
+ * are written by the scene each frame and only read here.
  */
-function updateStorage(state, dt) {
+function updateStorage(state) {
   const S = settings.storage;
   const player = state.player;
 
-  // Conveyor: every interval, restock any pit that has run fully dry (tires at
-  // 0) straight from its shelf. A pit with tires left is left alone. Shelf stock
-  // is infinite + decorative, so this never depletes shelfBoxes.
-  if (state.hasConveyor) {
-    state.conveyorTimer += dt;
-    if (state.conveyorTimer >= S.conveyorInterval) {
-      state.conveyorTimer = 0;
-      for (const pit of state.pits) {
-        if (pit.equipped && pit.shelfBoxes > 0 && pit.tiresRemaining === 0) {
-          pit.tiresRemaining = S.maxTiresPerPit; // one box = one full stack
-        }
-      }
-    }
-  }
-
-  // Manual hauling: grab a box at a shelf, then drop it at that pit's worker.
   // Shelf stock is infinite + decorative, so a pickup never depletes shelfBoxes.
   for (const pit of state.pits) {
     if (!pit.equipped) continue;
-    if (!player.carryingBox && pit.playerNearShelf && pit.shelfBoxes > 0) {
+    if (!state.autoRestock && !player.carryingBox && pit.playerNearShelf && pit.shelfBoxes > 0) {
       player.carryingBox = true;
       player.carryingBoxPitIndex = pit.index;
     } else if (player.carryingBox && player.carryingBoxPitIndex === pit.index && pit.playerPresent) {
@@ -190,68 +290,30 @@ function updatePlayer(state, dt) {
     player.moving = false;
   }
 
-  // Solid props: push the player circle out of any conveyor belt it overlaps.
-  // The scene writes each equipped conveyor's world rectangle to pit.conveyorBounds.
-  repelFromConveyors(state, player.position);
-  // ...and out of every supermarket obstacle (shelves/freezers/checkout). The
-  // player never targets an obstacle centre, so nothing is exempted for it.
+  // Solid props: push the player circle out of every supermarket obstacle
+  // (shelves/freezers/checkout). The player never targets an obstacle centre, so
+  // nothing is exempted for it.
   resolveSupermarketCollisions(state, player.position, settings.player.radius);
-}
-
-/** Push the player's circular radius out of every pit's conveyor rectangle. */
-function repelFromConveyors(state, pos) {
-  const r = settings.player.radius;
-  for (const pit of state.pits) {
-    if (pit.conveyorBounds) repelFromRect(pos, r, pit.conveyorBounds);
-  }
-}
-
-/**
- * Resolve a circle (center `pos`, radius `r`) against an axis-aligned rectangle
- * `b` = { x, z, halfX, halfZ }: if they overlap, move the center to the nearest
- * point where they just touch. Mirrors how clampToBounds keeps the player a full
- * radius clear of a flat edge, but for a free-standing box (push out by corner/
- * edge normal when outside the rect, or out the shallowest side when inside it).
- */
-function repelFromRect(pos, r, b) {
-  const dx = pos.x - b.x;
-  const dz = pos.z - b.z;
-  // Closest point on the rectangle to the circle center (clamped offset).
-  const cx = Math.max(-b.halfX, Math.min(b.halfX, dx));
-  const cz = Math.max(-b.halfZ, Math.min(b.halfZ, dz));
-  const nx = dx - cx;
-  const nz = dz - cz;
-  const distSq = nx * nx + nz * nz;
-
-  if (distSq > r * r) return; // gap wider than the radius — no overlap
-
-  if (distSq > 1e-12) {
-    // Center is outside the rectangle: push along the outward normal to distance r.
-    const dist = Math.sqrt(distSq);
-    const push = r - dist;
-    pos.x += (nx / dist) * push;
-    pos.z += (nz / dist) * push;
-  } else {
-    // Center is inside the rectangle: eject out the nearest side (plus radius).
-    const penX = b.halfX - Math.abs(dx);
-    const penZ = b.halfZ - Math.abs(dz);
-    if (penX < penZ) {
-      pos.x = b.x + (dx < 0 ? -1 : 1) * (b.halfX + r);
-    } else {
-      pos.z = b.z + (dz < 0 ? -1 : 1) * (b.halfZ + r);
-    }
-  }
+  // ...and out of every garage prop (per-pit shelves, tire stacks, break chairs)
+  // plus the room's right (fence) wall at ownedRightX — the one expanding wall the
+  // clampToBounds above leaves open in the front lane (z <= BAY_ZONE_Z).
+  resolveGarageCollisions(state, player.position, settings.player.radius, {
+    roomWallX: ownedRightX(state),
+  });
 }
 
 /**
  * In bay territory, the right edge is fenced to whatever land is owned; the lane
- * is always open. The left/front/back walls are solid: the player stays inside
- * the building. The supermarket's restock box now sits just inside the front-wall
- * delivery gate, so there's no exterior pile to walk out to any more — only the
- * delivery truck (scene-only, not clamped) ever crosses that gate.
+ * is always open. The left + back walls are solid: the player stays inside the
+ * building. The front wall is solid too, EXCEPT the supermarket delivery-door gap
+ * (deliveryDoorX): once the market is open the player may step out through it to
+ * reach the restock pile just outside, the same gate the market worker uses
+ * (see clampFallbackToWalls). The gap also stays open while the player is already
+ * outside (pos.z past the wall) so a sideways move toward the pile isn't shoved back in.
  */
 function clampToBounds(state, pos) {
   const W = settings.world;
+  const M = settings.supermarket;
   const r = settings.player.radius;
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
@@ -259,5 +321,15 @@ function clampToBounds(state, pos) {
   const leftLim = -limX;
 
   pos.x = Math.max(leftLim, Math.min(rightLim, pos.x));
-  pos.z = Math.max(-limZ, Math.min(limZ, pos.z));
+
+  // Back wall is always solid; the front wall opens ONLY within gateHalf of the
+  // delivery-door x. The "already past the wall" allowance is gated against the true
+  // wall plane (-halfZ), a full radius beyond the clamp line (-limZ): the player can
+  // only get past the clamp line while standing in the gate, so off-gate the wall is
+  // completely solid; once fully outside it moves freely to/from the restock pile.
+  const atDeliveryGate =
+    state.supermarket && state.supermarket.unlocked && Math.abs(pos.x - M.deliveryDoorX) <= W.gateHalf;
+  const crossingFront = atDeliveryGate || pos.z < -W.halfZ;
+  pos.z = Math.min(limZ, pos.z);
+  if (!crossingFront) pos.z = Math.max(-limZ, pos.z);
 }

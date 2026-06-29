@@ -6,7 +6,7 @@ import {
   buyWorkerSpeed,
   buyFixingTime,
   buyCashier,
-  buyConveyor,
+  buyAutoRestock,
   buySupermarket,
   hireMarketWorker,
   trainMarketWorker,
@@ -14,15 +14,17 @@ import {
   buyMarketBreakRoom,
   buyTruckFrequency,
 } from '../core/upgrades.js';
+import { getReputationMenuModel, buyAdvertising, activateRepBoost } from '../core/reputation.js';
+import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 
 /**
  * UpgradeMenu — every progression purchase in one DOM overlay, opened by its
- * own corner button (top-left). Two sections: Garage (Expand Room + Buy Pit
- * Equipment for any roomUnlocked-but-unequipped pit) and Workers (one
- * "Worker X" card per equipped pit — Hire Worker until hired, then Worker
- * Speed, plus Fixing Time). The Advertising panel at the computer is the only
- * purchase UI that stays outside this menu.
+ * own corner button (top-left). Sections: Garage (Expand Room + Buy Pit
+ * Equipment for any roomUnlocked-but-unequipped pit), Workers (one "Worker X"
+ * card per equipped pit — Hire Worker until hired, then Worker Speed, plus
+ * Fixing Time), and Advertising (Buy Advertising for a permanent reputation
+ * boost + Watch Ad for a temporary one) at the bottom.
  *
  * Hidden until open(); the structure can change while open (lots open, pits
  * get equipped/hired) so update() rebuilds the DOM when the row signature
@@ -177,7 +179,69 @@ export class UpgradeMenu {
       this.content.appendChild(this.#card(worker.title, worker.rows));
     }
 
+    this.content.appendChild(this.#sectionHeader('Advertising'));
+    this.content.appendChild(this.#buildAdvertising());
+
     this.#refresh(model);
+  }
+
+  // The Advertising card — reputation readout + the two reputation actions
+  // (permanent Buy Advertising, temporary rewarded-ad boost). Doesn't use the
+  // generic getMenuModel rows: it has its own view model (getReputationMenuModel)
+  // and two buttons, so it's built/refreshed separately.
+  #buildAdvertising() {
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.10)',
+      borderRadius: '10px',
+      padding: '8px 10px',
+    });
+
+    this.adRepLine = document.createElement('div');
+    Object.assign(this.adRepLine.style, { fontSize: '12px', color: '#9fb0c0', marginBottom: '4px' });
+
+    this.adBoostLine = document.createElement('div');
+    Object.assign(this.adBoostLine.style, { fontSize: '11px', color: '#ffd23f', minHeight: '14px', marginBottom: '6px' });
+
+    this.adBuyBtn = this.#adButton();
+    this.adBuyBtn.addEventListener('click', () => {
+      if (buyAdvertising(this.state)) {
+        this.update(this.state);
+        saveGame(this.state);
+      }
+    });
+
+    this.adWatchBtn = this.#adButton();
+    this.adWatchBtn.addEventListener('click', () => {
+      if (this.state.repBoostRemaining > 0) return;
+      showRewardedAd(
+        () => {
+          activateRepBoost(this.state);
+          this.update(this.state);
+          saveGame(this.state);
+        },
+        () => this.update(this.state)
+      );
+    });
+
+    card.append(this.adRepLine, this.adBoostLine, this.adBuyBtn, this.adWatchBtn);
+    return card;
+  }
+
+  #adButton() {
+    const b = document.createElement('button');
+    Object.assign(b.style, {
+      width: '100%',
+      padding: '6px 6px',
+      borderRadius: '7px',
+      border: 'none',
+      fontWeight: '800',
+      fontSize: '13px',
+      cursor: 'pointer',
+      marginBottom: '6px',
+    });
+    return b;
   }
 
   #sectionHeader(text) {
@@ -250,6 +314,28 @@ export class UpgradeMenu {
     for (const row of model.automation) this.#refreshRow(row);
     for (const row of model.supermarket) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
+    this.#refreshAdvertising();
+  }
+
+  #refreshAdvertising() {
+    if (!this.adRepLine) return;
+    const m = getReputationMenuModel(this.state);
+
+    this.adRepLine.textContent = m.boostActive
+      ? `Reputation: ${m.permanentPct}% (boosted to ${m.effectivePct}%)`
+      : `Reputation: ${m.permanentPct}%`;
+    this.adBoostLine.textContent = m.boostActive ? `Ad boost active — ${mmss(m.boostRemaining)}` : '';
+
+    this.adBuyBtn.textContent = m.atCap ? 'Reputation MAXED' : `Buy Advertising (+1%) — ${m.adCostLabel}`;
+    setAdButton(this.adBuyBtn, m.adDisabled);
+
+    if (m.boostActive) {
+      this.adWatchBtn.textContent = `Ad active — ${mmss(m.boostRemaining)}`;
+      setAdButton(this.adWatchBtn, true);
+    } else {
+      this.adWatchBtn.textContent = 'Watch Ad — 2× chance for 5:00';
+      setAdButton(this.adWatchBtn, false);
+    }
   }
 
   #refreshRow(row) {
@@ -287,8 +373,8 @@ export class UpgradeMenu {
       case 'cashier':
         ok = buyCashier(this.state);
         break;
-      case 'conveyor':
-        ok = buyConveyor(this.state);
+      case 'autoRestock':
+        ok = buyAutoRestock(this.state);
         break;
       case 'openMarket':
         ok = buySupermarket(this.state);
@@ -319,6 +405,22 @@ export class UpgradeMenu {
 // A stable key per row (kind + pit). Expand Room has no pit.
 function rowKey(row) {
   return row.pitIndex === undefined ? row.kind : `${row.kind}:${row.pitIndex}`;
+}
+
+// Style an advertising button by its disabled state (mirrors #refreshRow's button styling).
+function setAdButton(btn, disabled) {
+  btn.disabled = disabled;
+  btn.style.opacity = disabled ? '0.45' : '1';
+  btn.style.cursor = disabled ? 'default' : 'pointer';
+  btn.style.background = disabled ? '#3a434f' : '#3ad06a';
+  btn.style.color = disabled ? '#9fb0c0' : '#06310f';
+}
+
+function mmss(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
 }
 
 // Changes whenever the set/shape of rows changes (lots open, equip, hire).

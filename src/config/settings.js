@@ -17,6 +17,16 @@ export const settings = {
     wallHeight: 1.6,
     wallThickness: 0.4,
     gateHalf: 1.8, // half-width of the door gaps in the left/right walls
+    // Garage approach roads + their dashed centre lines (scene/Garage.js, visual only).
+    // extent = how far (world units) the roads run out from the building walls (±halfZ)
+    // in z, so the lanes reach past where cars spawn / drive off and read as continuing
+    // to the world edge. dashLength / dashGap tune the dashed centre line. Tune by eye
+    // in `npm run dev`.
+    road: {
+      extent: 60,
+      dashLength: 1.0,
+      dashGap: 0.5,
+    },
   },
 
   player: {
@@ -51,7 +61,7 @@ export const settings = {
   //
   // CURRENT MODEL: CharacterModel.js merges character_idle.glb +
   // character_run.glb + character_repair.glb + character_yell.glb +
-  // character_carry_run.glb + character_carry_idle.glb + character_walk.glb
+  // character_carry_run.glb + character_carry_idle.glb + character_sassy_walk.glb
   // and renames their clips to 'idle' / 'walk' / 'repair' / 'yell' / 'carry' /
   // 'carryIdle' / 'walkSlow'.
   character: {
@@ -96,7 +106,7 @@ export const settings = {
   // wrong size/facing — tune once the models are visible in-scene.
   car: {
     modelScale: 1, // the per-tier glbs already bake their own ~0.01 scale; don't re-scale
-    modelYRotationOffset: Math.PI, // ≈1.56 rad — cars now drive -z (door→pit); flip ±π if reversed
+    modelYRotationOffset: Math.PI, // ≈3.14 rad — cars now drive -z (door→pit); flip ±π if reversed
   },
 
   // The five reputation tiers, ascending (index 0 = worst, index 4 = best).
@@ -202,8 +212,8 @@ export const settings = {
   },
 
   // Reputation: biases the incoming-car roll toward higher tiers (see Car.js
-  // spawnCar + settings.carTiers). Raised permanently via the computer's Buy
-  // Advertising upgrade, or doubled temporarily by watching a rewarded ad
+  // spawnCar + settings.carTiers). Raised permanently via the Upgrades menu's
+  // Buy Advertising action, or doubled temporarily by watching a rewarded ad
   // (the boost refuses to re-arm while one is already running — no stacking).
   reputation: {
     baseReputation: 0.05, // starting/permanent reputation at game start
@@ -215,19 +225,10 @@ export const settings = {
     boostDurationSeconds: 3000,
   },
 
-  // The garage's advertising terminal: tap while standing within `radius` to
-  // open the Advertising panel. Lives in the left lobby (x left of pit 0's lot,
-  // which starts at x ≈ -28.2) — clear of every pit lot and car lane, always
-  // within owned land, reachable without crossing any lane.
-  computer: {
-    x: -47,
-    z: 7.5,
-    radius: 1.6,
-  },
-
-  // Where the hired cashier NPC stands (see scene/Cashier.js). Kept separate
-  // from `computer` so the character can sit beside the desk rather than on it.
-  // rotation is the Y-axis facing in radians.
+  // Where the hired cashier NPC stands (see scene/Cashier.js). The cashier's
+  // cash-register prop (cash-register.glb) is placed here too — see
+  // settings.supermarket.cashRegisterScale/Rotation. rotation is the Y-axis
+  // facing in radians.
   cashier: {
     x: -47.0,
     z: 8.5,
@@ -255,40 +256,44 @@ export const settings = {
   // Per-pit tire stock + the shelf/boxes that replenish it. The player carries a
   // box from a pit's shelf to its worker to refill that pit's tires; each refill
   // is one box = one full tire stack. A pit with no tires stops taking cars. The
-  // one-time Conveyor upgrade automates box→tire delivery for every pit.
+  // one-time Mechanic Auto-Restock upgrade lets each pit's mechanic fetch a box from
+  // its own shelf and refill the tire stack itself.
   storage: {
     shelfCapacity: 10, // max boxes a shelf holds (starts full)
     tiresPerBox: 20, // repairs one delivered box enables
     maxTiresPerPit: 20, // a pit's tire stack caps here (one box worth)
-    conveyorBaseCost: 500, // one-time, garage-wide automation upgrade
-    conveyorInterval: 3, // seconds between automatic box→tire transfers (per pit)
+    autoRestockBaseCost: 500, // one-time, garage-wide mechanic auto-restock upgrade
     pickupRadius: 1.9, // how close to a shelf the player must stand to grab a box
     // Placements are offsets from each pit's position (settings.pit.positions[i]).
     shelfOffset: { x: 3.2, z: -13.5 }, // exit-door (front wall) side of the pit, clear of the exit lane
     tireOffset: { x: 2.9, z: 0.2 }, // beside the worker (mechanic.offsetX ≈ 2.1)
-    conveyorOffset: { x: 3.2, z: -7 }, // sits between the shelf and the worker
     // Shelf boxes are decorative: the shelf always shows a full 3-wide grid that
     // stacks upward, regardless of the actual shelfBoxes count. They render at
-    // 1/5 the (carried/traveling) box scale.
+    // 1/5 the carried box scale.
     shelfBoxScale: 0.9,
     boxGrid: { cols: 3, spacingX: 0.5, spacingY: 0.5, baseY: 0.35 },
     carriedBoxOffset: { forward: 0.9, y: 1.3 }, // floats ahead of + above the player
-    // Local placement of the market worker's hand-held cardboard box during a
-    // restock haul (applied in characterAnim.attachToHand, in the hand bone's
-    // local space). Tune by eye once visible; rotation is Euler radians.
+    // Local placement of a worker's hand-held cardboard box during a restock haul
+    // (the market worker and now the pit mechanic; applied in
+    // characterAnim.attachToHand, in the hand bone's local space). Tune by eye once
+    // visible; rotation is Euler radians.
     boxHandOffset: { x: 0, y: 0, z: 0 },
     boxHandRotation: { x: 0, y: 0, z: 0},
-    // Conveyor delivery animation: a single box rides the belt from the shelf end
-    // to the worker end, then vanishes (one box per delivery, not a loop).
-    conveyorBeltY: 0.6, // height the traveling box rides at
-    conveyorTravelDuration: 1.0, // seconds for the box to ride shelf→worker
-    conveyorRotation: Math.PI / 2, // Y-axis facing of the conveyor mesh (radians); tweak if misaligned
     // Per-model scale fixups (the glbs import at whatever scale they were
     // authored at — tune these by eye once visible, like settings.car.modelScale).
     shelfScale: 1,
-    boxScale: 1, // carried + traveling box at full (original) scale
+    boxScale: 1, // carried box at full (original) scale
     tireScale: 1,
-    conveyorScale: 6,
+
+    // Collision half-extents (AABB) for the per-pit garage props, blocking ALL
+    // movers (see core/collision.js buildObstacleList + the A* grid in
+    // pathfinding.js). MEASURED from each glb's geometry at the scale it renders
+    // at (shelfScale / tireScale = 1) — STARTING VALUES, tune by eye.
+    //   shelf.glb footprint ≈ 2.06 (x) × 0.81 (z)
+    garageShelfCollisionHalf: { x: 1.03, z: 0.41 },
+    //   Tires.glb footprint ≈ 1.76 (x) × 1.14 (z); its mesh sits ~0.3 toward +x
+    //   of the placement origin, so nudge tireOffset (not this) if it reads off-centre.
+    tireCollisionHalf: { x: 0.88, z: 0.57 },
   },
 
   // The supermarket: a one-time unlock that turns the left lobby into a shop,
@@ -302,6 +307,16 @@ export const settings = {
     unlockBaseCost: 1, // was 800
     workerHireCost: 1, // was 250 — Hire Market Worker (workerLevel 0 -> 1)
     workerTrainCost: 1, // was 450 — Train Market Worker (workerLevel 1 -> 2)
+
+    // Cash-register prop (cash-register.glb) that appears when the cashier is
+    // hired (see scene/Cashier.js). Placed at its OWN world position (independent
+    // of where the cashier NPC stands, settings.cashier) so it can be lined up by
+    // eye. cashRegisterCollisionHalf is the AABB half-extent the player is pushed
+    // out of (gated on state.hasCashier, see core/collision.js).
+    cashRegisterScale: 2.5,
+    cashRegisterRotation: Math.PI,
+    cashRegisterPosition: { x: -47, y: 0, z: 6.9 },
+    cashRegisterCollisionHalf: { x: 0.8, z: 0.5 },
 
     shelfCapacity: 20, // max units per product, per shelf; starts full once unlocked
 
@@ -439,7 +454,6 @@ export const settings = {
     shelf: 'shelf.glb',
     box: 'singlecardboardbox.glb',
     tires: 'Tires.glb',
-    conveyor: 'conveyor_straight.glb',
     shelfEnd: 'shelf_end.glb',
     freezer: 'freezers_standing.glb',
     bag: 'Bag.glb',
@@ -451,6 +465,9 @@ export const settings = {
     // The supermarket restock-delivery truck (loaded once, single reused
     // instance — see scene/TruckView.js). Drives in, drops off stock, drives out.
     truck: 'Truck.glb',
+    // The hired cashier's cash-register prop (see scene/Cashier.js), placed at
+    // settings.cashier and scaled/rotated by settings.supermarket.cashRegister*.
+    cashRegister: 'cash-register.glb',
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close
@@ -520,6 +537,12 @@ export const settings = {
     mechanicWalkSpeed: 3,
     chairScale: 1,
     couchScale: 0.7,
+    // Collision half-extent (AABB) for a pit break chair, blocking ALL movers
+    // (see core/collision.js + pathfinding.js). MEASURED from Chair.glb (≈ 0.76 ×
+    // 0.83) at chairScale = 1 — STARTING VALUE, tune by eye. The upgraded couch
+    // (couch_small.glb at couchScale 0.7) is bulkier (≈ 2.0 × 1.5); bump this if
+    // its corners clip through movers.
+    chairCollisionHalf: { x: 0.38, z: 0.41 },
     // Once seated, nudge the worker's body relative to its seat so it rests ON
     // the seat instead of clipping into its frame — the couch is bulkier than
     // the chair, so its occupant sinks into the cushion/back without this. Per
@@ -558,11 +581,30 @@ export const settings = {
     carDent: 0x7a2f28,
     wheel: 0x1a1a1a,
     smoke: 0x9aa0a6,
-    // advertising computer
+    // supermarket checkout counter
     deskWood: 0x6b4a2f,
-    computerCase: 0x23262b,
-    screenGlow: 0x49d2ff,
   },
+};
+
+// World position of every pit's break chair, index-aligned with settings.pit.positions
+// (chairPositions[i] is pit i's seat). Derived from pit.positions + breaks.chairOffset
+// so the two never drift — the single source of chair placement, read by both the
+// scene (PitView) and the collision/pathfinding layers (see core/collision.js).
+settings.breaks.chairPositions = settings.pit.positions.map((p) => ({
+  x: p.x + settings.breaks.chairOffset.x,
+  z: p.z + settings.breaks.chairOffset.z,
+}));
+
+// Half-extents (AABB) of the room's right (fence) wall — the boundary that slides
+// right as pits are unlocked (its x = core ownedRightX(state), so it "appears/moves
+// with upgrades"). Derived from the wall mesh in Garage.js so they never drift:
+//   x = world.wallThickness/2 (the wall's half thickness)
+//   z = world.halfZ + wallThickness/2 (spans the full room depth)
+// Used by core/collision.js (player push-out) + the A* grid. Tune world.wallThickness
+// / halfZ, not these — they recompute from it.
+settings.pit.pitWallCollisionHalf = {
+  x: settings.world.wallThickness / 2,
+  z: settings.world.halfZ + settings.world.wallThickness / 2,
 };
 
 export default settings;

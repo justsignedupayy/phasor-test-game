@@ -14,8 +14,8 @@ import {
   buyWorkerSpeed,
   buyFixingTime,
   buyCashier,
-  buyConveyor,
-  conveyorCost,
+  buyAutoRestock,
+  autoRestockCost,
   cashierCost,
   workerSpeed,
   fixTimeFactor,
@@ -110,13 +110,17 @@ check('player rotates to face movement (+x → PI/2)', () => {
   assert.ok(Math.abs(s.player.rotation - Math.PI / 2) < 1e-6);
 });
 
-check('in the open (front) zone, position clamps to the full garage bounds', () => {
+check("in the open (front) zone, the room's right wall blocks at the owned boundary", () => {
   const s = createInitialState();
-  s.player.position.z = -5; // z <= BAY_ZONE_Z: open floor, never fenced by land ownership
+  s.player.position.z = -5; // z <= BAY_ZONE_Z: the open front lane
   s.input.x = 1;
   for (let i = 0; i < 200; i++) tick(s, 0.1);
-  const limX = settings.world.halfX - settings.player.radius;
-  assert.ok(s.player.position.x <= limX + 1e-9 && s.player.position.x >= limX - 1e-6);
+  // The room's right (fence) wall is now a solid collision box (buildGarageBoxes'
+  // roomWallX) in the front lane too, not just the bay — so the player stops at the
+  // owned boundary (ownedRightX) instead of sliding all the way to the outer wall.
+  const fenceLim = ownedRightX(s) - settings.player.radius;
+  assert.ok(s.player.position.x <= fenceLim + 1e-6, 'should stop at the room right wall');
+  assert.ok(s.player.position.x < settings.world.halfX - settings.player.radius, 'and never reach the outer wall');
 });
 
 check('in the bay row, position clamps to owned land only (fenced off otherwise)', () => {
@@ -582,8 +586,8 @@ check('hiring the cashier sweeps already-waiting pit pay into cash (one-time)', 
   assert.equal(buyCashier(s), false, 'cashier is a one-time hire');
 });
 
-// --- tire storage + conveyor ----------------------------------------------
-console.log('\ncore tire storage + conveyor');
+// --- tire storage + auto-restock ------------------------------------------
+console.log('\ncore tire storage + auto-restock');
 
 check('initial state: each pit starts with a full tire stack and a full shelf', () => {
   const s = createInitialState();
@@ -593,7 +597,7 @@ check('initial state: each pit starts with a full tire stack and a full shelf', 
   }
   assert.equal(s.player.carryingBox, false);
   assert.equal(s.player.carryingBoxPitIndex, null);
-  assert.equal(s.hasConveyor, false);
+  assert.equal(s.autoRestock, false);
 });
 
 check('each completed repair burns exactly one tire', () => {
@@ -669,39 +673,33 @@ check('a box only delivers to the pit it was taken from', () => {
   assert.equal(s.pits[1].tiresRemaining, 2, 'wrong pit not refilled');
 });
 
-check('conveyor auto-transfers one box → a full tire stack each interval', () => {
+check('auto-restock upgrade: one-time purchase, sets the flag, gated on cash', () => {
   const s = createInitialState();
-  assert.equal(buyConveyor(s), false); // can't afford yet
-  s.cash = conveyorCost(s);
-  assert.equal(buyConveyor(s), true);
-  assert.equal(s.hasConveyor, true);
-  assert.equal(buyConveyor(s), false, 'one-time purchase');
-
-  const pit = s.pits[0];
-  pit.tiresRemaining = 0;
-  pit.shelfBoxes = 5;
-
-  // Just shy of the interval: nothing moves yet.
-  tick(s, settings.storage.conveyorInterval - 0.01);
-  assert.equal(pit.tiresRemaining, 0);
-  assert.equal(pit.shelfBoxes, 5);
-
-  // Cross the interval: the stack is topped to full. Shelf stock is infinite +
-  // decorative, so the box count is never consumed.
-  tick(s, 0.02);
-  assert.equal(pit.tiresRemaining, settings.storage.maxTiresPerPit);
-  assert.equal(pit.shelfBoxes, 5);
+  assert.equal(buyAutoRestock(s), false); // can't afford yet
+  s.cash = autoRestockCost(s);
+  assert.equal(buyAutoRestock(s), true);
+  assert.equal(s.autoRestock, true);
+  assert.equal(buyAutoRestock(s), false, 'one-time purchase');
 });
 
-check('conveyor does nothing for a pit whose shelf is empty', () => {
+check("with auto-restock owned, a pit's mechanic fetches a box and refills its own tires", () => {
   const s = createInitialState();
-  s.hasConveyor = true;
-  const pit = s.pits[0];
-  pit.tiresRemaining = 0;
-  pit.shelfBoxes = 0;
-  tick(s, settings.storage.conveyorInterval + 0.01);
-  assert.equal(pit.tiresRemaining, 0, 'no boxes to transfer');
-  assert.equal(pit.shelfBoxes, 0);
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  buyAutoRestock(s);
+  s.pits[0].tiresRemaining = 0; // run the pit dry
+  // The mechanic walks to its own shelf, picks up a box, carries it back, and restocks.
+  for (let i = 0; i < 4000 && s.pits[0].tiresRemaining === 0; i++) tick(s, 0.05);
+  assert.ok(s.pits[0].tiresRemaining > 0, 'the mechanic restocked its own pit, hands-free');
+});
+
+check('without auto-restock, the mechanic does NOT refill — the pit waits for the player', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.pits[0].tiresRemaining = 0;
+  for (let i = 0; i < 400; i++) tick(s, 0.05);
+  assert.equal(s.pits[0].tiresRemaining, 0, 'no auto-restock without the upgrade');
 });
 
 // --- reputation + advertising ----------------------------------------------

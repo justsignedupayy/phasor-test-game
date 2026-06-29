@@ -31,15 +31,15 @@ function createPit(index) {
     pendingCash: 0, // pay from finished cars waiting here for the player to collect
     collectedThisTick: 0, // one-tick render signal: $ banked this tick (scene pops "+$")
     // Tire stock: each completed repair burns one tire; at 0 the pit stops
-    // taking cars until refilled. The shelf holds boxes the player (or the
-    // conveyor) carries to the worker — one delivered box = one full tire stack.
+    // taking cars until refilled. The shelf holds boxes the player (or, with
+    // auto-restock, the mechanic) carries to the worker — one box = one full stack.
     tiresRemaining: settings.storage.maxTiresPerPit, // starts with one box worth
     shelfBoxes: settings.storage.shelfCapacity, // starts full
     playerNearShelf: false, // written by the scene each frame (proximity to this pit's shelf)
-    // The conveyor belt's world footprint as a rectangle { x, z, halfX, halfZ },
-    // written by the scene each frame (null when the pit has no visible conveyor).
-    // simulation.js reads it to repel the player so they can't walk through it.
-    conveyorBounds: null,
+    // This pit's mechanic once hired: a core-owned NPC (position + restock/break FSM),
+    // mirroring state.supermarket.worker. Created lazily by simulation.js on the first
+    // tick after hire; the scene (Mechanic.js) renders it. null until hired.
+    mechanic: null,
     // This pit mechanic's break clock (see core/breaks.js): a finished repair
     // counts a job; after enough the worker sits at its chair for a while.
     break: createBreakState('carMechanic'),
@@ -96,12 +96,11 @@ export class GameState {
     // state.cash directly and no money ever waits at a pit.
     this.hasCashier = false;
 
-    // Conveyor: a one-time, garage-wide automation upgrade (see upgrades.js
-    // buyConveyor). While owned, every pit's shelf auto-delivers a box to its
-    // tire stack every settings.storage.conveyorInterval seconds — the player
-    // no longer has to hand-carry boxes. conveyorTimer counts toward the next.
-    this.hasConveyor = false;
-    this.conveyorTimer = 0;
+    // Auto-restock: a one-time, garage-wide upgrade (see upgrades.js buyAutoRestock).
+    // While owned, each pit's hired mechanic fetches a box from its own shelf and
+    // refills its tire stack itself when it runs dry — the player no longer has to
+    // hand-carry boxes (see simulation.updateMechanic). Replaces the old conveyor.
+    this.autoRestock = false;
 
     // Reputation: chance an incoming car is a higher-paying "better" car (see
     // core/reputation.js). permanentReputation rises via Buy Advertising;

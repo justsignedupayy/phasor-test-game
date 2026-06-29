@@ -86,5 +86,9 @@ export function spawnCar(state) {
     damageParts: parts, // subset of ALL_PARTS, canonical order
     payout: settings.spawn.basePayoutPerPart * n * tier.payoutMult,
     fixed: false,
+    // Drive-in settle timer: seconds left of the car's drive into its pit spot,
+    // during which it can't be repaired yet. 0 while queued; set to the drive-in
+    // duration the moment it's pulled into a pit, then counted down (simulation.js).
+    settleRemaining: 0,
   };
 }

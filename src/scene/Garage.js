@@ -32,6 +32,7 @@ export class Garage {
     this.#buildPitSpots();
     this.#buildWalls();
     this.#buildDoors();
+    this.#buildDeliveryRoad();
     this.sm.add(this.group);
   }
 
@@ -59,7 +60,6 @@ export class Garage {
       d.pillarL.visible = open;
       d.pillarR.visible = open;
       d.lintel.visible = open;
-      d.road.visible = open;
       d.roadCenterLine.visible = open;
     }
 
@@ -70,9 +70,10 @@ export class Garage {
       d.pillarL.visible = marketOpen;
       d.pillarR.visible = marketOpen;
       d.lintel.visible = marketOpen;
-      d.road.visible = marketOpen;
       d.roadCenterLine.visible = marketOpen;
     }
+    // The restock truck's exterior travel road shares the delivery door's visibility.
+    this.deliveryRoad.visible = marketOpen;
     for (const s of this.pitSpots) {
       s.spot.visible = state.pits[s.index].roomUnlocked;
     }
@@ -215,6 +216,67 @@ export class Garage {
     });
   }
 
+  /**
+   * The restock truck's exterior road: a single slab along the truck's travel
+   * path (a constant x — its deliver/start offsets share x=0 — so it tracks the
+   * restock box's x), in front of the front-wall delivery gate. Matches the
+   * per-pit exterior roads built in #buildExteriorRoads (same lane width, same
+   * exit-slab z-span out to the road extent, same material + y) and carries the
+   * same dashed centre line tuned by settings.world.road. Shown only once the
+   * supermarket is open. The delivery entrance — the dock between the front wall
+   * and the truck's drop-off spot, where the gate, restock pile and parked truck
+   * sit — is left plain grey (no dashes), exactly the way #buildLaneMarkings
+   * keeps dashes off the pit spots.
+   */
+  #buildDeliveryRoad() {
+    const c = settings.colors;
+    const W = settings.world;
+    const R = W.road;
+    const S = settings.supermarket;
+    const P = settings.pit;
+
+    // Same lane width as a pit's exterior road section, so it reads identically.
+    const positions = P.positions;
+    const laneWidth = positions.length > 1 ? Math.abs(positions[1].x - positions[0].x) : 4.5;
+
+    // Truck path: constant x = restock box x; span the exit slab (front wall out
+    // to the road extent), matching #buildExteriorRoads' exit road exactly.
+    const truckX = S.restockBoxPosition.x + S.truck.deliverOffset.x;
+    const z0 = -(W.halfZ + R.extent);
+    const z1 = -W.halfZ;
+
+    const group = new THREE.Group();
+
+    const road = new THREE.Mesh(
+      new THREE.PlaneGeometry(laneWidth, z1 - z0),
+      new THREE.MeshStandardMaterial({ color: c.road })
+    );
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(truckX, 0.006, (z0 + z1) / 2); // matches the per-pit slabs' y
+    road.receiveShadow = true;
+    group.add(road);
+
+    // Dashed centre line: same tunables/logic as #buildLaneMarkings, but kept off
+    // the delivery entrance — the dock from the front wall out to the truck's
+    // drop-off spot stays plain grey, like dashes are kept off the pit spots.
+    const stripeMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
+    const dashLen = R.dashLength;
+    const step = dashLen + R.dashGap;
+    const entranceFarZ = S.restockBoxPosition.z + S.truck.deliverOffset.z; // truck's drop-off / dock edge
+    const inEntrance = (z) => z >= entranceFarZ - dashLen / 2 && z <= z1;
+    for (let z = z0 + step / 2; z + dashLen / 2 <= z1; z += step) {
+      if (inEntrance(z)) continue; // never paint over the delivery dock
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, dashLen), stripeMat);
+      dash.rotation.x = -Math.PI / 2;
+      dash.position.set(truckX, 0.014, z);
+      group.add(dash);
+    }
+
+    group.visible = false;
+    this.group.add(group);
+    this.deliveryRoad = group;
+  }
+
   /** A blue, car-sized rectangle painted on the floor at every pit; hidden until
    * that pit's land is bought. */
   #buildPitSpots() {
@@ -346,8 +408,8 @@ export class Garage {
   }
 
   #buildDoors() {
-    // Pillars + lintels + outside road for both pit door rows (entry on the
-    // back, exit on the front). dir is which way is "outward" from the building.
+    // Pillars + lintels for both pit door rows (entry on the back, exit on the
+    // front). dir is which way is "outward" from the building.
     // No per-door centre dashes on the pit doors: the lane's single centre line
     // (#buildLaneMarkings) already runs over these gate aprons, so a per-door line
     // here would just double up on the same coordinates.
@@ -357,13 +419,18 @@ export class Garage {
     // The supermarket's own entry/exit: same builder, but BOTH doors sit on the
     // back wall (dir 1, outward is +z) — the exit at marketExitX, to the
     // entry's left, instead of clear across the building on the front wall.
-    this.marketEntryDoor = this.#buildDoorRow(this.backWallZ, 1, [settings.supermarket.marketX])[0];
-    this.marketExitDoor = this.#buildDoorRow(this.backWallZ, 1, [settings.supermarket.marketExitX])[0];
+    // centerLine=false: the customer entry/exit door zones are kept plain (no
+    // apron dashes), the same as the delivery door.
+    this.marketEntryDoor = this.#buildDoorRow(this.backWallZ, 1, [settings.supermarket.marketX], false)[0];
+    this.marketExitDoor = this.#buildDoorRow(this.backWallZ, 1, [settings.supermarket.marketExitX], false)[0];
 
     // The restock truck's delivery door: a single gate on the FRONT wall (dir -1,
     // outward is -z), at deliveryDoorX — parallel to the pit exit doors. The truck
     // pulls up to its exterior road and stays at the gate (see scene/TruckView.js).
-    this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, -1, [settings.supermarket.deliveryDoorX])[0];
+    // centerLine=false: the delivery entrance is kept plain grey (no apron dashes),
+    // exactly like the pit exit doors — #buildDeliveryRoad's centre line already
+    // covers the truck's travel road and is skipped over this dock footprint.
+    this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, -1, [settings.supermarket.deliveryDoorX], false)[0];
   }
 
   #buildDoorRow(z, dir, xs = settings.pit.positions.map((p) => p.x), centerLine = true) {
@@ -391,22 +458,13 @@ export class Garage {
       return l;
     };
 
-    // Road outside the gate: same width as the opening, running outward
-    // along the lane (z) axis far enough to suggest cars come from off-screen.
-    // Dark asphalt with a dashed white centre line.
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x5a5a5a });
+    // Geometry of the apron area just outside the gate (z extent), used to place
+    // the optional centre line. No apron slab mesh is drawn: the exterior road
+    // slabs already cover these gate aprons, so a separate (lighter-grey) patch
+    // here would only stand out against the surrounding road/floor.
     const roadLength = 8;
     const outerZ = z + (dir * t) / 2; // the wall's outward-facing surface
     const roadZ = outerZ + (dir * roadLength) / 2;
-    const road = (x) => {
-      const r = new THREE.Mesh(new THREE.PlaneGeometry(g * 2, roadLength), roadMat);
-      r.rotation.x = -Math.PI / 2;
-      r.position.set(x, 0.01, roadZ);
-      r.receiveShadow = true;
-      r.visible = false;
-      this.group.add(r);
-      return r;
-    };
 
     const dashMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
     const dashLen = 1.0;
@@ -436,7 +494,6 @@ export class Garage {
       pillarL: pillar(x - g),
       pillarR: pillar(x + g),
       lintel: lintel(x),
-      road: road(x),
       roadCenterLine: roadCenterLine(x),
     }));
   }

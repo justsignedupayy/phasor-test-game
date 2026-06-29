@@ -64,6 +64,19 @@ function updatePit(state, pit, dt) {
   const car = pit.car;
   if (!car || car.fixed) return;
 
+  // Don't start repairing until the mechanic has physically reached its work spot
+  // beside the pit — it may still be walking back from a break or a restock trip.
+  // Gate on arrival (within arriveEpsilon of the work position), not just on hire.
+  const m = pit.mechanic;
+  const M = settings.mechanic;
+  const pos = settings.pit.positions[pit.index];
+  const work = { x: pos.x + M.offsetX, z: pos.z + M.offsetZ };
+  if (Math.hypot(m.position.x - work.x, m.position.z - work.z) > settings.supermarket.arriveEpsilon) return;
+
+  // ...and not until the car itself has finished driving in and settled in the pit
+  // (settleRemaining counts the drive-in tween down — see updateYard).
+  if (car.settleRemaining > 0) return;
+
   const mult = pit.hurryTimer > 0 ? settings.hurry.multiplier : 1;
   applyRepair(state, pit, workerSpeed(pit) * mult * dt);
 }
@@ -252,6 +265,17 @@ function updateYard(state, dt) {
   for (const pit of state.pits) {
     if (pit.equipped && pit.tiresRemaining > 0 && !pit.car && pit.queue.length > 0) {
       pit.car = pit.queue.shift();
+      // Hold repair until the car finishes driving in and settles at the pit spot.
+      // Mirrors the scene's drive-in tween length (settings.pit.driveDuration).
+      pit.car.settleRemaining = settings.pit.driveDuration;
+    }
+  }
+
+  // Count down each settling car's drive-in timer; it's only repairable (by the
+  // worker) once it reaches its pit spot (settleRemaining hits 0 — see updatePit).
+  for (const pit of state.pits) {
+    if (pit.car && pit.car.settleRemaining > 0) {
+      pit.car.settleRemaining = Math.max(0, pit.car.settleRemaining - dt);
     }
   }
 }

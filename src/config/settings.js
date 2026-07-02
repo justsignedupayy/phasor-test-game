@@ -139,7 +139,9 @@ export const settings = {
   },
 
   // Automatic spawning. Each pit owns its own waiting queue (no shared lane);
-  // a spawned car is routed to the equipped pit with the shortest queue.
+  // a spawned car is routed to the pit whose index matches its reputation tier
+  // (pit 0 = rusty … pit 4 = luxury; see simulation.spawnToMatchingPit) and is
+  // discarded if that pit can't take it.
   spawn: {
     interval: 0.1, // seconds between spawns
     maxQueuePerPit: 10, // max cars waiting per pit's own queue
@@ -213,8 +215,9 @@ export const settings = {
 
   // Reputation: biases the incoming-car roll toward higher tiers (see Car.js
   // spawnCar + settings.carTiers). Raised permanently via the Upgrades menu's
-  // Buy Advertising action, or doubled temporarily by watching a rewarded ad
-  // (the boost refuses to re-arm while one is already running — no stacking).
+  // Buy Advertising action, or multiplied temporarily (×boostMultiplier) by
+  // watching a rewarded ad (the boost refuses to re-arm while one is already
+  // running — no stacking).
   reputation: {
     baseReputation: 0.05, // starting/permanent reputation at game start
     repStep: 0.01, // +1% permanent reputation per Buy Advertising purchase
@@ -345,8 +348,8 @@ export const settings = {
     // through on z, exactly like cars do, just slower and on foot. A third,
     // separate delivery door in the FRONT wall (deliveryDoorX, parallel to the
     // pit exit doors) is for the restock TRUCK only — it pulls up to that gate
-    // from the exterior road, drops stock into the box just inside, and reverses
-    // out; never customers. STARTING VALUES — tune by eye once visible.
+    // from the exterior road, drops stock into the dock box just outside the
+    // wall, and reverses out; never customers. STARTING VALUES — tune by eye.
     //
     // Shelf x-offsets from marketX are doubled (±6, was ±3) to double the
     // market's total floor footprint (width x depth) — world.halfX was grown
@@ -364,12 +367,13 @@ export const settings = {
       { x: -44, z: -9, productType: 'C', model: 'freezer', offset: { x: 0, z: 0 } },
       { x: -32, z: -9, productType: 'D', model: 'freezer', offset: { x: 0, z: 0 } },
     ],
-    // The single restock box: just INSIDE the front-wall delivery door
-    // (deliveryDoorX), in the aisle between the two shelf clusters (x≈-38) and up
-    // against the car-exit (front) wall — so it reads as a loading dock, parallel
-    // to the pit exit doors. Picked so it sits in a clear A* cell: no shelf at
-    // x=-38, and z=-8.5 clears both the shelves' inflated margin and the front
-    // wall's, so the worker can path right onto it. STARTING VALUES — tune by eye.
+    // The single restock box: just OUTSIDE the front-wall delivery door
+    // (deliveryDoorX), on the exterior dock where the truck pulls up — so it
+    // reads as a loading dock, parallel to the pit exit doors. Anyone fetching
+    // from it (player or market worker) steps out through the delivery gate:
+    // core/supermarket.planRoute threads that gate into the route, and
+    // simulation.clampToBounds opens the same gap for the player. Off-grid
+    // (outside the room), so the final leg to it is a straight walk. Tune by eye.
     restockBoxPosition: { x: -41, z: -15.5 },
 
     // The restock box holds a SHARED, limited inventory (one unit restocks any
@@ -391,7 +395,7 @@ export const settings = {
     truck: {
       // TESTING: short intervals for cheap iteration. Real: [300, 240, 180, 120].
       intervals: [30, 20, 15, 10], // seconds, index = truckUpgradeLevel (0..3)
-      deliverOffset: { x: 0, z: -3.5 }, // where the truck stops: at the gate, just OUTSIDE the front wall (box.z - 3.5 ≈ -12)
+      deliverOffset: { x: 0, z: -3.5 }, // where the truck stops: just beyond the dock box (box.z - 3.5 ≈ -19)
       startOffset: { x: 0, z: -25.5 }, // off-screen start/end point down the front road it drives in from / out to
       waitDuration: 1.5, // seconds paused at the gate before driving back out
       driveDuration: 1.6, // seconds for the drive-in / drive-out tween (mirrors a car's, slower)
@@ -508,7 +512,7 @@ export const settings = {
   // How many jobs each worker completes before it earns a break (see
   // core/breaks.js). A car mechanic's job = one finished repair; the market
   // worker's job = one checked-out customer. Each worker tracks its own count.
-  // TESTING: slashed to 5/3 for cheap iteration (real values in comments).
+  // TESTING: halved for cheap iteration (real values in comments).
   breakThresholds: {
     carMechanic: 50, // real: 100
     marketWorker: 25, // real: 50
@@ -559,28 +563,16 @@ export const settings = {
     background: 0xf0ece4,
     floor: 0xc8c4bc, // light concrete
     lobby: 0x474f43, // the left lobby floor patch (distinct from the shop floor)
-    lane: 0xb8b4ac, // slightly darker concrete strip
-    grid: 0xa8a49c, // subtle grid
     wall: 0xdedad4, // off-white walls
     gate: 0xc0bbb4, // gate pillars / lintels
-    lot: 0xbcb8b0, // an empty (roomUnlocked, unequipped) lot patch
-    lotEdge: 0x8a8680, // outline of an empty lot
-    fence: 0xe8a020, // boundary of not-yet-purchased land (Expand Room)
-    landLocked: 0xb0aca4, // unpurchased land tint, beyond the fence
-    pit: 0x7a6e5e, // an equipped pit station floor, darker for contrast
+    pit: 0x7a6e5e, // the bay/work-area floor patch, darker for contrast
     pitGlow: 0xffe08a, // highlight ring when the player can repair
     toolbox: 0xc0392b, // a small toolbox marking an equipped pit
     road: 0x4a4a4a, // asphalt outside each gate + the exterior entry/exit roads
-    roadLine: 0xf5e642, // yellow road-edge marking + interior floor grid lines
-    laneStripe: 0xffffff, // white guide/zebra paint on the garage floor + exterior lane dashes
+    roadLine: 0xf5e642, // yellow divider line between adjacent pit bays
+    laneStripe: 0xffffff, // white guide paint on the garage floor + exterior lane dashes
     pitSpot: 0x2255cc, // blue decorative pit-stop rectangle painted at each pit
     label: '#ffe08a', // pit/worker label text (CSS color string for the sprite)
-    // broken car
-    carBody: 0xb0433a,
-    carCabin: 0x8c352e,
-    carDent: 0x7a2f28,
-    wheel: 0x1a1a1a,
-    smoke: 0x9aa0a6,
     // supermarket checkout counter
     deskWood: 0x6b4a2f,
   },

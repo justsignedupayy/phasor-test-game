@@ -37,9 +37,9 @@ import { createBreakState, tickBreak, incrementJobCount } from './breaks.js';
 const NPC_RADIUS = settings.player.radius;
 
 // The market worker only bothers restocking a shelf once it's GENUINELY low —
-// at or below half its capacity — instead of shuttling to the box pile the
-// instant a single unit sells (which left it restocking near-full shelves in a
-// near-constant loop). Topping off only happens below this fraction of capacity.
+// at or below this fraction of its capacity — instead of shuttling to the box
+// pile the instant a single unit sells (which left it restocking near-full
+// shelves in a near-constant loop).
 const RESTOCK_THRESHOLD_FRACTION = 0.1;
 
 // --- shared movement (A* waypoint following) -------------------------------
@@ -70,12 +70,14 @@ function clearPath(mover) {
  *    checkout box instead of straight through it — then a direct leg out through the
  *    gap. (Entry needs none: its straight path already clears the box and its own door.)
  *
- * The restock box now lives INSIDE the room (settings.restockBoxPosition, in the
- * aisle in front of the shelves), so worker restock trips are plain A* — no
- * restock-door threading needed any more (the truck, not the worker, uses that door).
+ *  • Crossing the FRONT wall (the restock box sits on the exterior dock just
+ *    outside it): thread the delivery-door gate { deliveryDoorX, -halfZ } between
+ *    the in-room A* leg and the straight off-grid leg, in either direction —
+ *    handled by the front-gate case below.
  *
- * The special route still uses findPath for the in-room leg, so the A* grid is the
- * single source of static obstacle avoidance; only the gap waypoint is threaded in.
+ * Every special route still uses findPath for the in-room leg, so the A* grid is
+ * the single source of static obstacle avoidance; only the gap waypoint is
+ * threaded in.
  */
 function planRoute(mover, target) {
   const W = settings.world;

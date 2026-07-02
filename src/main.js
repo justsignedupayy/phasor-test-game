@@ -20,6 +20,9 @@ import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
+import { ownedRightX } from './core/upgrades.js';
+import { roomWallBox } from './core/collision.js';
+import { rebuildGrid } from './core/pathfinding.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
 import { preloadCarModels } from './scene/CarView.js';
 import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
@@ -35,6 +38,11 @@ const container = document.getElementById('app');
 // offline-earnings catch-up — it's restored exactly as it was last saved).
 const state = loadGame() ?? createInitialState();
 seedIdCounter(state); // keep newly spawned ids past whatever the save already used
+// The A* grid is built at module load WITHOUT the room's moving fence wall (it's
+// state-dependent); fold it in for the starting/loaded ownedRightX, exactly as
+// buyExpandRoom does after every later purchase — otherwise the grid only learns
+// about the fence on the next Expand Room buy.
+rebuildGrid([roomWallBox(ownedRightX(state))]);
 const sceneManager = new SceneManager(container);
 const input = new Input();
 const hud = new Hud();
@@ -145,7 +153,12 @@ async function main() {
       // the Call-Truck-Early ad button, instead of any pickup.
       if (market.restockBox.units <= 0) {
         truckMenu.open();
-      } else if (market.workerLevel < 2 && !state.player.carryingRestockBox && near(market.restockBoxPosition)) {
+      } else if (
+        market.workerLevel < 2 &&
+        !state.player.carryingRestockBox &&
+        !state.player.carryingBox && // hands full with a pit tire box — mirrors updateStorage's pickup gate
+        near(market.restockBoxPosition)
+      ) {
         // Pick up one unit (decrements the box) to carry to a shelf.
         if (takeRestockUnit(state)) state.player.carryingRestockBox = true;
       }

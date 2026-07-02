@@ -53,14 +53,13 @@ export class Garage {
 
     const marketOpen = state.supermarket.unlocked;
 
-    // A door's pillars + lintel + outside road (both walls), plus the pit's blue
-    // floor spot and exterior road section, all show once that pit's land is bought.
+    // A door's pillars + lintel (both walls), plus the pit's blue floor spot and
+    // exterior road section, all show once that pit's land is bought.
     for (const d of [...this.backDoors, ...this.frontDoors]) {
       const open = state.pits[d.index].roomUnlocked;
       d.pillarL.visible = open;
       d.pillarR.visible = open;
       d.lintel.visible = open;
-      d.roadCenterLine.visible = open;
     }
 
     // The customers' entry + exit doors (both on the back wall) and the restock
@@ -70,7 +69,6 @@ export class Garage {
       d.pillarL.visible = marketOpen;
       d.pillarR.visible = marketOpen;
       d.lintel.visible = marketOpen;
-      d.roadCenterLine.visible = marketOpen;
     }
     // The restock truck's exterior travel road shares the delivery door's visibility.
     this.deliveryRoad.visible = marketOpen;
@@ -375,10 +373,9 @@ export class Garage {
     this.group.add(this.rightWall);
 
     // Front + back walls: pools of unit-width segments; gaps are left at unlocked
-    // pits' doors, plus — on the back wall only, now that both market doors live
-    // there — the market's entry + exit doors once unlocked. Back: maxPits+2
-    // doors total → at most maxPits+3 solid segments. Front: maxPits doors → at
-    // most maxPits+2 (kept the same size as before; the spare segment is harmless).
+    // pits' doors, plus the market's doors once unlocked (entry + exit on the back
+    // wall, the truck's delivery gate on the front). Back: maxPits+2 doors total →
+    // at most maxPits+3 solid segments. Front: maxPits+1 doors → at most maxPits+2.
     this.backSegments = this.#buildSegmentPool(box, settings.maxPits + 3);
     this.frontSegments = this.#buildSegmentPool(box, settings.maxPits + 2);
   }
@@ -409,36 +406,29 @@ export class Garage {
 
   #buildDoors() {
     // Pillars + lintels for both pit door rows (entry on the back, exit on the
-    // front). dir is which way is "outward" from the building.
-    // No per-door centre dashes on the pit doors: the lane's single centre line
-    // (#buildLaneMarkings) already runs over these gate aprons, so a per-door line
-    // here would just double up on the same coordinates.
-    this.backDoors = this.#buildDoorRow(this.backWallZ, 1, undefined, false);
-    this.frontDoors = this.#buildDoorRow(this.frontWallZ, -1, undefined, false);
+    // front). No per-door apron centre dashes anywhere: the lane/road centre
+    // lines (#buildLaneMarkings / #buildDeliveryRoad) already cover every
+    // travelled apron, and the customer door zones are deliberately kept plain.
+    this.backDoors = this.#buildDoorRow(this.backWallZ);
+    this.frontDoors = this.#buildDoorRow(this.frontWallZ);
 
     // The supermarket's own entry/exit: same builder, but BOTH doors sit on the
-    // back wall (dir 1, outward is +z) — the exit at marketExitX, to the
-    // entry's left, instead of clear across the building on the front wall.
-    // centerLine=false: the customer entry/exit door zones are kept plain (no
-    // apron dashes), the same as the delivery door.
-    this.marketEntryDoor = this.#buildDoorRow(this.backWallZ, 1, [settings.supermarket.marketX], false)[0];
-    this.marketExitDoor = this.#buildDoorRow(this.backWallZ, 1, [settings.supermarket.marketExitX], false)[0];
+    // back wall — the exit at marketExitX, to the entry's left, instead of clear
+    // across the building on the front wall.
+    this.marketEntryDoor = this.#buildDoorRow(this.backWallZ, [settings.supermarket.marketX])[0];
+    this.marketExitDoor = this.#buildDoorRow(this.backWallZ, [settings.supermarket.marketExitX])[0];
 
-    // The restock truck's delivery door: a single gate on the FRONT wall (dir -1,
-    // outward is -z), at deliveryDoorX — parallel to the pit exit doors. The truck
-    // pulls up to its exterior road and stays at the gate (see scene/TruckView.js).
-    // centerLine=false: the delivery entrance is kept plain grey (no apron dashes),
-    // exactly like the pit exit doors — #buildDeliveryRoad's centre line already
-    // covers the truck's travel road and is skipped over this dock footprint.
-    this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, -1, [settings.supermarket.deliveryDoorX], false)[0];
+    // The restock truck's delivery door: a single gate on the FRONT wall, at
+    // deliveryDoorX — parallel to the pit exit doors. The truck pulls up to its
+    // exterior road and stays at the gate (see scene/TruckView.js).
+    this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, [settings.supermarket.deliveryDoorX])[0];
   }
 
-  #buildDoorRow(z, dir, xs = settings.pit.positions.map((p) => p.x), centerLine = true) {
+  #buildDoorRow(z, xs = settings.pit.positions.map((p) => p.x)) {
     const c = settings.colors;
     const W = settings.world;
     const h = W.wallHeight;
     const g = W.gateHalf;
-    const t = W.wallThickness;
 
     const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
     const pillar = (x) => {
@@ -458,43 +448,15 @@ export class Garage {
       return l;
     };
 
-    // Geometry of the apron area just outside the gate (z extent), used to place
-    // the optional centre line. No apron slab mesh is drawn: the exterior road
-    // slabs already cover these gate aprons, so a separate (lighter-grey) patch
-    // here would only stand out against the surrounding road/floor.
-    const roadLength = 8;
-    const outerZ = z + (dir * t) / 2; // the wall's outward-facing surface
-    const roadZ = outerZ + (dir * roadLength) / 2;
-
-    const dashMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
-    const dashLen = 1.0;
-    const dashStep = dashLen + 0.8; // dash + gap
-    // Per-door apron centre line. Kept for the market doors (their own roads have no
-    // lane markings); suppressed for the pit doors (centerLine=false) so it doesn't
-    // double up on the lane centre line that already covers their aprons. The (empty)
-    // group is still returned so the caller's visibility toggle stays uniform.
-    const roadCenterLine = (x) => {
-      const grp = new THREE.Group();
-      grp.position.set(x, 0, roadZ);
-      grp.visible = false;
-      if (centerLine) {
-        for (let dz = -roadLength / 2 + dashStep / 2; dz <= roadLength / 2; dz += dashStep) {
-          const dash = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, dashLen), dashMat);
-          dash.position.set(0, 0.02, dz);
-          grp.add(dash);
-        }
-      }
-      this.group.add(grp);
-      return grp;
-    };
-
     // One door per x given (pit positions by default). Toggled by the caller.
+    // No apron slab or centre line is drawn here: the exterior road slabs and
+    // their dashed lines (#buildExteriorRoads / #buildDeliveryRoad) already cover
+    // every travelled gate apron.
     return xs.map((x, index) => ({
       index,
       pillarL: pillar(x - g),
       pillarR: pillar(x + g),
       lintel: lintel(x),
-      roadCenterLine: roadCenterLine(x),
     }));
   }
 

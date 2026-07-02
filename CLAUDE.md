@@ -37,6 +37,10 @@ src/
 │   ├── upgrades.js       all purchases + derived per-pit effects (workerSpeed,
 │   │                     requiredTicks, ownedRightX/fence) + the Upgrades menu view model.
 │   ├── reputation.js     effective reputation, Buy Advertising, rewarded-ad boost timer.
+│   ├── supermarket.js    shop sim: customers, market worker FSM, restock box + truck.
+│   ├── breaks.js         per-worker break clocks (job counts, durations, ad wake-up).
+│   ├── collision.js      shared AABB obstacle list + circle push-out (player/mechanic).
+│   ├── pathfinding.js    static A* walkability grid + findPath for market NPCs.
 │   └── format.js         formatMoney (K/M/B/T at 3 sig figs).
 ├── scene/               Three.js render layer (reads core state, writes nothing
 │                         to game logic except per-frame proximity flags):
@@ -47,8 +51,11 @@ src/
 │   │                     shared gltf; crossfade idle/walk/repair/yell from core flags).
 │   ├── CarView.js        preloads the car glb once, cloned per car.
 │   ├── CarYard.js / PitView.js  the pits, queued cars, drive tweens, tap raycasting.
-│   ├── Garage.js / Computer.js  static world + the advertising terminal prop.
-│   └── Hud.js / UpgradeMenu.js / AdvertisingMenu.js / popup.js  DOM UI overlays.
+│   ├── Garage.js         static world: floor, walls, doors, exterior roads.
+│   ├── SupermarketView.js / MarketWorker.js / MarketCustomer.js / Cashier.js /
+│   │   TruckView.js      the shop's render layer (mirrors state.supermarket).
+│   ├── StorageModels.js / CarriedBox.js / PitMoney.js  prop glbs (load-once + clone).
+│   └── Hud.js / UpgradeMenu.js / BreakMenu.js / TruckMenu.js / popup.js  DOM UI overlays.
 ├── platform/            swappable host integrations (isolated for the Playgama port):
 │   ├── storage.js        save/load behind a `backend` abstraction (localStorage today).
 │   └── ads.js            showRewardedAd — stubbed to succeed immediately.
@@ -59,8 +66,8 @@ src/
 Every frame, in order:
 1. Read screen-space joystick (`input.value`), map it through `SceneManager.moveBasis`
    (camera-relative ground axes) into a **world-space** direction, write `state.input`.
-2. `tick(state, dt)` — the only place core state advances (dt clamped to 0.05 to
-   absorb tab-switch jumps).
+2. `tick(state, dt)` then `tickSupermarket(state, dt)` — the only places core
+   state advances (dt clamped to 0.05 to absorb tab-switch jumps).
 3. Scene writes `pit.playerPresent` from proximity to `settings.pit.positions` — the
    one piece of state the render layer pushes back into core (core only reads it).
 4. Update each view from state, then `sceneManager.render()`.
@@ -73,7 +80,9 @@ anywhere); an unmanned equipped pit's car → `tapRepair` (only while `playerPre
   Don't flatten `costGrowth` to 1 — `Math.round` then breaks the strict-increase tests.
 - **Two-stage pit unlock**: `roomUnlocked` (Expand Room reveals empty floor + slides
   the land fence right) then `equipped` (Buy Pit Equipment; only equipped pits accept
-  cars / allow hiring). Pit 0 starts both. `maxPits` = 4.
+  cars / allow hiring). Pit 0 starts both. `maxPits` = 5, one per car tier — a
+  spawned car routes to the pit matching its reputation tier and is discarded if
+  that pit can't take it.
 - **glTF loaded once, cloned**: the character model (player + every worker) and the car
   model are each loaded a single time and cloned; never re-load per instance.
 - **Save format is versioned**: `storage.js` carries `SAVE_VERSION`; a mismatch

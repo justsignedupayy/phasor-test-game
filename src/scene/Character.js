@@ -58,14 +58,14 @@ export class Character {
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, player.rotation, t);
 
-    // Active state: a yell/repair blip wins briefly, else carrying a box
-    // overrides walk/idle (carry/carryIdle) for as long as
-    // player.carryingBox is true.
+    // Active state: a yell/repair blip wins briefly, else carrying a box —
+    // either a pit tire box (carryingBox) or a market restock box
+    // (carryingRestockBox) — overrides walk/idle with carry/carryIdle.
     let next;
     if (this.emoteTimer > 0) {
       this.emoteTimer = Math.max(0, this.emoteTimer - dt);
       next = this.emoteState;
-    } else if (player.carryingBox) {
+    } else if (player.carryingBox || player.carryingRestockBox) {
       next = player.moving ? 'carry' : 'carryIdle';
     } else {
       next = player.moving ? 'walk' : 'idle';

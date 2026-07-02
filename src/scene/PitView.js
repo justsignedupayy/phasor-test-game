@@ -5,11 +5,12 @@ import { cloneStorageModel } from './StorageModels.js';
 
 /**
  * PitView — the static, per-pit scene furniture (no car logic; cars are owned by
- * CarYard). It renders three states with little appear animations:
+ * CarYard). It renders three states:
  *
  *   locked       nothing visible
- *   roomUnlocked an empty lot patch + outline (Expand Room reveals this)
- *   equipped     the repair station floor + a toolbox (Buy Pit Equipment)
+ *   roomUnlocked the pit letter label (the lot floor visuals — blue spot, roads,
+ *                doors — are Garage.js's, keyed off the same flag)
+ *   equipped     the toolbox station (appear-animated) + storage props
  *
  * It also owns this pit's worker NPC (spawned when hired) and the floor
  * highlight ring shown when the player can manually tap an unmanned pit.
@@ -25,7 +26,6 @@ export class PitView {
 
     this.mechanic = null;
     this.highlightT = 0;
-    this.lotScale = 0; // animated 0..1
     this.stationScale = 0; // animated 0..1
 
     // Break chair: appears once this pit has a hired worker, swapped for a couch
@@ -46,13 +46,7 @@ export class PitView {
     const c = settings.colors;
     const { x, z } = this.pos;
 
-    // Empty lot: a faint floor patch + an outline ring.
-    this.lot = new THREE.Group();
-    this.lot.position.set(x, 0, z);
-    this.lot.visible = false;
-    this.sm.add(this.lot);
-
-    // Equipped station: brown pit floor + a toolbox marker.
+    // Equipped station: a toolbox marker (the pit floor paint is Garage.js's).
     this.station = new THREE.Group();
     this.station.position.set(x, 0, z);
     this.station.visible = false;
@@ -173,18 +167,13 @@ export class PitView {
   update(dt, pit, state) {
     this.#updateStorage(pit);
 
-    // Reveal lot / station and animate their appearance.
-    const lotVisible = pit.roomUnlocked && !pit.equipped;
-    this.lot.visible = lotVisible;
+    // Reveal the station and animate its appearance.
     this.station.visible = pit.equipped;
     this.label.visible = pit.roomUnlocked;
 
-    const lotTarget = lotVisible ? 1 : 0;
     const stationTarget = pit.equipped ? 1 : 0;
     const k = Math.min(1, 9 * dt);
-    this.lotScale += (lotTarget - this.lotScale) * k;
     this.stationScale += (stationTarget - this.stationScale) * k;
-    applyAppear(this.lot, this.lotScale);
     applyAppear(this.station, this.stationScale);
 
     // Spawn this pit's worker (and its break chair) the moment one is hired.
@@ -197,7 +186,9 @@ export class PitView {
       const B = settings.breaks;
       this.mechanic.update(dt, {
         mechanic: pit.mechanic, // core-owned position + restock/break FSM
-        carPresent: !!pit.car,
+        // Only counts once the car has settled in the pit — core doesn't repair
+        // during the drive-in (car.settleRemaining > 0), so don't wrench thin air.
+        carPresent: !!pit.car && pit.car.settleRemaining <= 0,
         hurrying: pit.hurryTimer > 0,
         onBreak: pit.break.onBreak,
         chairFacing: B.chairFacing,
@@ -255,8 +246,8 @@ function makeLabelSprite(text) {
   return sprite;
 }
 
-// A wide canvas-textured sprite for the live "Tires N · Box M" readout. The
-// canvas is created once; drawStorageSprite() repaints it when the text changes.
+// A wide canvas-textured sprite for the live "Tires N" readout. The canvas is
+// created once; drawStorageSprite() repaints it when the text changes.
 function makeStorageSprite() {
   const canvas = document.createElement('canvas');
   canvas.width = 256;

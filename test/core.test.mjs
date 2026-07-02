@@ -712,7 +712,7 @@ check('initial state: reputation starts at baseReputation, no boost, no ad purch
   assert.equal(s.adLevel, 0);
 });
 
-check('getEffectiveReputation: no boost = permanent rate; boosted = doubled, clamped to repCap', () => {
+check('getEffectiveReputation: no boost = permanent rate; boosted = ×boostMultiplier, clamped to repCap', () => {
   const s = createInitialState();
   assert.equal(getEffectiveReputation(s), settings.reputation.baseReputation);
 

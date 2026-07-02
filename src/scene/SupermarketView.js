@@ -280,7 +280,12 @@ export class SupermarketView {
     this.checkoutRing.material.opacity += ((canPlace ? pulse : 0) - this.checkoutRing.material.opacity) * k;
 
     const canGrabBox =
-      S.unlocked && S.workerLevel < 2 && S.restockBox.units > 0 && !player.carryingRestockBox && near(S.restockBoxPosition);
+      S.unlocked &&
+      S.workerLevel < 2 &&
+      S.restockBox.units > 0 &&
+      !player.carryingRestockBox &&
+      !player.carryingBox && // pickup is refused while hauling a pit tire box (main.js), so don't advertise it
+      near(S.restockBoxPosition);
     this.restockRing.visible = S.unlocked;
     this.restockRing.material.opacity += ((canGrabBox ? pulse : 0) - this.restockRing.material.opacity) * k;
   }

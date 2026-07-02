@@ -112,8 +112,9 @@ export class GameState {
     // Parallel pits, lowest index first. Each pit owns its own waiting queue.
     this.pits = Array.from({ length: settings.maxPits }, (_, i) => createPit(i));
 
-    // Countdown to the next spawn (a spawned car is routed to the equipped pit
-    // with the shortest queue). Seeded so the first car arrives immediately.
+    // Countdown to the next spawn (a spawned car is routed to the pit matching
+    // its reputation tier — see simulation.spawnToMatchingPit — and discarded if
+    // that pit can't take it). Seeded so the first car arrives immediately.
     this.spawnTimer = settings.spawn.interval;
 
     // Starts inside pit 0's own bay (the only owned land at game start; see

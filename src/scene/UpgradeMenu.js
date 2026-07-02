@@ -14,6 +14,7 @@ import {
   buyMarketBreakRoom,
   buyTruckFrequency,
 } from '../core/upgrades.js';
+import settings from '../config/settings.js';
 import { getReputationMenuModel, buyAdvertising, activateRepBoost } from '../core/reputation.js';
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
@@ -333,7 +334,9 @@ export class UpgradeMenu {
       this.adWatchBtn.textContent = `Ad active — ${mmss(m.boostRemaining)}`;
       setAdButton(this.adWatchBtn, true);
     } else {
-      this.adWatchBtn.textContent = 'Watch Ad — 2× chance for 5:00';
+      // Derived from settings so the promise always matches what the boost does.
+      const R = settings.reputation;
+      this.adWatchBtn.textContent = `Watch Ad — ${R.boostMultiplier}× chance for ${mmss(R.boostDurationSeconds)}`;
       setAdButton(this.adWatchBtn, false);
     }
   }

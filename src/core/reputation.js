@@ -12,7 +12,7 @@ const R = settings.reputation;
 
 const adCostAt = (level) => Math.round(R.adBaseCost * Math.pow(R.adGrowth, level));
 
-/** Permanent rate, doubled while a rewarded-ad boost is active, capped at repCap. */
+/** Permanent rate, ×boostMultiplier while a rewarded-ad boost is active, capped at repCap. */
 export function getEffectiveReputation(state) {
   const mult = state.repBoostRemaining > 0 ? R.boostMultiplier : 1;
   return Math.min(R.repCap, state.permanentReputation * mult);

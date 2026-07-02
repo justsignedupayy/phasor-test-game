@@ -225,9 +225,11 @@ function updateStorage(state) {
   const player = state.player;
 
   // Shelf stock is infinite + decorative, so a pickup never depletes shelfBoxes.
+  // Hands must be free: no pickup while already hauling either kind of box (the
+  // market restock box is the other carryable — see main.js handleMarketTap).
   for (const pit of state.pits) {
     if (!pit.equipped) continue;
-    if (!state.autoRestock && !player.carryingBox && pit.playerNearShelf && pit.shelfBoxes > 0) {
+    if (!state.autoRestock && !player.carryingBox && !player.carryingRestockBox && pit.playerNearShelf && pit.shelfBoxes > 0) {
       player.carryingBox = true;
       player.carryingBoxPitIndex = pit.index;
     } else if (player.carryingBox && player.carryingBoxPitIndex === pit.index && pit.playerPresent) {

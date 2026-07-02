@@ -6,7 +6,8 @@
 import assert from 'node:assert/strict';
 import { createInitialState } from '../src/core/GameState.js';
 import { tick, tapRepair, hurry } from '../src/core/simulation.js';
-import { spawnCar, tierWeights } from '../src/core/Car.js';
+import { tickGasStation, tapFill, hurryPump, requiredFillTicks } from '../src/core/gasStation.js';
+import { spawnCar, spawnGasCar, tierWeights } from '../src/core/Car.js';
 import {
   buyExpandRoom,
   buyPitEquipment,
@@ -34,6 +35,14 @@ import {
   buyMarketBreakRoom,
   buyTruckFrequency,
   truckFrequencyCost,
+  buyGasExpand,
+  buyGasEquipment,
+  hireAttendant,
+  buyAttendantSpeed,
+  buyGasBreakRoom,
+  gasExpandCost,
+  gasEquipmentCost,
+  attendantSpeed,
 } from '../src/core/upgrades.js';
 import {
   createBreakState,
@@ -1298,6 +1307,397 @@ check('buyMarketBreakRoom needs a hired market worker and is one-time', () => {
   assert.equal(buyMarketBreakRoom(s), true);
   assert.equal(s.supermarket.worker.break.breakDurationUpgraded, true);
   assert.equal(buyMarketBreakRoom(s), false, 'one-time');
+});
+
+// --- gas station -------------------------------------------------------------
+console.log('\ncore gas station');
+
+// Unlock + equip a pump: unlike pit 0 there is no free starter pump, so every
+// gas test that needs a working pump buys its way there first (cash restored after).
+const openGasPump = (s, i = 0) => {
+  const saved = s.cash;
+  s.cash = 1e12;
+  while (!s.gasStation.pumps[i].roomUnlocked) buyGasExpand(s);
+  buyGasEquipment(s, i);
+  s.cash = saved;
+};
+
+check('initial state: EVERY pump locked (no free starter), spawn seeded, fresh breaks', () => {
+  const s = createInitialState();
+  assert.equal(s.gasStation.pumps.length, settings.maxPumps);
+  for (const pump of s.gasStation.pumps) {
+    assert.equal(pump.roomUnlocked, false, 'the station does not exist until bought');
+    assert.equal(pump.equipped, false);
+    assert.equal(pump.car, null);
+    assert.equal(pump.queue.length, 0);
+    assert.equal(pump.pendingCash, 0);
+    assert.equal(pump.hasAttendant, false);
+    assert.equal(pump.break.onBreak, false);
+    assert.equal(pump.break.jobCount, 0);
+  }
+  assert.equal(s.gasStation.spawnTimer, settings.gasStation.spawn.interval);
+});
+
+check('while fully locked, ticking the station never routes a car anywhere', () => {
+  const s = createInitialState();
+  for (let i = 0; i < 100; i++) tickGasStation(s, settings.gasStation.spawn.interval);
+  for (const pump of s.gasStation.pumps) {
+    assert.equal(pump.car, null);
+    assert.equal(pump.queue.length, 0);
+  }
+});
+
+check('spawnGasCar: tier formulas hold (fillTicks/payout scale with the rolled tier)', () => {
+  const G = settings.gasStation.fill;
+  const s = createInitialState();
+  s.permanentReputation = 0; // every car is rusty
+  const rusty = settings.carTiers[0];
+  for (let i = 0; i < 200; i++) {
+    const car = spawnGasCar(s);
+    assert.equal(car.tier, 'rusty');
+    assert.ok(Math.abs(car.fillTicks - G.baseTicks * rusty.ticksMult) < 1e-9);
+    assert.ok(Math.abs(car.payout - G.basePayout * rusty.payoutMult) < 1e-9);
+    assert.equal(car.ticksDone, 0);
+    assert.equal(car.fixed, false);
+    assert.deepEqual(car.damageParts, []);
+  }
+});
+
+check('once bought, the first gas tick puts a car straight into pump 0', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0; // rusty → pump 0
+  tickGasStation(s, settings.gasStation.spawn.interval);
+  assert.ok(s.gasStation.pumps[0].car);
+  assert.equal(s.gasStation.pumps[0].queue.length, 0);
+});
+
+check("spawning fills pump 0 to maxQueuePerPump; locked pumps never get cars", () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0;
+  for (let i = 0; i < 30; i++) tickGasStation(s, settings.gasStation.spawn.interval);
+  assert.ok(s.gasStation.pumps[0].car);
+  assert.equal(s.gasStation.pumps[0].queue.length, settings.gasStation.spawn.maxQueuePerPump);
+  for (let i = 1; i < s.gasStation.pumps.length; i++) {
+    assert.equal(s.gasStation.pumps[i].car, null);
+    assert.equal(s.gasStation.pumps[i].queue.length, 0);
+  }
+});
+
+check('NO tier routing: with only pump 0 open, every car tier lands there', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = settings.reputation.repCap; // uniform roll across all five tiers
+  s.gasStation.pumps[0].car = spawnGasCar(s); // occupy so the queue never drains
+  for (let i = 0; i < 60; i++) tickGasStation(s, settings.gasStation.spawn.interval);
+  const queue = s.gasStation.pumps[0].queue;
+  assert.equal(queue.length, settings.gasStation.spawn.maxQueuePerPump, 'pump 0 takes every tier');
+  const tiers = new Set(queue.map((c) => c.tier));
+  assert.ok(tiers.size >= 2, `mixed tiers share one pump (saw ${[...tiers].join(', ')})`);
+});
+
+check('cars route to the shortest line across the open pumps', () => {
+  const s = createInitialState();
+  openGasPump(s, 0);
+  openGasPump(s, 1);
+  s.permanentReputation = settings.reputation.repCap; // any tier — routing must not care
+  // Occupy both bays so routing only ever grows the queues.
+  s.gasStation.pumps[0].car = spawnGasCar(s);
+  s.gasStation.pumps[1].car = spawnGasCar(s);
+  for (let i = 0; i < 12; i++) tickGasStation(s, settings.gasStation.spawn.interval);
+  const q0 = s.gasStation.pumps[0].queue.length;
+  const q1 = s.gasStation.pumps[1].queue.length;
+  assert.ok(q0 > 0 && q1 > 0, 'both pumps take cars');
+  assert.ok(Math.abs(q0 - q1) <= 1, `queues stay balanced (${q0} vs ${q1})`);
+});
+
+check('the FIRST buyGasExpand opens pump lot 0 (the whole station), not equipped yet', () => {
+  const s = createInitialState();
+  s.cash = 0;
+  assert.equal(buyGasExpand(s), false, 'gated on cash');
+  assert.equal(s.gasStation.pumps[0].roomUnlocked, false);
+  s.cash = 1e9;
+  assert.equal(buyGasExpand(s), true);
+  assert.equal(s.gasStation.pumps[0].roomUnlocked, true, 'first purchase opens lot 0');
+  assert.equal(s.gasStation.pumps[0].equipped, false, 'still needs the pump installed');
+  assert.equal(s.gasStation.pumps[1].roomUnlocked, false, 'later lots stay locked');
+  // The next expand behaves like the garage's subsequent unlocks.
+  assert.equal(buyGasExpand(s), true);
+  assert.equal(s.gasStation.pumps[1].roomUnlocked, true);
+  assert.equal(s.gasStation.pumps[1].equipped, false);
+});
+
+check('buyGasEquipment needs an opened lot, then equips it; freshly equipped pump takes cars', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(buyGasEquipment(s, 0), false); // station not bought yet
+  buyGasExpand(s);
+  assert.equal(buyGasEquipment(s, 0), true);
+  assert.equal(s.gasStation.pumps[0].equipped, true);
+  buyGasExpand(s);
+  buyGasEquipment(s, 1);
+  // Shortest-line routing spreads incoming cars over both open pumps.
+  for (let i = 0; i < 50; i++) tickGasStation(s, settings.gasStation.spawn.interval);
+  assert.ok(s.gasStation.pumps[0].car);
+  assert.ok(s.gasStation.pumps[1].car);
+});
+
+check('gas expand cost grows geometrically; pump equipment cost scales with index', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  const c0 = gasExpandCost(s);
+  buyGasExpand(s);
+  const c1 = gasExpandCost(s);
+  assert.ok(c1 > c0);
+  assert.equal(c1, Math.round(c0 * settings.upgrades.gas.expand.costGrowth));
+  assert.ok(gasEquipmentCost(s, 2) > gasEquipmentCost(s, 1));
+});
+
+check('tapFill needs a present player and a car at the pump', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0;
+  tickGasStation(s, settings.gasStation.spawn.interval); // car now at pump 0
+  s.gasStation.pumps[0].playerPresent = false;
+  tapFill(s, 0);
+  assert.equal(s.gasStation.pumps[0].car.ticksDone, 0);
+  s.gasStation.pumps[0].playerPresent = true;
+  tapFill(s, 0);
+  assert.equal(s.gasStation.pumps[0].car.ticksDone, settings.repair.tapTicks);
+});
+
+check('finishing a fill parks its payout at the pump, collected on the next tick', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0;
+  tickGasStation(s, settings.gasStation.spawn.interval);
+  s.gasStation.pumps[0].playerPresent = true;
+  const car = s.gasStation.pumps[0].car;
+  const expectedTaps = Math.ceil(requiredFillTicks(car) / settings.repair.tapTicks);
+  let taps = 0;
+  while (s.gasStation.pumps[0].car === car && taps < 1000) {
+    tapFill(s, 0);
+    taps += 1;
+  }
+  assert.equal(taps, expectedTaps);
+  assert.equal(s.gasStation.pumps[0].car, null);
+  assert.equal(s.cash, 0); // no cashier: the pay waits at the pump
+  assert.equal(s.gasStation.pumps[0].pendingCash, car.payout);
+  tickGasStation(s, 0); // player is standing here → banked
+  assert.equal(s.cash, car.payout);
+  assert.equal(s.gasStation.pumps[0].pendingCash, 0);
+});
+
+check('hireAttendant requires an equipped pump and is one-time', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(hireAttendant(s, 0), false, 'station not bought yet');
+  buyGasExpand(s); // pump lot 0 opened but not equipped
+  assert.equal(hireAttendant(s, 0), false);
+  buyGasEquipment(s, 0);
+  assert.equal(hireAttendant(s, 0), true);
+  assert.equal(s.gasStation.pumps[0].hasAttendant, true);
+  assert.equal(hireAttendant(s, 0), false, 'one-time hire');
+});
+
+check('a hired attendant auto-fills; with no cashier the pay waits at the pump', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.cash = 1e9;
+  hireAttendant(s, 0);
+  s.cash = 0; // isolate earnings; the player is never near the pump
+  for (let i = 0; i < 1500; i++) tickGasStation(s, 0.016); // ~24s hands-free
+  assert.equal(s.cash, 0, 'nothing banked without a cashier or the player nearby');
+  assert.ok(s.gasStation.pumps[0].pendingCash > 0, 'attendant pay piles up at the pump');
+  const waiting = s.gasStation.pumps[0].pendingCash;
+  s.gasStation.pumps[0].playerPresent = true;
+  tickGasStation(s, 0.016);
+  assert.ok(s.cash >= waiting, 'walking up collects the waiting pay');
+  assert.equal(s.gasStation.pumps[0].pendingCash, 0);
+});
+
+check('pre-attendant, an unmanned pump does NOT fill on its own', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0;
+  tickGasStation(s, settings.gasStation.spawn.interval);
+  const car = s.gasStation.pumps[0].car;
+  const before = car.ticksDone;
+  for (let i = 0; i < 600; i++) tickGasStation(s, 0.016);
+  if (s.gasStation.pumps[0].car === car) assert.equal(s.gasStation.pumps[0].car.ticksDone, before);
+});
+
+check('with a cashier, pump payouts bank straight to cash, nothing waits', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.cash = 1e9;
+  buyCashier(s);
+  hireAttendant(s, 0);
+  const before = s.cash;
+  for (let i = 0; i < 2000; i++) tickGasStation(s, 0.016); // player never near the pump
+  assert.ok(s.cash > before, 'cashier banks pump payouts hands-free');
+  for (const pump of s.gasStation.pumps) assert.equal(pump.pendingCash, 0);
+});
+
+check('hiring the cashier sweeps waiting pump pay too', () => {
+  const s = createInitialState();
+  const cost = cashierCost(s);
+  s.cash = 100 + cost;
+  s.gasStation.pumps[0].pendingCash = 40;
+  assert.equal(buyCashier(s), true);
+  assert.equal(s.cash, 100 + 40, 'cost paid, waiting pump pay swept in');
+  assert.equal(s.gasStation.pumps[0].pendingCash, 0);
+});
+
+check('hurryPump only works on a manned pump and multiplies the fill rate', () => {
+  const s0 = createInitialState();
+  hurryPump(s0, 0);
+  assert.equal(s0.gasStation.pumps[0].hurryTimer, 0);
+
+  // controlled pump car big enough not to finish in one step
+  const make = () => {
+    const s = createInitialState();
+    openGasPump(s);
+    s.cash = 1e9;
+    hireAttendant(s, 0);
+    s.gasStation.pumps[0].car = { id: 999, tier: 'rusty', fillTicks: 1e6, ticksDone: 0, damageParts: [], payout: 5, fixed: false, settleRemaining: 0 };
+    return s;
+  };
+  const base = make();
+  tickGasStation(base, 0.1);
+  const baseWork = base.gasStation.pumps[0].car.ticksDone;
+
+  const fast = make();
+  hurryPump(fast, 0);
+  assert.ok(fast.gasStation.pumps[0].hurryTimer > 0);
+  tickGasStation(fast, 0.1);
+  const fastWork = fast.gasStation.pumps[0].car.ticksDone;
+
+  assert.ok(fastWork > baseWork);
+  assert.ok(Math.abs(fastWork / baseWork - settings.hurry.multiplier) < 0.05);
+});
+
+check('attendant speed raises only its own pump rate, capped at maxLevel', () => {
+  const s = createInitialState();
+  openGasPump(s, 0);
+  openGasPump(s, 1);
+  s.cash = 1e9;
+  const r0 = attendantSpeed(s.gasStation.pumps[0]);
+  assert.equal(buyAttendantSpeed(s, 0), true);
+  assert.ok(attendantSpeed(s.gasStation.pumps[0]) > r0);
+  assert.equal(attendantSpeed(s.gasStation.pumps[1]), r0); // untouched
+  for (let i = 0; i < 50; i++) buyAttendantSpeed(s, 0); // hit max
+  assert.equal(s.gasStation.pumps[0].workerSpeedLevel, settings.upgrades.gas.workerSpeed.maxLevel);
+  assert.equal(buyAttendantSpeed(s, 0), false, 'capped');
+});
+
+check('the gas economy is independent: fills never touch pit tires or pit cash', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.cash = 1e9;
+  hireAttendant(s, 0);
+  const tiresBefore = s.pits[0].tiresRemaining;
+  for (let i = 0; i < 1000; i++) tickGasStation(s, 0.016);
+  assert.equal(s.pits[0].tiresRemaining, tiresBefore, 'pit tires untouched by pump fills');
+  for (const pit of s.pits) assert.equal(pit.pendingCash, 0, 'no pit ever holds pump pay');
+});
+
+check('the gas gate only exists once the station is bought; then the player can walk out', () => {
+  // Before the first purchase the left wall is solid EVEN at the gate's z.
+  const locked = createInitialState();
+  locked.player.position = { x: -40, z: settings.gasStation.gateZ };
+  locked.input.x = -1;
+  for (let i = 0; i < 200; i++) tick(locked, 0.1);
+  assert.ok(
+    locked.player.position.x >= -settings.world.halfX + settings.player.radius - 1e-6,
+    'left wall solid while the station does not exist'
+  );
+
+  // After buying the first lot: pushing left at the gate's z crosses the wall.
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyGasExpand(s); // opens pump lot 0 — the station (and its gate) now exists
+  s.player.position = { x: -40, z: settings.gasStation.gateZ };
+  s.input.x = -1;
+  for (let i = 0; i < 200; i++) tick(s, 0.1);
+  assert.ok(s.player.position.x < -settings.world.halfX, 'walked out through the gas gate');
+
+  // Away from the gate's z: the left wall stays solid even with the station open.
+  const s2 = createInitialState();
+  s2.cash = 1e9;
+  buyGasExpand(s2);
+  s2.player.position = { x: -40, z: -8 };
+  s2.input.x = -1;
+  for (let i = 0; i < 200; i++) tick(s2, 0.1);
+  assert.ok(
+    s2.player.position.x >= -settings.world.halfX + settings.player.radius - 1e-6,
+    'left wall solid away from the gate'
+  );
+});
+
+check('an attendant goes on break after breakThreshold fills, sits at its pump chair, then resumes', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0; // rusty cars → pump 0
+  s.cash = 1e9;
+  hireAttendant(s, 0);
+
+  let guard = 0;
+  while (!s.gasStation.pumps[0].break.onBreak && guard < 200000) {
+    tickGasStation(s, 0.05);
+    guard += 1;
+  }
+  const pump = s.gasStation.pumps[0];
+  assert.equal(pump.break.onBreak, true, 'attendant eventually takes a break');
+  assert.equal(pump.break.jobCount, 0);
+
+  // The attendant walks to (and holds) ITS OWN chair beside the pump.
+  const chair = settings.breaks.pumpChairPositions[0];
+  for (let i = 0; i < 200; i++) tickGasStation(s, 0.05); // plenty to finish the walk
+  assert.ok(
+    Math.hypot(pump.attendant.position.x - chair.x, pump.attendant.position.z - chair.z) < 0.1,
+    'attendant idles at its pump-side chair'
+  );
+  assert.equal(pump.attendant.state, 'onBreak');
+
+  // While seated, the car at the pump makes no fill progress.
+  const car = pump.car;
+  if (car) {
+    const before = car.ticksDone;
+    for (let i = 0; i < 50; i++) tickGasStation(s, 0.05); // 2.5s, well under the break duration
+    if (pump.car === car) assert.equal(pump.car.ticksDone, before, 'no auto-fill while on break');
+  }
+
+  // Ending the break (ad reward) lets it work again: pay accrues at the pump.
+  endBreak(pump.break);
+  pump.playerPresent = false;
+  pump.pendingCash = 0;
+  for (let i = 0; i < 4000; i++) tickGasStation(s, 0.05);
+  assert.ok(pump.pendingCash > 0, 'work resumes (and pay accrues) after the break ends');
+});
+
+check('a manual tap-fill with no attendant never accrues a break', () => {
+  const s = createInitialState();
+  openGasPump(s);
+  s.permanentReputation = 0;
+  tickGasStation(s, settings.gasStation.spawn.interval);
+  s.gasStation.pumps[0].playerPresent = true;
+  const car = s.gasStation.pumps[0].car;
+  while (s.gasStation.pumps[0].car === car) tapFill(s, 0);
+  assert.equal(s.gasStation.pumps[0].break.jobCount, 0, 'no attendant → no break counter movement');
+  assert.equal(s.gasStation.pumps[0].break.onBreak, false);
+});
+
+check('buyGasBreakRoom needs a hired attendant and is one-time per attendant', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  assert.equal(buyGasBreakRoom(s, 0), false, 'no attendant yet');
+  openGasPump(s);
+  hireAttendant(s, 0);
+  assert.equal(buyGasBreakRoom(s, 0), true);
+  assert.equal(s.gasStation.pumps[0].break.breakDurationUpgraded, true);
+  assert.equal(buyGasBreakRoom(s, 0), false, 'one-time');
 });
 
 console.log(`\n${passed} passed`);

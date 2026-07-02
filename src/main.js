@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import settings from './config/settings.js';
 import { createInitialState } from './core/GameState.js';
 import { tick, tapRepair, hurry } from './core/simulation.js';
+import { tickGasStation, tapFill, hurryPump } from './core/gasStation.js';
 import { seedIdCounter } from './core/Car.js';
 import {
   tickSupermarket,
@@ -29,6 +30,7 @@ import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
 import { preloadStorageModels } from './scene/StorageModels.js';
 import { CarriedBox } from './scene/CarriedBox.js';
 import { SupermarketView } from './scene/SupermarketView.js';
+import { GasStationView } from './scene/GasStationView.js';
 import { BreakMenu } from './scene/BreakMenu.js';
 import { TruckMenu } from './scene/TruckMenu.js';
 
@@ -73,6 +75,9 @@ async function main() {
   const pitMoney = new PitMoney(sceneManager);
   const carriedBox = new CarriedBox(sceneManager);
   const supermarketView = new SupermarketView(sceneManager, gltf);
+  const gasStationView = new GasStationView(sceneManager, gltf);
+  // Pump pay uses the same waiting-bills view as pit pay, pointed at the pumps.
+  const pumpMoney = new PitMoney(sceneManager, settings.gasStation.positions, (s) => s.gasStation.pumps);
   const breakMenu = new BreakMenu(state); // opened by tapping a seated worker's chair
   const truckMenu = new TruckMenu(state); // opened by tapping an empty restock box
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
@@ -100,6 +105,11 @@ async function main() {
       breakMenu.open(state.supermarket.worker.break, 'Market Worker');
       return;
     }
+    const chairPump = gasStationView.raycastChair(raycaster, state);
+    if (chairPump >= 0) {
+      breakMenu.open(state.gasStation.pumps[chairPump].break, `Attendant ${chairPump + 1}`);
+      return;
+    }
 
     const marketHit = supermarketView.raycastTap(raycaster);
     if (marketHit) {
@@ -108,16 +118,32 @@ async function main() {
     }
 
     const i = carYard.raycast(raycaster);
-    if (i < 0) return;
-    const pit = state.pits[i];
+    if (i >= 0) {
+      const pit = state.pits[i];
+      if (pit.hasMechanic) {
+        hurry(state, i);
+        character.yell();
+      } else if (pit.playerPresent && pit.car && !pit.car.fixed) {
+        tapRepair(state, i);
+        character.repair();
+        carYard.onTap(i);
+      }
+      return;
+    }
 
-    if (pit.hasMechanic) {
-      hurry(state, i);
+    // Pump cars mirror pit cars: a manned pump's car = remote hurry (from
+    // anywhere); an unmanned equipped pump's car = manual fill while standing there.
+    const gi = gasStationView.raycast(raycaster);
+    if (gi < 0) return;
+    const pump = state.gasStation.pumps[gi];
+
+    if (pump.hasAttendant) {
+      hurryPump(state, gi);
       character.yell();
-    } else if (pit.playerPresent && pit.car && !pit.car.fixed) {
-      tapRepair(state, i);
+    } else if (pump.playerPresent && pump.car && !pump.car.fixed) {
+      tapFill(state, gi);
       character.repair();
-      carYard.onTap(i);
+      gasStationView.onTap(gi);
     }
   });
 
@@ -179,6 +205,7 @@ async function main() {
 
     tick(state, dt); // movement + spawning + queue→pits + workers' auto-repair
     tickSupermarket(state, dt); // supermarket customers + (once hired) the market worker
+    tickGasStation(state, dt); // gas pumps: spawning + queue→pumps + attendants' auto-fill
 
     // Scene sets per-pit proximity each frame; core only reads these flags.
     // playerPresent = near the worker/pit (repair + box delivery); playerNearShelf
@@ -197,6 +224,17 @@ async function main() {
       pit.playerNearShelf = Math.hypot(px - (p.x + so.x), pz - (p.z + so.z)) <= settings.storage.pickupRadius;
     }
 
+    // Same per-frame proximity flags for the gas pumps (fill taps + pay collection).
+    for (const pump of state.gasStation.pumps) {
+      if (!pump.equipped) {
+        pump.playerPresent = false;
+        continue;
+      }
+      const p = settings.gasStation.positions[pump.index];
+      pump.playerPresent =
+        Math.hypot(state.player.position.x - p.x, state.player.position.z - p.z) <= settings.gasStation.radius;
+    }
+
     // Cashier NPC: appears at the desk the moment one is hired, then idles forever.
     if (state.hasCashier && !cashier) {
       cashier = new Cashier(gltf, sceneManager);
@@ -209,7 +247,9 @@ async function main() {
     garage.update(dt, state);
     carYard.update(dt, state);
     supermarketView.update(dt, state);
+    gasStationView.update(dt, state);
     pitMoney.update(dt, state, state.player.position);
+    pumpMoney.update(dt, state, state.player.position);
     breakMenu.update();
     truckMenu.update();
     hud.update(state.cash, state.repBoostRemaining);

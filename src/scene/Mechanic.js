@@ -19,8 +19,14 @@ import { cloneStorageModel } from './StorageModels.js';
 const HURRY_TIME_SCALE = 2; // repair clip plays at double speed while hurrying
 
 export class Mechanic {
-  constructor(gltf) {
+  /**
+   * `workClip` is the animation state played while working on a present car —
+   * 'repair' for pit mechanics (the default, unchanged), 'gaspump' for pump
+   * attendants (see scene/GasStationView.js).
+   */
+  constructor(gltf, tint = settings.character.workerTint, workClip = 'repair') {
     const cfg = settings.character;
+    this.workClip = workClip;
 
     this.root = new THREE.Group();
 
@@ -30,7 +36,7 @@ export class Mechanic {
     this.model.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
-        tintMesh(o, cfg.workerTint);
+        tintMesh(o, tint);
       }
     });
     this.root.add(this.model);
@@ -87,11 +93,11 @@ export class Mechanic {
     if (onBreak) next = mechanic.moving ? 'walk' : 'sitting';
     else if (mechanic.carrying) next = mechanic.moving ? 'carry' : 'carryIdle';
     else if (mechanic.moving) next = 'walk';
-    else next = carPresent ? 'repair' : 'idle';
+    else next = carPresent ? this.workClip : 'idle';
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
 
-    const repairAction = this.actions.repair;
-    if (repairAction) repairAction.timeScale = hurrying ? HURRY_TIME_SCALE : 1;
+    const workAction = this.actions[this.workClip];
+    if (workAction) workAction.timeScale = hurrying ? HURRY_TIME_SCALE : 1;
 
     this.box.visible = mechanic.carrying;
 

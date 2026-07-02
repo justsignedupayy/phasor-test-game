@@ -49,7 +49,8 @@ export class Garage {
     this.#layoutSegmentedWall(this.frontSegments, this.frontWallZ, this.rightWallX, state, [
       settings.supermarket.deliveryDoorX,
     ]);
-    this.#layoutLeftWall();
+    const gasOpen = state.gasStation.pumps[0].roomUnlocked;
+    this.#layoutLeftWall(gasOpen);
 
     const marketOpen = state.supermarket.unlocked;
 
@@ -72,6 +73,11 @@ export class Garage {
     }
     // The restock truck's exterior travel road shares the delivery door's visibility.
     this.deliveryRoad.visible = marketOpen;
+
+    // The gas gate's pillars + lintel appear with the station's first lot.
+    this.gasGateDoor.pillarL.visible = gasOpen;
+    this.gasGateDoor.pillarR.visible = gasOpen;
+    this.gasGateDoor.lintel.visible = gasOpen;
     for (const s of this.pitSpots) {
       s.spot.visible = state.pits[s.index].roomUnlocked;
     }
@@ -363,9 +369,10 @@ export class Garage {
     this.frontWallZ = -W.halfZ - t / 2;
     this.backWallZ = W.halfZ + t / 2;
 
-    // Left wall: solid, full depth (the restock door moved to the front wall as
-    // the truck's delivery gate). Still laid out from a small segment pool — the
-    // same machinery as the other walls — but it never carves a gap now.
+    // Left wall: solid until the gas station's first lot is bought, then a gate
+    // opens at gasStation.gateZ through which the player walks out to the pump
+    // row in the world's left quadrant. Laid out from a small segment pool,
+    // same machinery as the other walls.
     this.leftSegments = this.#buildLeftWallSegments(box);
 
     // Right wall: slides to rightWallX each frame (solid, full depth).
@@ -422,6 +429,38 @@ export class Garage {
     // deliveryDoorX — parallel to the pit exit doors. The truck pulls up to its
     // exterior road and stays at the gate (see scene/TruckView.js).
     this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, [settings.supermarket.deliveryDoorX])[0];
+
+    // The gas-station gate: a single door in the LEFT wall at gasStation.gateZ,
+    // the player's walkway to the pump row. Same pillar/lintel shape as the
+    // z-wall doors, rotated onto the x-wall; hidden (solid wall) until the
+    // station's first lot is bought — toggled in update() like the market doors.
+    this.gasGateDoor = this.#buildLeftDoor(settings.gasStation.gateZ);
+  }
+
+  /** A door on the LEFT wall (x = -halfX): pillars flank the gap along z. */
+  #buildLeftDoor(gateZ) {
+    const c = settings.colors;
+    const W = settings.world;
+    const h = W.wallHeight;
+    const g = W.gateHalf;
+    const x = -W.halfX - W.wallThickness / 2;
+
+    const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
+    const pillar = (z) => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h * 1.6, 0.6), gateMat);
+      p.position.set(x, h * 0.8, z);
+      p.castShadow = true;
+      p.visible = false;
+      this.group.add(p);
+      return p;
+    };
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, g * 2 + 0.6), gateMat);
+    lintel.position.set(x, h * 1.6, gateZ);
+    lintel.castShadow = true;
+    lintel.visible = false;
+    this.group.add(lintel);
+
+    return { pillarL: pillar(gateZ - g), pillarR: pillar(gateZ + g), lintel };
   }
 
   #buildDoorRow(z, xs = settings.pit.positions.map((p) => p.x)) {
@@ -503,20 +542,29 @@ export class Garage {
     });
   }
 
-  /** Place the left wall: solid, full depth (the restock door moved to the front
-   * wall as the delivery gate, so the left wall no longer has a gap). */
-  #layoutLeftWall() {
+  /** Place the left wall: solid until the gas station exists, then two spans
+   * flanking the gate at gasStation.gateZ (the player's walkway to the pump row). */
+  #layoutLeftWall(gasOpen) {
     const W = settings.world;
     const h = W.wallHeight;
+    const g = W.gateHalf;
+    const gateZ = settings.gasStation.gateZ;
     const x = -W.halfX - W.wallThickness / 2;
-    const z0 = -W.halfZ;
-    const z1 = W.halfZ;
+
+    const spans = gasOpen
+      ? [
+          [-W.halfZ, gateZ - g],
+          [gateZ + g, W.halfZ],
+        ]
+      : [[-W.halfZ, W.halfZ]];
 
     this.leftSegments.forEach((mesh, i) => {
-      if (i !== 0) {
-        mesh.visible = false; // single solid span needs only the first segment
+      const span = spans[i];
+      if (!span || span[1] - span[0] <= 0.001) {
+        mesh.visible = false;
         return;
       }
+      const [z0, z1] = span;
       mesh.visible = true;
       mesh.scale.z = Math.max(0.001, z1 - z0);
       mesh.position.set(x, h / 2, (z0 + z1) / 2);

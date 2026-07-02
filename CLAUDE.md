@@ -38,6 +38,10 @@ src/
 │   │                     requiredTicks, ownedRightX/fence) + the Upgrades menu view model.
 │   ├── reputation.js     effective reputation, Buy Advertising, rewarded-ad boost timer.
 │   ├── supermarket.js    shop sim: customers, market worker FSM, restock box + truck.
+│   ├── gasStation.js     pump sim, mirroring the pit flow 1:1: tickGasStation, tapFill,
+│   │                     hurryPump, attendant FSM + per-pump breaks (see settings.gasStation).
+│   │                     UNLIKE pit 0, every pump starts locked — the first Expand Station
+│   │                     purchase brings the whole station (gate, road, lot 0) into existence.
 │   ├── breaks.js         per-worker break clocks (job counts, durations, ad wake-up).
 │   ├── collision.js      shared AABB obstacle list + circle push-out (player/mechanic).
 │   ├── pathfinding.js    static A* walkability grid + findPath for market NPCs.
@@ -54,6 +58,9 @@ src/
 │   ├── Garage.js         static world: floor, walls, doors, exterior roads.
 │   ├── SupermarketView.js / MarketWorker.js / MarketCustomer.js / Cashier.js /
 │   │   TruckView.js      the shop's render layer (mirrors state.supermarket).
+│   ├── GasStationView.js the gas station's whole render layer (mirrors
+│   │                     state.gasStation): striped pump roads, gas_pump.glb props,
+│   │                     attendants (tinted Mechanic clones), car queues/tweens.
 │   ├── StorageModels.js / CarriedBox.js / PitMoney.js  prop glbs (load-once + clone).
 │   └── Hud.js / UpgradeMenu.js / BreakMenu.js / TruckMenu.js / popup.js  DOM UI overlays.
 ├── platform/            swappable host integrations (isolated for the Playgama port):
@@ -66,14 +73,15 @@ src/
 Every frame, in order:
 1. Read screen-space joystick (`input.value`), map it through `SceneManager.moveBasis`
    (camera-relative ground axes) into a **world-space** direction, write `state.input`.
-2. `tick(state, dt)` then `tickSupermarket(state, dt)` — the only places core
-   state advances (dt clamped to 0.05 to absorb tab-switch jumps).
+2. `tick(state, dt)`, `tickSupermarket(state, dt)`, then `tickGasStation(state, dt)`
+   — the only places core state advances (dt clamped to 0.05 to absorb tab-switch jumps).
 3. Scene writes `pit.playerPresent` from proximity to `settings.pit.positions` — the
    one piece of state the render layer pushes back into core (core only reads it).
 4. Update each view from state, then `sceneManager.render()`.
 
 Canvas taps raycast the pit cars: a manned pit's car → remote `hurry` (works from
 anywhere); an unmanned equipped pit's car → `tapRepair` (only while `playerPresent`).
+Pump cars mirror this exactly (`hurryPump` / `tapFill`).
 
 ### Key invariants
 - **Geometric costs**: every upgrade/ad cost is `Math.round(baseCost × growth^level)`.
@@ -97,6 +105,6 @@ anywhere); an unmanned equipped pit's car → `tapRepair` (only while `playerPre
   states to clip names (falls back to clip 0 with a warn, so a wrong name never freezes).
 
 ### ⚠️ Before shipping
-`settings.upgrades.*.baseCost` and `reputation.adBaseCost` are all slashed to `1` for
-cheap iteration (marked `// TESTING` with the original values commented inline). Restore
-them before release.
+`settings.upgrades.*.baseCost` (including `upgrades.gas.*`) and `reputation.adBaseCost`
+are all slashed to `1` for cheap iteration (marked `// TESTING` with the original values
+commented inline). Restore them before release.

@@ -47,6 +47,11 @@ export function requiredTicks(car, pit) {
   return car.baseTicks * fixTimeFactor(pit);
 }
 
+/** Attendant auto-fill rate in ticks/sec — workerSpeed's gas-station mirror. */
+export function attendantSpeed(pump) {
+  return U.gas.workerSpeed.baseRate + pump.workerSpeedLevel * U.gas.workerSpeed.ratePerLevel;
+}
+
 // --- room footprint (Expand Room actually grows the room) -----------------
 //
 // The bay row sits behind a fence that slides right as land is bought, so an
@@ -98,6 +103,30 @@ export function workerSpeedCost(state, pit) {
 
 export function fixingTimeCost(state, pit) {
   return geoCost(U.fixingTime, pit.fixingTimeLevel);
+}
+
+// Gas-station costs, mirroring the pit set (geometric, same level choices).
+
+/**
+ * Cost of the next Expand Station (geometric in how many pump lots are open).
+ * Unlike expandRoomCost there is no free starter lot — the very first purchase
+ * (opening pump lot 0, i.e. the whole station) is level 0.
+ */
+export function gasExpandCost(state) {
+  const opened = state.gasStation.pumps.filter((p) => p.roomUnlocked).length;
+  return geoCost(U.gas.expand, opened);
+}
+
+export function gasEquipmentCost(state, pumpIndex) {
+  return geoCost(U.gas.equipment, pumpIndex);
+}
+
+export function attendantHireCost(state, pumpIndex) {
+  return geoCost(U.gas.attendant, pumpIndex);
+}
+
+export function attendantSpeedCost(state, pump) {
+  return geoCost(U.gas.workerSpeed, pump.workerSpeedLevel);
 }
 
 /** Flat, one-time cost of the garage-wide cashier hire. */
@@ -196,6 +225,69 @@ export function buyFixingTime(state, pitIndex) {
   return true;
 }
 
+// Gas-station purchases, mirroring the pit set 1:1. The pump row sits outside
+// the building (no fence wall to slide, no A* territory), so opening a lot has
+// no grid/wall side effects — just the flag flip.
+
+/** Open the lowest-index locked pump lot (empty ground only) — buyExpandRoom's mirror. */
+export function buyGasExpand(state) {
+  const next = state.gasStation.pumps.find((p) => !p.roomUnlocked);
+  if (!next) return false;
+  const cost = gasExpandCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  next.roomUnlocked = true;
+  return true;
+}
+
+/** Install the pump on an opened-but-unequipped lot — buyPitEquipment's mirror. */
+export function buyGasEquipment(state, pumpIndex) {
+  const pump = state.gasStation.pumps[pumpIndex];
+  if (!pump || !pump.roomUnlocked || pump.equipped) return false;
+  const cost = gasEquipmentCost(state, pumpIndex);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  pump.equipped = true;
+  return true;
+}
+
+/** One-time attendant hire; requires the pump to be equipped — hireMechanic's mirror. */
+export function hireAttendant(state, pumpIndex) {
+  const pump = state.gasStation.pumps[pumpIndex];
+  if (!pump || !pump.equipped || pump.hasAttendant) return false;
+  const cost = attendantHireCost(state, pumpIndex);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  pump.hasAttendant = true;
+  return true;
+}
+
+/** Per-pump attendant speed level — buyWorkerSpeed's mirror. */
+export function buyAttendantSpeed(state, pumpIndex) {
+  const pump = state.gasStation.pumps[pumpIndex];
+  if (!pump || !pump.equipped || pump.workerSpeedLevel >= U.gas.workerSpeed.maxLevel) return false;
+  const cost = attendantSpeedCost(state, pump);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  pump.workerSpeedLevel += 1;
+  return true;
+}
+
+/**
+ * Upgrade a pump attendant's break room (one-time, per worker): halves that
+ * attendant's break duration and swaps its chair for a couch — buyBreakRoom's
+ * mirror, same flat cost.
+ */
+export function buyGasBreakRoom(state, pumpIndex) {
+  const pump = state.gasStation.pumps[pumpIndex];
+  if (!pump || !pump.hasAttendant || pump.break.breakDurationUpgraded) return false;
+  const cost = breakRoomCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  pump.break.breakDurationUpgraded = true;
+  return true;
+}
+
 /**
  * Hire the garage-wide cashier (one-time). Future payouts skip the per-pit
  * waiting pile and land straight in cash; any money already waiting at pits is
@@ -207,7 +299,7 @@ export function buyCashier(state) {
   if (state.cash < cost) return false;
   state.cash -= cost;
   state.hasCashier = true;
-  for (const pit of state.pits) {
+  for (const pit of [...state.pits, ...state.gasStation.pumps]) {
     if (pit.pendingCash > 0) {
       state.cash += pit.pendingCash;
       pit.pendingCash = 0;
@@ -311,10 +403,12 @@ const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 export function getMenuModel(state) {
   return {
     garage: garageRows(state),
+    gasStation: gasStationRows(state),
     cashier: [cashierRow(state)],
     automation: [autoRestockRow(state)],
     supermarket: supermarketRows(state),
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
+    attendants: state.gasStation.pumps.filter((p) => p.equipped).map((p) => attendantBlock(state, p)),
   };
 }
 
@@ -336,6 +430,92 @@ function expandView(state) {
     kind: 'expand',
     label: 'Expand Room',
     effect: `Open lot ${letter(next.index)}`,
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
+
+// Gas-station menu rows — garageRows/workerBlock mirrored for pumps. Pumps are
+// numbered ("Pump 1"…) instead of lettered so they never read as pit lots.
+
+function gasStationRows(state) {
+  const rows = [gasExpandView(state)];
+  for (const pump of state.gasStation.pumps) {
+    if (pump.roomUnlocked && !pump.equipped) rows.push(gasEquipmentView(state, pump));
+  }
+  return rows;
+}
+
+function gasExpandView(state) {
+  const next = state.gasStation.pumps.find((p) => !p.roomUnlocked);
+  if (!next) {
+    return { kind: 'gasExpand', label: 'Expand Station', effect: 'All pump lots open', cost: 'MAX', disabled: true };
+  }
+  const cost = gasExpandCost(state);
+  // The very first purchase brings the whole station into existence (gate,
+  // road, pump lot 1); later ones just extend the row, like Expand Room.
+  const first = next.index === 0;
+  return {
+    kind: 'gasExpand',
+    label: first ? 'Open Gas Station' : 'Expand Station',
+    effect: first ? 'Build the station, open pump lot 1' : `Open pump lot ${next.index + 1}`,
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
+
+function gasEquipmentView(state, pump) {
+  const cost = gasEquipmentCost(state, pump.index);
+  return {
+    kind: 'gasEquipment',
+    pitIndex: pump.index,
+    label: `Install Pump ${pump.index + 1}`,
+    effect: 'Install the gas pump',
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
+
+function attendantBlock(state, pump) {
+  const rows = [];
+  if (!pump.hasAttendant) {
+    const cost = attendantHireCost(state, pump.index);
+    rows.push({
+      kind: 'hireAttendant',
+      pitIndex: pump.index,
+      label: 'Hire Attendant',
+      effect: 'Auto-fills this pump',
+      cost: `$${formatMoney(cost)}`,
+      disabled: state.cash < cost,
+    });
+  } else {
+    rows.push(attendantSpeedRow(state, pump));
+    // A hired attendant takes breaks, so its break room can be upgraded — the
+    // same shared row the pit mechanics and market worker use.
+    rows.push(breakRoomRow(state, pump.break, 'gasBreakRoom', pump.index));
+  }
+  return { index: pump.index, title: `Attendant ${pump.index + 1}`, rows };
+}
+
+function attendantSpeedRow(state, pump) {
+  const cur = attendantSpeed(pump);
+  if (pump.workerSpeedLevel >= U.gas.workerSpeed.maxLevel) {
+    return {
+      kind: 'attendantSpeed',
+      pitIndex: pump.index,
+      label: 'Attendant Speed',
+      effect: `${fmtRate(cur)}/s`,
+      cost: 'MAX',
+      disabled: true,
+    };
+  }
+  const cost = attendantSpeedCost(state, pump);
+  const next = cur + U.gas.workerSpeed.ratePerLevel;
+  return {
+    kind: 'attendantSpeed',
+    pitIndex: pump.index,
+    label: 'Attendant Speed',
+    effect: `${fmtRate(cur)} → ${fmtRate(next)}/s`,
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

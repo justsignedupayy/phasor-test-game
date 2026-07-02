@@ -73,7 +73,15 @@ export function pushOutOfRect(pos, r, b) {
  * is byte-for-byte unchanged.
  */
 export function buildObstacleList(state, settings, opts = {}) {
-  const { market = true, garage = true, allPits = false, excludePitIndex, walls = [] } = opts;
+  const {
+    market = true,
+    garage = true,
+    gas = garage, // gas pumps ride with the garage props (both are "world props", not market)
+    allPits = false,
+    excludePitIndex,
+    excludePumpIndex,
+    walls = [],
+  } = opts;
   const M = settings.supermarket;
   const S = settings.storage;
   const B = settings.breaks;
@@ -124,6 +132,31 @@ export function buildObstacleList(state, settings, opts = {}) {
     }
   }
 
+  // Gas pumps: one solid box per equipped pump's prop, plus a hired pump's break
+  // chair, mirroring the garage props. allPits (the state-free A* bake) includes
+  // every pump; excludePumpIndex lets an attendant ignore its OWN pump's props
+  // (pump + chair), like a mechanic ignores its own pit's.
+  if (gas) {
+    const G = settings.gasStation;
+    for (let i = 0; i < G.positions.length; i++) {
+      if (i === excludePumpIndex) continue;
+      const pump = allPits ? null : state.gasStation.pumps[i];
+      if (allPits || pump.equipped) {
+        const p = G.positions[i];
+        boxes.push({
+          x: p.x + G.pumpOffset.x,
+          z: p.z + G.pumpOffset.z,
+          halfX: G.pumpCollisionHalf.x,
+          halfZ: G.pumpCollisionHalf.z,
+        });
+      }
+      if (allPits || pump.hasAttendant) {
+        const c = B.pumpChairPositions[i];
+        boxes.push({ x: c.x, z: c.z, halfX: B.chairCollisionHalf.x, halfZ: B.chairCollisionHalf.z });
+      }
+    }
+  }
+
   return boxes;
 }
 
@@ -139,12 +172,14 @@ export function roomWallBox(roomWallX) {
   return { x: roomWallX + W.wallThickness / 2, z: 0, halfX: wall.x, halfZ: wall.z };
 }
 
-/** Push a mover (circle radius `r` at `pos`) out of every garage prop (see buildObstacleList). */
+/** Push a mover (circle radius `r` at `pos`) out of every garage prop + gas pump
+ * (see buildObstacleList). */
 export function resolveGarageCollisions(state, pos, r, opts = {}) {
   const walls = opts.roomWallX != null ? [roomWallBox(opts.roomWallX)] : [];
   const boxes = buildObstacleList(state, settings, {
     market: false,
     excludePitIndex: opts.excludePitIndex,
+    excludePumpIndex: opts.excludePumpIndex,
     walls,
   });
   for (const b of boxes) pushOutOfRect(pos, r, b);

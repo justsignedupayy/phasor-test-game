@@ -13,6 +13,11 @@ import {
   buyBreakRoom,
   buyMarketBreakRoom,
   buyTruckFrequency,
+  buyGasExpand,
+  buyGasEquipment,
+  hireAttendant,
+  buyAttendantSpeed,
+  buyGasBreakRoom,
 } from '../core/upgrades.js';
 import settings from '../config/settings.js';
 import { getReputationMenuModel, buyAdvertising, activateRepBoost } from '../core/reputation.js';
@@ -166,6 +171,9 @@ export class UpgradeMenu {
     this.content.appendChild(this.#sectionHeader('Garage'));
     this.content.appendChild(this.#card(null, model.garage));
 
+    this.content.appendChild(this.#sectionHeader('Gas Station'));
+    this.content.appendChild(this.#card(null, model.gasStation));
+
     this.content.appendChild(this.#sectionHeader('Cashier'));
     this.content.appendChild(this.#card(null, model.cashier));
 
@@ -178,6 +186,11 @@ export class UpgradeMenu {
     this.content.appendChild(this.#sectionHeader('Workers'));
     for (const worker of model.workers) {
       this.content.appendChild(this.#card(worker.title, worker.rows));
+    }
+
+    this.content.appendChild(this.#sectionHeader('Attendants'));
+    for (const attendant of model.attendants) {
+      this.content.appendChild(this.#card(attendant.title, attendant.rows));
     }
 
     this.content.appendChild(this.#sectionHeader('Advertising'));
@@ -311,10 +324,12 @@ export class UpgradeMenu {
 
   #refresh(model) {
     for (const row of model.garage) this.#refreshRow(row);
+    for (const row of model.gasStation) this.#refreshRow(row);
     for (const row of model.cashier) this.#refreshRow(row);
     for (const row of model.automation) this.#refreshRow(row);
     for (const row of model.supermarket) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
+    for (const attendant of model.attendants) for (const row of attendant.rows) this.#refreshRow(row);
     this.#refreshAdvertising();
   }
 
@@ -397,6 +412,21 @@ export class UpgradeMenu {
       case 'truckFrequency':
         ok = buyTruckFrequency(this.state);
         break;
+      case 'gasExpand':
+        ok = buyGasExpand(this.state);
+        break;
+      case 'gasEquipment':
+        ok = buyGasEquipment(this.state, pitIndex);
+        break;
+      case 'hireAttendant':
+        ok = hireAttendant(this.state, pitIndex);
+        break;
+      case 'attendantSpeed':
+        ok = buyAttendantSpeed(this.state, pitIndex);
+        break;
+      case 'gasBreakRoom':
+        ok = buyGasBreakRoom(this.state, pitIndex);
+        break;
     }
     if (ok) {
       this.update(this.state);
@@ -429,9 +459,11 @@ function mmss(seconds) {
 // Changes whenever the set/shape of rows changes (lots open, equip, hire).
 function structureSignature(model) {
   const garage = model.garage.map(rowKey).join(',');
+  const gas = model.gasStation.map(rowKey).join(',');
   const cashier = model.cashier.map(rowKey).join(',');
   const automation = model.automation.map(rowKey).join(',');
   const supermarket = model.supermarket.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `G[${garage}]C[${cashier}]A[${automation}]S[${supermarket}]W[${workers}]`;
+  const attendants = model.attendants.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
+  return `G[${garage}]F[${gas}]C[${cashier}]A[${automation}]S[${supermarket}]W[${workers}]P[${attendants}]`;
 }

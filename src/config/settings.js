@@ -6,6 +6,11 @@ export const settings = {
   // How many parallel pits can ever exist. Pit 0 starts unlocked + equipped.
   maxPits: 5,
 
+  // How many gas pumps can ever exist. UNLIKE pit 0, every pump starts locked:
+  // the whole station (roads, pumps, gate) exists only after the first
+  // Expand Station purchase (see gasStation below + core/gasStation.js).
+  maxPumps: 5,
+
   // Garage interior bounds (character is clamped inside these on the x/z plane).
   // halfX is wide enough for the left lobby (clear of all pits) plus the five-pit
   // row to its right. Grown from the original 40.5 to double the supermarket's
@@ -62,8 +67,9 @@ export const settings = {
   // CURRENT MODEL: CharacterModel.js merges character_idle.glb +
   // character_run.glb + character_repair.glb + character_yell.glb +
   // character_carry_run.glb + character_carry_idle.glb + character_sassy_walk.glb
-  // and renames their clips to 'idle' / 'walk' / 'repair' / 'yell' / 'carry' /
-  // 'carryIdle' / 'walkSlow'.
+  // (+ carry_walk / sitting / gasput.glb) and renames their clips to 'idle' /
+  // 'walk' / 'repair' / 'yell' / 'carry' / 'carryIdle' / 'walkSlow' (/ 'carryWalk'
+  // / 'sitting' / 'gaspump').
   character: {
     modelScale: 1,
     modelYRotationOffset: 0, // radians, added on top of the movement-facing rotation
@@ -88,9 +94,14 @@ export const settings = {
       // (see core/breaks.js + Mechanic.js / MarketWorker.js); sourced from
       // character_sitting.glb, merged in CharacterModel.js.
       sitting: 'sitting',
+      // the pump attendant's fill action, played while servicing a car at its
+      // pump (the attendant's counterpart to the mechanic's 'repair'); sourced
+      // from gasput.glb, merged in CharacterModel.js.
+      gaspump: 'gaspump',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
+    attendantTint: 0x9a5ac9, // purple tint for pump attendants (see scene/GasStationView.js)
     cashierTint: 0x3ad06a, // green tint for the cashier clone (see scene/Cashier.js)
     marketWorkerTint: 0x4a9fd8, // the supermarket worker clone (see scene/MarketWorker.js)
     // Each spawned customer (core/supermarket.js spawnCustomer) gets one of these,
@@ -204,6 +215,34 @@ export const settings = {
     truckFrequency: {
       baseCost: 1, // TESTING: cheap for iteration (was 150)
       costGrowth: 1.6,
+    },
+    // Gas-station upgrades, mirroring the pit set 1:1 (two-stage pump unlock +
+    // per-pump attendant hire/speed — see core/upgrades.js). TESTING: baseCosts
+    // slashed to $1 like the rest above; restore the commented values before shipping.
+    gas: {
+      // Stage 1: open the next pump lot (roomUnlocked), mirrors expandRoom.
+      expand: {
+        baseCost: 1, // was 400
+        costGrowth: 1.6,
+      },
+      // Stage 2: install the pump on an opened lot (equipped), mirrors pitEquipment.
+      equipment: {
+        baseCost: 1, // was 200
+        costGrowth: 1.6,
+      },
+      // One-time attendant hire per pump (auto-fill + remote hurry), mirrors mechanic.
+      attendant: {
+        baseCost: 1, // was 80
+        costGrowth: 1.5,
+      },
+      // Per-pump attendant speed (ticks/sec), mirrors workerSpeed.
+      workerSpeed: {
+        baseCost: 1, // was 60
+        costGrowth: 1.6,
+        maxLevel: 8,
+        baseRate: 1,
+        ratePerLevel: 0.5,
+      },
     },
   },
 
@@ -472,6 +511,9 @@ export const settings = {
     // The hired cashier's cash-register prop (see scene/Cashier.js), placed at
     // settings.cashier and scaled/rotated by settings.supermarket.cashRegister*.
     cashRegister: 'cash-register.glb',
+    // One pump prop per equipped gas-station pump (loaded once, cloned per pump
+    // — see scene/GasStationView.js), placed by settings.gasStation.pumpOffset.
+    gasPump: 'gas_pump.glb',
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close
@@ -509,6 +551,73 @@ export const settings = {
     facingOffset: 0, // radians, added on top of the atan2 facing calc — flip 180° if facing is wrong
   },
 
+  // The gas station: the world's LEFT quadrant, OUTSIDE the building (x < -halfX),
+  // mirroring the pit system 1:1 (see core/gasStation.js + scene/GasStationView.js).
+  // Pumps sit in a row at the pits' z, extending further left; cars drive straight
+  // through in -z exactly like pit cars (queue behind doorZ, exit past exitDoorZ),
+  // on their own striped roads (same road/dash tunables as settings.world.road).
+  // The player reaches the station through a gate in the LEFT wall at gateZ.
+  gasStation: {
+    radius: 1.7, // how close the player must stand to manually tap-fill an unmanned pump
+    driveDuration: 0.7, // seconds for any car drive tween (in/advance/out), mirrors pit
+    // Decorative pump-spot rectangle painted on the road at each pump (like pitSpot).
+    spotWidth: 2.4,
+    spotDepth: 4.4,
+    doorZ: 11.5, // queue anchor: mirrors pit.doorZ so gas queues line up with pit queues
+    exitDoorZ: -11.5, // mirrors pit.exitDoorZ
+    queueSlotDepth: 5.0, // each waiting car steps this much further out (toward +z)
+    positions: [
+      { x: -58, z: 4 },
+      { x: -66, z: 4 },
+      { x: -74, z: 4 },
+      { x: -82, z: 4 },
+      { x: -90, z: 4 },
+    ],
+    // gas_pump.glb prop, placed beside each pump's car spot (offset from the pump
+    // position, LEFT of the car so the attendant's spot to the right stays clear —
+    // mirrors the pit's toolbox-vs-mechanic split).
+    pumpOffset: { x: -2.2, z: 0 },
+    // ── pump MODEL fixups — TUNE THESE BY EYE in `npm run dev` ──────────────
+    // pumpModelScale:   overall size of each gas_pump.glb clone.
+    // pumpModelYOffset: vertical placement; NEGATIVE sinks the model into the
+    //                   ground (useful when the glb's origin floats above its base).
+    // pumpYRotation:    facing; flip ±π/2 if it reads wrong against the car lane.
+    pumpModelScale: 1.5,
+    pumpModelYOffset: 0,
+    pumpYRotation: Math.PI / 2,
+    // Collision half-extents (AABB) for the pump prop, blocking all movers (see
+    // core/collision.js buildObstacleList). STARTING VALUES — tune by eye.
+    pumpCollisionHalf: { x: 0.6, z: 0.5 },
+    // The player's gate through the LEFT wall (z position; width = world.gateHalf),
+    // lined up with the pump row's z so the walk out reads straight. Closed (solid
+    // wall, no pillars) until the first pump lot is bought — the station doesn't
+    // exist before then.
+    gateZ: 4,
+    // Fill economy — independent of the repair economy. A car needs
+    // fillTicks = baseTicks × tier.ticksMult; payout = basePayout × tier.payoutMult
+    // (same tier scaling as repairs, own base numbers). STARTING VALUES.
+    fill: {
+      baseTicks: 8,
+      basePayout: 12,
+    },
+    // Automatic spawning, mirroring settings.spawn: each pump owns its own queue.
+    // UNLIKE pits there is no tier routing — a spawned car (any tier) joins the
+    // shortest line among the equipped pumps and is discarded only when every
+    // open pump is full (see core/gasStation.spawnToShortestQueue).
+    spawn: {
+      interval: 0.1, // seconds between spawns
+      maxQueuePerPump: 10,
+    },
+  },
+
+  // Each pump attendant stands beside its pump (offset from the pump centre,
+  // faces the car) — the gas-station mirror of settings.mechanic.
+  attendant: {
+    offsetX: 2.1,
+    offsetZ: 0.2,
+    facingOffset: 0,
+  },
+
   // How many jobs each worker completes before it earns a break (see
   // core/breaks.js). A car mechanic's job = one finished repair; the market
   // worker's job = one checked-out customer. Each worker tracks its own count.
@@ -516,6 +625,7 @@ export const settings = {
   breakThresholds: {
     carMechanic: 50, // real: 100
     marketWorker: 25, // real: 50
+    gasAttendant: 50, // one job = one filled car; real: 100
   },
 
   // How long (real seconds) a break lasts. The per-worker "Upgrade Break Room"
@@ -533,6 +643,10 @@ export const settings = {
     // pit's shelf (shelf is at settings.storage.shelfOffset from the pit).
     chairOffset: { x: 5.2, z: -13.0 },
     chairFacing: 0, // radians the seated mechanic (and its chair) faces
+    // Attendant seat: offset from the pump centre — right next to the pump,
+    // past the attendant's work spot (attendant.offsetX ≈ 2.1) and clear of the
+    // car spot (spotWidth/2 = 1.2). Same chair model/facing as a mechanic's.
+    pumpChairOffset: { x: 3.4, z: -1.5 },
     // Market worker seat: a fixed spot just left of the restock door, inside the room.
     marketChairPosition: { x: -47, z: -3 },
     marketChairFacing: 1.5,
@@ -585,6 +699,15 @@ export const settings = {
 settings.breaks.chairPositions = settings.pit.positions.map((p) => ({
   x: p.x + settings.breaks.chairOffset.x,
   z: p.z + settings.breaks.chairOffset.z,
+}));
+
+// World position of every pump's break chair, index-aligned with
+// settings.gasStation.positions — the attendants' mirror of chairPositions
+// above, derived the same way so placement never drifts. Read by the scene
+// (GasStationView) and the collision layer (core/collision.js).
+settings.breaks.pumpChairPositions = settings.gasStation.positions.map((p) => ({
+  x: p.x + settings.breaks.pumpChairOffset.x,
+  z: p.z + settings.breaks.pumpChairOffset.z,
 }));
 
 // Half-extents (AABB) of the room's right (fence) wall — the boundary that slides

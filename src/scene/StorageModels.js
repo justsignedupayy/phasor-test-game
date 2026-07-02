@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import settings from '../config/settings.js';
 
@@ -18,13 +19,34 @@ export function preloadStorageModels() {
     promise = Promise.all(
       entries.map(([key, file]) =>
         // encodeURI guards any future filename with spaces/odd chars.
-        loader.loadAsync(encodeURI(`/models/${file}`)).then((gltf) => {
-          models.set(key, gltf.scene);
-        })
+        loader.loadAsync(encodeURI(`/models/${file}`)).then(
+          (gltf) => {
+            models.set(key, gltf.scene);
+          },
+          () => {
+            // A missing/broken glb must never brick the boot (mirrors the
+            // animationMap fallback philosophy): warn and stand in a plain box.
+            console.warn(`StorageModels: could not load "${file}" — using a placeholder box`);
+            models.set(key, placeholderBox());
+          }
+        )
       )
     );
   }
   return promise;
+}
+
+/** Stand-in scene for a glb that failed to load: a small neutral box. */
+function placeholderBox() {
+  const group = new THREE.Group();
+  group.add(
+    new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1.6, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x9a9a9a, flatShading: true })
+    )
+  );
+  group.children[0].position.y = 0.8; // sit on the floor
+  return group;
 }
 
 /** The preloaded base scene for a key (settings.models.*); clone it per instance. */

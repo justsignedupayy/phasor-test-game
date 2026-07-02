@@ -207,7 +207,8 @@ export class PitView {
 
 // Remove a cloned storage mesh from the scene and free its geometry/materials
 // (materials are per-clone — see cloneStorageModel — so disposing is safe).
-function disposeStorageMesh(sceneManager, mesh) {
+// Exported for the gas station's seat swap (see scene/GasStationView.js).
+export function disposeStorageMesh(sceneManager, mesh) {
   sceneManager.remove(mesh);
   mesh.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
@@ -225,8 +226,9 @@ function applyAppear(group, s) {
   group.scale.setScalar(Math.max(0.001, s * overshoot));
 }
 
-// A camera-facing text label rendered to a small canvas texture.
-function makeLabelSprite(text) {
+// A camera-facing text label rendered to a small canvas texture. Exported for
+// reuse by the gas station's pump labels (see scene/GasStationView.js).
+export function makeLabelSprite(text) {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;

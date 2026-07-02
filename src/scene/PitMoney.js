@@ -29,11 +29,18 @@ export function preloadMoneyModel() {
 }
 
 export class PitMoney {
-  constructor(sceneManager) {
+  /**
+   * Defaults to the repair pits; the gas station reuses this 1:1 by passing its
+   * own positions + a selector for its pump list (pumps carry the same
+   * pendingCash / collectedThisTick shape as pits).
+   */
+  constructor(sceneManager, positions = settings.pit.positions, getSlots = (state) => state.pits) {
     this.sm = sceneManager;
+    this.positions = positions;
+    this.getSlots = getSlots;
     // One slot per pit: its stacked bills, the last pendingCash we saw (to catch
     // the drop-to-0 collection event), and any in-flight collection animation.
-    this.slots = settings.pit.positions.map((pos) => ({
+    this.slots = positions.map((pos) => ({
       base: { x: pos.x + 1.5, y: 0.1, z: pos.z + 1.3 }, // front-right of the pad, clear of the car
       bills: [],
       prevPending: 0,
@@ -46,7 +53,7 @@ export class PitMoney {
 
   update(dt, state, playerPos) {
     if (!moneyModel) return; // not loaded yet
-    state.pits.forEach((pit, i) => this.#updateSlot(dt, this.slots[i], pit, playerPos));
+    this.getSlots(state).forEach((pit, i) => this.#updateSlot(dt, this.slots[i], pit, playerPos));
   }
 
   #updateSlot(dt, slot, pit, playerPos) {
@@ -63,7 +70,7 @@ export class PitMoney {
     const collected =
       pit.collectedThisTick > 0 ? pit.collectedThisTick : slot.prevPending > 0 && pending === 0 ? slot.prevPending : 0;
     if (collected > 0) {
-      const pos = settings.pit.positions[pit.index];
+      const pos = this.positions[pit.index];
       this.#popup(collected, pos);
       slot.prevPending = 0;
       if (slot.bills.length > 0) {

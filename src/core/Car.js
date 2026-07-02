@@ -21,7 +21,8 @@ let nextId = 1;
 /** After loading a save, keep new ids past whatever the restored cars already used. */
 export function seedIdCounter(state) {
   let max = 0;
-  for (const pit of state.pits) {
+  const slots = [...state.pits, ...state.gasStation.pumps]; // pumps share the id space
+  for (const pit of slots) {
     if (pit.car) max = Math.max(max, pit.car.id);
     for (const car of pit.queue) max = Math.max(max, car.id);
   }
@@ -90,5 +91,29 @@ export function spawnCar(state) {
     // during which it can't be repaired yet. 0 while queued; set to the drive-in
     // duration the moment it's pulled into a pit, then counted down (simulation.js).
     settleRemaining: 0,
+  };
+}
+
+/**
+ * A gas-station customer car — spawnCar's mirror for the pump flow. Same
+ * reputation-weighted tier roll and the same id space, but no damage parts: it
+ * needs fillTicks of service (baseTicks × tier.ticksMult) and pays out on
+ * completion (basePayout × tier.payoutMult) — an independent economy from
+ * repairs. The tier only drives the car's model/ticks/payout; pump routing
+ * ignores it (any tier at any pump — see gasStation.spawnToShortestQueue).
+ */
+export function spawnGasCar(state) {
+  const tier = settings.carTiers[rollTierIndex(state)];
+  const G = settings.gasStation.fill;
+
+  return {
+    id: nextId++,
+    tier: tier.name,
+    fillTicks: G.baseTicks * tier.ticksMult,
+    ticksDone: 0,
+    damageParts: [], // nothing to repair — kept so CarView's progress plumbing stays valid
+    payout: G.basePayout * tier.payoutMult,
+    fixed: false,
+    settleRemaining: 0, // same drive-in settle timer as a pit car (see core/gasStation.js)
   };
 }

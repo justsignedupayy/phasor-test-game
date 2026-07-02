@@ -330,12 +330,16 @@ function updatePlayer(state, dt) {
 
 /**
  * In bay territory, the right edge is fenced to whatever land is owned; the lane
- * is always open. The left + back walls are solid: the player stays inside the
- * building. The front wall is solid too, EXCEPT the supermarket delivery-door gap
+ * is always open. The back wall is solid: the player stays inside the building.
+ * The front wall is solid too, EXCEPT the supermarket delivery-door gap
  * (deliveryDoorX): once the market is open the player may step out through it to
  * reach the restock pile just outside, the same gate the market worker uses
  * (see clampFallbackToWalls). The gap also stays open while the player is already
  * outside (pos.z past the wall) so a sideways move toward the pile isn't shoved back in.
+ * The LEFT wall opens the same way at the gas-station gate (gasStation.gateZ) —
+ * but only once the station exists (the first Expand Station purchase opens pump
+ * lot 0); before that the wall is fully solid, exactly like the delivery gate
+ * before the market is unlocked.
  */
 function clampToBounds(state, pos) {
   const W = settings.world;
@@ -346,7 +350,15 @@ function clampToBounds(state, pos) {
   const rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : W.halfX) - r;
   const leftLim = -limX;
 
-  pos.x = Math.max(leftLim, Math.min(rightLim, pos.x));
+  // Left wall: solid except the gas-station gate at gateZ (same shape as the
+  // front wall's delivery gate below — open in the gap, and stays open while the
+  // player is already fully outside so lateral moves at the pumps aren't shoved
+  // back in). The gate exists only once the station's first lot is bought.
+  const atGasGate =
+    state.gasStation.pumps[0].roomUnlocked && Math.abs(pos.z - settings.gasStation.gateZ) <= W.gateHalf;
+  const crossingLeft = atGasGate || pos.x < -W.halfX;
+  pos.x = Math.min(rightLim, pos.x);
+  if (!crossingLeft) pos.x = Math.max(leftLim, pos.x);
 
   // Back wall is always solid; the front wall opens ONLY within gateHalf of the
   // delivery-door x. The "already past the wall" allowance is gated against the true

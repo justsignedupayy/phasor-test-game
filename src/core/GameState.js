@@ -47,6 +47,44 @@ function createPit(index) {
 }
 
 /**
+ * One gas pump — the gas station's mirror of createPit, same two-stage unlock
+ * (roomUnlocked then equipped) and the same car/queue/hurry/pendingCash shape,
+ * minus the pit-only tire/shelf systems. UNLIKE pit 0, EVERY pump starts locked:
+ * the whole station only comes into existence with the first Expand Station
+ * purchase (see upgrades.buyGasExpand). `attendant` is the pump's hired NPC
+ * (core-owned position, mirrors pit.mechanic), created lazily by
+ * core/gasStation.js on the first tick after hire.
+ */
+function createPump(index) {
+  return {
+    index,
+    roomUnlocked: false, // no free starter pump — the first Expand Station opens lot 0
+    equipped: false,
+    car: null,
+    queue: [], // cars waiting for THIS pump (capped at settings.gasStation.spawn.maxQueuePerPump)
+    hasAttendant: false,
+    workerSpeedLevel: 0,
+    playerPresent: false, // written by the scene each frame (proximity), core only reads
+    hurryTimer: 0,
+    pendingCash: 0, // pay from filled cars waiting here for the player to collect
+    collectedThisTick: 0, // one-tick render signal, mirrors pit.collectedThisTick
+    attendant: null,
+    // This attendant's break clock (see core/breaks.js): a filled car counts a
+    // job; after enough the attendant sits at its chair beside the pump — the
+    // exact mirror of a pit mechanic's pit.break.
+    break: createBreakState('gasAttendant'),
+  };
+}
+
+/** The gas station: parallel pumps + their own spawn clock (see core/gasStation.js). */
+function createGasStationState() {
+  return {
+    pumps: Array.from({ length: settings.maxPumps }, (_, i) => createPump(i)),
+    spawnTimer: settings.gasStation.spawn.interval, // seeded so the first car arrives immediately
+  };
+}
+
+/**
  * The supermarket. unlocked is the one-time "Open Supermarket" purchase;
  * workerLevel is the 2-stage worker upgrade (0 = player does everything by
  * hand, 1 = worker packages, 2 = worker also restocks — see upgrades.js and
@@ -134,6 +172,9 @@ export class GameState {
 
     // The supermarket (see core/supermarket.js + upgrades.js).
     this.supermarket = createSupermarketState();
+
+    // The gas station (see core/gasStation.js + upgrades.js).
+    this.gasStation = createGasStationState();
   }
 }
 

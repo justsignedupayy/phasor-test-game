@@ -1,21 +1,12 @@
 import {
   getMenuModel,
-  buyExpandRoom,
-  buyPitEquipment,
-  hireMechanic,
   buyWorkerSpeed,
   buyFixingTime,
-  buyCashier,
   buyAutoRestock,
-  buySupermarket,
-  hireMarketWorker,
   trainMarketWorker,
   buyBreakRoom,
   buyMarketBreakRoom,
   buyTruckFrequency,
-  buyGasExpand,
-  buyGasEquipment,
-  hireAttendant,
   buyAttendantSpeed,
   buyGasBreakRoom,
 } from '../core/upgrades.js';
@@ -25,16 +16,17 @@ import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 
 /**
- * UpgradeMenu — every progression purchase in one DOM overlay, opened by its
- * own corner button (top-left). Sections: Garage (Expand Room + Buy Pit
- * Equipment for any roomUnlocked-but-unequipped pit), Workers (one "Worker X"
- * card per equipped pit — Hire Worker until hired, then Worker Speed, plus
- * Fixing Time), and Advertising (Buy Advertising for a permanent reputation
- * boost + Watch Ad for a temporary one) at the bottom.
+ * UpgradeMenu — the TUNING purchases in one DOM overlay, opened by its own
+ * corner button (top-left). Create/hire purchases (expand lots, equip, hire
+ * workers, open the market/station) live at physical world markers instead —
+ * see core/upgrades.getUnlockMarkers + scene/UnlockMarkers.js. Sections here:
+ * Automation, Supermarket (train/breaks/deliveries), Workers (speed/fixing/
+ * breaks per equipped pit), Attendants (speed/breaks per hired pump), and
+ * Advertising (permanent rep purchase + rewarded-ad boost) at the bottom.
  *
- * Hidden until open(); the structure can change while open (lots open, pits
- * get equipped/hired) so update() rebuilds the DOM when the row signature
- * changes and only refreshes text/disabled state otherwise.
+ * Hidden until open(); the structure can change while open (pits get
+ * equipped/hired at their markers) so update() rebuilds the DOM when the row
+ * signature changes and only refreshes text/disabled state otherwise.
  */
 export class UpgradeMenu {
   constructor(state) {
@@ -49,7 +41,7 @@ export class UpgradeMenu {
 
   #buildButton() {
     const btn = document.createElement('button');
-    btn.textContent = '⚙ Upgrades';
+    btn.textContent = '📱 Upgrades';
     Object.assign(btn.style, {
       position: 'fixed',
       left: '14px',
@@ -71,6 +63,9 @@ export class UpgradeMenu {
     this.button = btn;
   }
 
+  // The panel is dressed as a PHONE: a dark bezel frame with heavily rounded
+  // corners, a notch pill at the top, an app-bar header, and a home-indicator
+  // bar under the scrolling "screen". Pure CSS/DOM — no 3D involved.
   #buildPanel() {
     const panel = document.createElement('div');
     Object.assign(panel.style, {
@@ -80,36 +75,52 @@ export class UpgradeMenu {
       transform: 'translateY(-50%)',
       display: 'none',
       flexDirection: 'column',
-      width: '198px',
-      maxHeight: '92vh',
-      background: 'rgba(18,22,28,0.92)',
-      border: '1px solid rgba(255,255,255,0.14)',
-      borderRadius: '12px',
-      padding: '12px',
+      width: '224px',
+      maxHeight: '88vh',
+      background: 'linear-gradient(180deg, #12151d 0%, #0b0d13 100%)',
+      border: '7px solid #23262e',
+      borderRadius: '34px',
+      boxShadow: '0 14px 40px rgba(0,0,0,0.6), inset 0 0 0 2px #05060a',
+      padding: '10px 12px 12px',
       zIndex: '16',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: "-apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
       color: '#e7ecf2',
     });
 
+    // The notch: a centred dark pill "cut into" the top of the screen.
+    const notch = document.createElement('div');
+    Object.assign(notch.style, {
+      width: '80px',
+      height: '17px',
+      margin: '-4px auto 8px',
+      background: '#23262e',
+      borderRadius: '0 0 12px 12px',
+      flexShrink: '0',
+    });
+    panel.appendChild(notch);
+
+    // App bar: title + close, like a phone app's header.
     const header = document.createElement('div');
     Object.assign(header.style, {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: '8px',
+      paddingBottom: '7px',
+      borderBottom: '1px solid rgba(255,255,255,0.08)',
       flexShrink: '0',
     });
     const title = document.createElement('div');
-    title.textContent = 'Upgrades';
-    Object.assign(title.style, { fontWeight: '800', fontSize: '17px' });
+    title.textContent = '📱 Upgrades';
+    Object.assign(title.style, { fontWeight: '800', fontSize: '16px', letterSpacing: '0.3px' });
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, {
       width: '26px',
       height: '26px',
-      borderRadius: '6px',
+      borderRadius: '13px',
       border: 'none',
-      background: '#3a434f',
+      background: '#2b303b',
       color: '#e7ecf2',
       fontWeight: '800',
       cursor: 'pointer',
@@ -128,6 +139,18 @@ export class UpgradeMenu {
     });
     panel.appendChild(content);
     this.content = content;
+
+    // Home-indicator bar under the screen, closing the phone silhouette.
+    const homeBar = document.createElement('div');
+    Object.assign(homeBar.style, {
+      width: '86px',
+      height: '4px',
+      margin: '10px auto 0',
+      background: 'rgba(255,255,255,0.28)',
+      borderRadius: '4px',
+      flexShrink: '0',
+    });
+    panel.appendChild(homeBar);
 
     document.body.appendChild(panel);
     this.panel = panel;
@@ -168,29 +191,29 @@ export class UpgradeMenu {
     this.content.replaceChildren();
     this.rowEls.clear();
 
-    this.content.appendChild(this.#sectionHeader('Garage'));
-    this.content.appendChild(this.#card(null, model.garage));
-
-    this.content.appendChild(this.#sectionHeader('Gas Station'));
-    this.content.appendChild(this.#card(null, model.gasStation));
-
-    this.content.appendChild(this.#sectionHeader('Cashier'));
-    this.content.appendChild(this.#card(null, model.cashier));
-
+    // Create/hire purchases live at their world markers (scene/UnlockMarkers.js),
+    // so the phone carries tuning sections only — and skips any that are empty
+    // (e.g. Supermarket before it's been opened at its floor marker).
     this.content.appendChild(this.#sectionHeader('Automation'));
     this.content.appendChild(this.#card(null, model.automation));
 
-    this.content.appendChild(this.#sectionHeader('Supermarket'));
-    this.content.appendChild(this.#card(null, model.supermarket));
-
-    this.content.appendChild(this.#sectionHeader('Workers'));
-    for (const worker of model.workers) {
-      this.content.appendChild(this.#card(worker.title, worker.rows));
+    if (model.supermarket.length > 0) {
+      this.content.appendChild(this.#sectionHeader('Supermarket'));
+      this.content.appendChild(this.#card(null, model.supermarket));
     }
 
-    this.content.appendChild(this.#sectionHeader('Attendants'));
-    for (const attendant of model.attendants) {
-      this.content.appendChild(this.#card(attendant.title, attendant.rows));
+    if (model.workers.length > 0) {
+      this.content.appendChild(this.#sectionHeader('Workers'));
+      for (const worker of model.workers) {
+        this.content.appendChild(this.#card(worker.title, worker.rows));
+      }
+    }
+
+    if (model.attendants.length > 0) {
+      this.content.appendChild(this.#sectionHeader('Attendants'));
+      for (const attendant of model.attendants) {
+        this.content.appendChild(this.#card(attendant.title, attendant.rows));
+      }
     }
 
     this.content.appendChild(this.#sectionHeader('Advertising'));
@@ -206,10 +229,10 @@ export class UpgradeMenu {
   #buildAdvertising() {
     const card = document.createElement('div');
     Object.assign(card.style, {
-      background: 'rgba(255,255,255,0.04)',
-      border: '1px solid rgba(255,255,255,0.10)',
-      borderRadius: '10px',
-      padding: '8px 10px',
+      background: 'rgba(255,255,255,0.055)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '16px',
+      padding: '9px 11px',
     });
 
     this.adRepLine = document.createElement('div');
@@ -248,7 +271,7 @@ export class UpgradeMenu {
     Object.assign(b.style, {
       width: '100%',
       padding: '6px 6px',
-      borderRadius: '7px',
+      borderRadius: '11px',
       border: 'none',
       fontWeight: '800',
       fontSize: '13px',
@@ -262,12 +285,12 @@ export class UpgradeMenu {
     const h = document.createElement('div');
     h.textContent = text.toUpperCase();
     Object.assign(h.style, {
-      fontSize: '11px',
+      fontSize: '10px',
       fontWeight: '800',
-      letterSpacing: '1px',
-      color: '#9fb0c0',
-      borderBottom: '1px solid rgba(255,255,255,0.18)',
-      paddingBottom: '3px',
+      letterSpacing: '1.4px',
+      color: '#5fd98b',
+      paddingBottom: '2px',
+      marginTop: '2px',
     });
     return h;
   }
@@ -275,10 +298,10 @@ export class UpgradeMenu {
   #card(title, rows) {
     const card = document.createElement('div');
     Object.assign(card.style, {
-      background: 'rgba(255,255,255,0.04)',
-      border: '1px solid rgba(255,255,255,0.10)',
-      borderRadius: '10px',
-      padding: '8px 10px',
+      background: 'rgba(255,255,255,0.055)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '16px',
+      padding: '9px 11px',
     });
 
     if (title) {
@@ -307,7 +330,7 @@ export class UpgradeMenu {
     Object.assign(button.style, {
       width: '100%',
       padding: '6px 6px',
-      borderRadius: '7px',
+      borderRadius: '11px',
       border: 'none',
       fontWeight: '800',
       fontSize: '13px',
@@ -323,9 +346,6 @@ export class UpgradeMenu {
   // --- live refresh --------------------------------------------------------
 
   #refresh(model) {
-    for (const row of model.garage) this.#refreshRow(row);
-    for (const row of model.gasStation) this.#refreshRow(row);
-    for (const row of model.cashier) this.#refreshRow(row);
     for (const row of model.automation) this.#refreshRow(row);
     for (const row of model.supermarket) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
@@ -342,7 +362,9 @@ export class UpgradeMenu {
       : `Reputation: ${m.permanentPct}%`;
     this.adBoostLine.textContent = m.boostActive ? `Ad boost active — ${mmss(m.boostRemaining)}` : '';
 
-    this.adBuyBtn.textContent = m.atCap ? 'Reputation MAXED' : `Buy Advertising (+1%) — ${m.adCostLabel}`;
+    this.adBuyBtn.textContent = m.atCap
+      ? 'Reputation MAXED'
+      : `Buy Advertising (+${Math.round(settings.reputation.repStep * 100)}%) — ${m.adCostLabel}`;
     setAdButton(this.adBuyBtn, m.adDisabled);
 
     if (m.boostActive) {
@@ -373,32 +395,14 @@ export class UpgradeMenu {
   #buy(kind, pitIndex) {
     let ok = false;
     switch (kind) {
-      case 'expand':
-        ok = buyExpandRoom(this.state);
-        break;
-      case 'equipment':
-        ok = buyPitEquipment(this.state, pitIndex);
-        break;
-      case 'hire':
-        ok = hireMechanic(this.state, pitIndex);
-        break;
       case 'workerSpeed':
         ok = buyWorkerSpeed(this.state, pitIndex);
         break;
       case 'fixingTime':
         ok = buyFixingTime(this.state, pitIndex);
         break;
-      case 'cashier':
-        ok = buyCashier(this.state);
-        break;
       case 'autoRestock':
         ok = buyAutoRestock(this.state);
-        break;
-      case 'openMarket':
-        ok = buySupermarket(this.state);
-        break;
-      case 'hireMarketWorker':
-        ok = hireMarketWorker(this.state);
         break;
       case 'trainMarketWorker':
         ok = trainMarketWorker(this.state);
@@ -411,15 +415,6 @@ export class UpgradeMenu {
         break;
       case 'truckFrequency':
         ok = buyTruckFrequency(this.state);
-        break;
-      case 'gasExpand':
-        ok = buyGasExpand(this.state);
-        break;
-      case 'gasEquipment':
-        ok = buyGasEquipment(this.state, pitIndex);
-        break;
-      case 'hireAttendant':
-        ok = hireAttendant(this.state, pitIndex);
         break;
       case 'attendantSpeed':
         ok = buyAttendantSpeed(this.state, pitIndex);
@@ -456,14 +451,11 @@ function mmss(seconds) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-// Changes whenever the set/shape of rows changes (lots open, equip, hire).
+// Changes whenever the set/shape of rows changes (equip, hire, train).
 function structureSignature(model) {
-  const garage = model.garage.map(rowKey).join(',');
-  const gas = model.gasStation.map(rowKey).join(',');
-  const cashier = model.cashier.map(rowKey).join(',');
   const automation = model.automation.map(rowKey).join(',');
   const supermarket = model.supermarket.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
   const attendants = model.attendants.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `G[${garage}]F[${gas}]C[${cashier}]A[${automation}]S[${supermarket}]W[${workers}]P[${attendants}]`;
+  return `A[${automation}]S[${supermarket}]W[${workers}]P[${attendants}]`;
 }

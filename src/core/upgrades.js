@@ -169,10 +169,23 @@ export function truckFrequencyCost(state) {
 
 // --- purchases ------------------------------------------------------------
 
-/** Unlock the lowest-index locked lot (empty floor space only). */
+/**
+ * Reputation gate for opening pit `pitIndex`'s land (settings.pit.unlockReputation,
+ * a fraction of repCap). Gated on PERMANENT reputation — a temporary rewarded-ad
+ * boost never unlocks land. Reputation only ever rises, so gating Expand Room
+ * alone covers the whole two-stage unlock (equipment needs roomUnlocked first).
+ */
+export function pitReputationMet(state, pitIndex) {
+  const need = settings.pit.unlockReputation[pitIndex] ?? 0;
+  return state.permanentReputation >= need - 1e-9; // epsilon: rep accrues in float steps
+}
+
+/** Unlock the lowest-index locked lot (empty floor space only). Requires BOTH the
+ * cash cost AND that lot's reputation threshold (pitReputationMet). */
 export function buyExpandRoom(state) {
   const next = state.pits.find((p) => !p.roomUnlocked);
   if (!next) return false;
+  if (!pitReputationMet(state, next.index)) return false;
   const cost = expandRoomCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -229,10 +242,40 @@ export function buyFixingTime(state, pitIndex) {
 // the building (no fence wall to slide, no A* territory), so opening a lot has
 // no grid/wall side effects — just the flag flip.
 
-/** Open the lowest-index locked pump lot (empty ground only) — buyExpandRoom's mirror. */
+/**
+ * The gas station is endgame content: its FIRST purchase (buying the station,
+ * i.e. opening pump lot 0) is locked until the garage and the supermarket are
+ * fully built out. Returns { ready, missing } where missing is a short label per
+ * unmet requirement (shown on the Open Gas Station menu row).
+ *
+ * Garage complete = every pit's land bought + equipped, a mechanic hired on all
+ * five, and every pit's Worker Speed + Fixing Time at max level. Market complete
+ * = supermarket open, its worker hired AND trained, and Faster Deliveries maxed.
+ * Break-room upgrades are worker comfort, not production, and don't gate.
+ */
+export function gasStationPrereqs(state) {
+  const missing = [];
+  const pits = state.pits;
+  if (!pits.every((p) => p.roomUnlocked && p.equipped)) missing.push('open + equip all 5 pits');
+  if (!pits.every((p) => p.hasMechanic)) missing.push('hire all 5 mechanics');
+  if (!pits.every((p) => p.workerSpeedLevel >= U.workerSpeed.maxLevel)) missing.push('max every Worker Speed');
+  if (!pits.every((p) => p.fixingTimeLevel >= U.fixingTime.maxLevel)) missing.push('max every Fixing Time');
+  const S = state.supermarket;
+  if (!S.unlocked) missing.push('open the supermarket');
+  if (S.workerLevel < 2) missing.push('hire + train the market worker');
+  if (S.truckUpgradeLevel < TRUCK_MAX_LEVEL) missing.push('max Faster Deliveries');
+  return { ready: missing.length === 0, missing };
+}
+
+/**
+ * Open the lowest-index locked pump lot (empty ground only) — buyExpandRoom's
+ * mirror. The FIRST purchase (lot 0 = the whole station) additionally requires
+ * gasStationPrereqs; later lots are gated on cash alone, like Expand Room.
+ */
 export function buyGasExpand(state) {
   const next = state.gasStation.pumps.find((p) => !p.roomUnlocked);
   if (!next) return false;
+  if (next.index === 0 && !gasStationPrereqs(state).ready) return false;
   const cost = gasExpandCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -391,104 +434,191 @@ export function buyTruckFrequency(state) {
   return true;
 }
 
+// --- physical unlock markers (world-space purchases) ------------------------
+//
+// Every "create a location / hire a worker" purchase happens IN the world, not
+// in the phone menu: a white ground circle + cost label at the spot the purchase
+// creates (rendered by scene/UnlockMarkers.js, tunables in
+// settings.unlockMarkers). This view model lists the currently-available
+// markers; buyUnlockMarker routes a tapped marker to the exact buy function the
+// old menu row called, so costs and gates (reputation thresholds, gas prereqs,
+// cash) are untouched — only the trigger moved. Tuning upgrades (speed, fixing
+// time, breaks, training, deliveries, advertising) stay in the menu below.
+
+export function getUnlockMarkers(state) {
+  const M = settings.unlockMarkers;
+  const markers = [];
+
+  // Expand Room: one marker on the NEXT locked lot's floor (buyExpandRoom always
+  // opens the lowest locked index, and the fence sits just past that lot, so the
+  // marker is always in reach). Rep-gated lots show locked with the requirement.
+  const nextPit = state.pits.find((p) => !p.roomUnlocked);
+  if (nextPit) {
+    const p = settings.pit.positions[nextPit.index];
+    const locked = !pitReputationMet(state, nextPit.index);
+    markers.push({
+      kind: 'expandRoom',
+      index: nextPit.index,
+      x: p.x,
+      z: p.z,
+      cost: expandRoomCost(state),
+      locked,
+      hint: locked
+        ? `Needs ${Math.round(settings.pit.unlockReputation[nextPit.index] * 100)}% reputation`
+        : `Buy lot ${letter(nextPit.index)}`,
+    });
+  }
+
+  for (const pit of state.pits) {
+    const p = settings.pit.positions[pit.index];
+    if (pit.roomUnlocked && !pit.equipped) {
+      markers.push({
+        kind: 'pitEquipment',
+        index: pit.index,
+        x: p.x,
+        z: p.z,
+        cost: pitEquipmentCost(state, pit.index),
+        locked: false,
+        hint: `Equip pit ${letter(pit.index)}`,
+      });
+    }
+    if (pit.equipped && !pit.hasMechanic) {
+      markers.push({
+        kind: 'hireMechanic',
+        index: pit.index,
+        x: p.x + M.hireOffset.x,
+        z: p.z + M.hireOffset.z,
+        cost: hireCost(state, pit.index),
+        locked: false,
+        hint: `Hire worker ${letter(pit.index)}`,
+      });
+    }
+  }
+
+  // Gas: the FIRST lot's marker stands just inside the future gate (the pump row
+  // itself is unreachable until the station exists); later lots on their own ground.
+  const nextPump = state.gasStation.pumps.find((p) => !p.roomUnlocked);
+  if (nextPump) {
+    if (nextPump.index === 0) {
+      const ready = gasStationPrereqs(state).ready;
+      markers.push({
+        kind: 'gasExpand',
+        index: 0,
+        x: -settings.world.halfX + M.gasEntryInset,
+        z: settings.gasStation.gateZ,
+        cost: gasExpandCost(state),
+        locked: !ready,
+        hint: ready ? 'Open the gas station' : 'Finish the garage & market first',
+      });
+    } else {
+      const p = settings.gasStation.positions[nextPump.index];
+      markers.push({
+        kind: 'gasExpand',
+        index: nextPump.index,
+        x: p.x,
+        z: p.z,
+        cost: gasExpandCost(state),
+        locked: false,
+        hint: `Buy pump lot ${nextPump.index + 1}`,
+      });
+    }
+  }
+  for (const pump of state.gasStation.pumps) {
+    const p = settings.gasStation.positions[pump.index];
+    if (pump.roomUnlocked && !pump.equipped) {
+      markers.push({
+        kind: 'gasEquipment',
+        index: pump.index,
+        x: p.x,
+        z: p.z,
+        cost: gasEquipmentCost(state, pump.index),
+        locked: false,
+        hint: `Install pump ${pump.index + 1}`,
+      });
+    }
+    if (pump.equipped && !pump.hasAttendant) {
+      markers.push({
+        kind: 'hireAttendant',
+        index: pump.index,
+        x: p.x + M.hireOffset.x,
+        z: p.z + M.hireOffset.z,
+        cost: attendantHireCost(state, pump.index),
+        locked: false,
+        hint: `Hire attendant ${pump.index + 1}`,
+      });
+    }
+  }
+
+  // Market: unlock, then the worker hire, both on the shop floor's centre spot
+  // (they can never coexist). The cashier's marker stands at its future register.
+  const S = state.supermarket;
+  const spot = settings.supermarket.workerIdleSpot;
+  if (!S.unlocked) {
+    markers.push({ kind: 'openMarket', x: spot.x, z: spot.z, cost: supermarketCost(state), locked: false, hint: 'Open the supermarket' });
+  } else if (S.workerLevel === 0) {
+    markers.push({ kind: 'hireMarketWorker', x: spot.x, z: spot.z, cost: marketWorkerHireCost(state), locked: false, hint: 'Hire the market worker' });
+  }
+  if (!state.hasCashier) {
+    const c = settings.supermarket.cashRegisterPosition;
+    markers.push({ kind: 'hireCashier', x: c.x, z: c.z, cost: cashierCost(state), locked: false, hint: 'Hire the cashier' });
+  }
+
+  return markers;
+}
+
+/** A tapped marker → the same purchase its old menu row made (same gates). */
+export function buyUnlockMarker(state, kind, index) {
+  switch (kind) {
+    case 'expandRoom':
+      return buyExpandRoom(state);
+    case 'pitEquipment':
+      return buyPitEquipment(state, index);
+    case 'hireMechanic':
+      return hireMechanic(state, index);
+    case 'gasExpand':
+      return buyGasExpand(state);
+    case 'gasEquipment':
+      return buyGasEquipment(state, index);
+    case 'hireAttendant':
+      return hireAttendant(state, index);
+    case 'openMarket':
+      return buySupermarket(state);
+    case 'hireMarketWorker':
+      return hireMarketWorker(state);
+    case 'hireCashier':
+      return buyCashier(state);
+    default:
+      return false;
+  }
+}
+
 // --- view model for the Upgrades DOM menu ---------------------------------
 //
-// Two sections: Garage (Expand Room + Buy Pit Equipment for any
-// roomUnlocked-but-unequipped pit) and Workers (one sub-block per *equipped*
-// pit — Hire Worker until hired, then Worker Speed; Fixing Time always shows).
+// The menu carries ONLY tuning upgrades for things that already exist — every
+// create/hire purchase lives at its physical marker (getUnlockMarkers above).
+// Sections: Automation, Supermarket (train/breaks/deliveries, once open),
+// Workers (one block per equipped pit) and Attendants (per hired pump).
 
 /** Reference car for showing Fixing Time as a concrete tick count (3 parts). */
 const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 
 export function getMenuModel(state) {
   return {
-    garage: garageRows(state),
-    gasStation: gasStationRows(state),
-    cashier: [cashierRow(state)],
     automation: [autoRestockRow(state)],
     supermarket: supermarketRows(state),
     workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
-    attendants: state.gasStation.pumps.filter((p) => p.equipped).map((p) => attendantBlock(state, p)),
-  };
-}
-
-function garageRows(state) {
-  const rows = [expandView(state)];
-  for (const pit of state.pits) {
-    if (pit.roomUnlocked && !pit.equipped) rows.push(equipmentView(state, pit));
-  }
-  return rows;
-}
-
-function expandView(state) {
-  const next = state.pits.find((p) => !p.roomUnlocked);
-  if (!next) {
-    return { kind: 'expand', label: 'Expand Room', effect: 'All lots open', cost: 'MAX', disabled: true };
-  }
-  const cost = expandRoomCost(state);
-  return {
-    kind: 'expand',
-    label: 'Expand Room',
-    effect: `Open lot ${letter(next.index)}`,
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
-  };
-}
-
-// Gas-station menu rows — garageRows/workerBlock mirrored for pumps. Pumps are
-// numbered ("Pump 1"…) instead of lettered so they never read as pit lots.
-
-function gasStationRows(state) {
-  const rows = [gasExpandView(state)];
-  for (const pump of state.gasStation.pumps) {
-    if (pump.roomUnlocked && !pump.equipped) rows.push(gasEquipmentView(state, pump));
-  }
-  return rows;
-}
-
-function gasExpandView(state) {
-  const next = state.gasStation.pumps.find((p) => !p.roomUnlocked);
-  if (!next) {
-    return { kind: 'gasExpand', label: 'Expand Station', effect: 'All pump lots open', cost: 'MAX', disabled: true };
-  }
-  const cost = gasExpandCost(state);
-  // The very first purchase brings the whole station into existence (gate,
-  // road, pump lot 1); later ones just extend the row, like Expand Room.
-  const first = next.index === 0;
-  return {
-    kind: 'gasExpand',
-    label: first ? 'Open Gas Station' : 'Expand Station',
-    effect: first ? 'Build the station, open pump lot 1' : `Open pump lot ${next.index + 1}`,
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
-  };
-}
-
-function gasEquipmentView(state, pump) {
-  const cost = gasEquipmentCost(state, pump.index);
-  return {
-    kind: 'gasEquipment',
-    pitIndex: pump.index,
-    label: `Install Pump ${pump.index + 1}`,
-    effect: 'Install the gas pump',
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
+    attendants: state.gasStation.pumps
+      .filter((p) => p.equipped)
+      .map((p) => attendantBlock(state, p))
+      .filter((b) => b.rows.length > 0),
   };
 }
 
 function attendantBlock(state, pump) {
   const rows = [];
-  if (!pump.hasAttendant) {
-    const cost = attendantHireCost(state, pump.index);
-    rows.push({
-      kind: 'hireAttendant',
-      pitIndex: pump.index,
-      label: 'Hire Attendant',
-      effect: 'Auto-fills this pump',
-      cost: `$${formatMoney(cost)}`,
-      disabled: state.cash < cost,
-    });
-  } else {
+  // The attendant itself is hired at its pump-side marker; until then this pump
+  // has nothing to tune (rows stay empty and the block is filtered out).
+  if (pump.hasAttendant) {
     rows.push(attendantSpeedRow(state, pump));
     // A hired attendant takes breaks, so its break room can be upgraded — the
     // same shared row the pit mechanics and market worker use.
@@ -521,27 +651,6 @@ function attendantSpeedRow(state, pump) {
   };
 }
 
-/** Cashier section: the one-time garage-wide hire that auto-banks every payout. */
-function cashierRow(state) {
-  if (state.hasCashier) {
-    return {
-      kind: 'cashier',
-      label: 'Cashier',
-      effect: 'Auto-banks every payout',
-      cost: 'HIRED',
-      disabled: true,
-    };
-  }
-  const cost = cashierCost(state);
-  return {
-    kind: 'cashier',
-    label: 'Hire Cashier',
-    effect: 'Payouts skip the pit, go straight to cash',
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
-  };
-}
-
 /** Automation section: the one-time upgrade that lets each pit's mechanic auto-restock. */
 function autoRestockRow(state) {
   if (state.autoRestock) {
@@ -563,35 +672,16 @@ function autoRestockRow(state) {
   };
 }
 
-/** Supermarket section: unlock, the 2-level worker upgrade, then (once a worker
- * exists) its own break-room upgrade row. */
+/** Supermarket section: tuning only, once the market has been opened at its
+ * floor marker — the worker's training level, its break room, and the truck.
+ * (The unlock and the initial worker hire are physical markers; at workerLevel
+ * 0 the only row is the truck.) */
 function supermarketRows(state) {
   const S = state.supermarket;
-
-  if (!S.unlocked) {
-    const cost = supermarketCost(state);
-    return [
-      {
-        kind: 'openMarket',
-        label: 'Open Supermarket',
-        effect: 'Turns the lobby into a shop',
-        cost: `$${formatMoney(cost)}`,
-        disabled: state.cash < cost,
-      },
-    ];
-  }
+  if (!S.unlocked) return []; // opened at its marker in the world, nothing to tune yet
 
   const rows = [];
-  if (S.workerLevel === 0) {
-    const cost = marketWorkerHireCost(state);
-    rows.push({
-      kind: 'hireMarketWorker',
-      label: 'Hire Market Worker',
-      effect: 'Worker packages orders; you still restock',
-      cost: `$${formatMoney(cost)}`,
-      disabled: state.cash < cost,
-    });
-  } else if (S.workerLevel === 1) {
+  if (S.workerLevel === 1) {
     const cost = marketWorkerTrainCost(state);
     rows.push({
       kind: 'trainMarketWorker',
@@ -600,7 +690,7 @@ function supermarketRows(state) {
       cost: `$${formatMoney(cost)}`,
       disabled: state.cash < cost,
     });
-  } else {
+  } else if (S.workerLevel >= 2) {
     rows.push({
       kind: 'trainMarketWorker',
       label: 'Market Worker',
@@ -609,6 +699,7 @@ function supermarketRows(state) {
       disabled: true,
     });
   }
+  // workerLevel 0: the worker is hired at its shop-floor marker — no row yet.
 
   // Once a market worker is hired (level >= 1) it takes breaks, so its break
   // room can be upgraded — the market counterpart of each pit worker's row.
@@ -643,27 +734,13 @@ function truckFrequencyRow(state) {
   };
 }
 
-function equipmentView(state, pit) {
-  const cost = pitEquipmentCost(state, pit.index);
-  return {
-    kind: 'equipment',
-    pitIndex: pit.index,
-    label: `Equip Pit ${letter(pit.index)}`,
-    effect: 'Install repair station',
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
-  };
-}
-
 function workerBlock(state, pit) {
   const L = letter(pit.index);
   const rows = [];
 
-  if (!pit.hasMechanic) {
-    rows.push(hireView(state, pit));
-  } else {
-    rows.push(workerSpeedRow(state, pit));
-  }
+  // The mechanic itself is hired at its pit-side marker; the block carries only
+  // the tuning rows (Fixing Time works even before anyone is hired).
+  if (pit.hasMechanic) rows.push(workerSpeedRow(state, pit));
   rows.push(fixingTimeRow(state, pit));
   // A hired worker takes breaks, so it can have its break room upgraded.
   if (pit.hasMechanic) rows.push(breakRoomRow(state, pit.break, 'breakRoom', pit.index));
@@ -690,18 +767,6 @@ function breakRoomRow(state, b, kind, pitIndex) {
     pitIndex,
     label: 'Upgrade Break Room',
     effect: `Break: ${fmtSecs(cur)} → ${fmtSecs(settings.breakDurations.upgraded)}`,
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
-  };
-}
-
-function hireView(state, pit) {
-  const cost = hireCost(state, pit.index);
-  return {
-    kind: 'hire',
-    pitIndex: pit.index,
-    label: 'Hire Worker',
-    effect: 'Auto-repairs this pit',
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

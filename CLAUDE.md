@@ -104,7 +104,12 @@ Pump cars mirror this exactly (`hurryPump` / `tapFill`).
   correct source-file scale/facing; `settings.character.animationMap` maps logical
   states to clip names (falls back to clip 0 with a warn, so a wrong name never freezes).
 
-### ⚠️ Before shipping
-`settings.upgrades.*.baseCost` (including `upgrades.gas.*`) and `reputation.adBaseCost`
-are all slashed to `1` for cheap iteration (marked `// TESTING` with the original values
-commented inline). Restore them before release.
+### Progression gates
+All costs are live/shipping values (no `// TESTING` stand-ins remain). On top of cash:
+- **Pit land is reputation-gated**: `settings.pit.unlockReputation` ([0, .1, .3, .5, .7],
+  index-aligned with pits) gates `buyExpandRoom` on PERMANENT reputation — a rewarded-ad
+  boost never opens land (see `upgrades.pitReputationMet`).
+- **The gas station is endgame**: the FIRST `buyGasExpand` (which creates the whole
+  station) requires `upgrades.gasStationPrereqs` — all 5 pits open + equipped, all
+  mechanics hired, every Worker Speed and Fixing Time maxed, market open, its worker
+  hired + trained, and Faster Deliveries maxed. Later pump lots are cash-only.

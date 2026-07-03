@@ -334,40 +334,45 @@ function updatePlayer(state, dt) {
  * The front wall is solid too, EXCEPT the supermarket delivery-door gap
  * (deliveryDoorX): once the market is open the player may step out through it to
  * reach the restock pile just outside, the same gate the market worker uses
- * (see clampFallbackToWalls). The gap also stays open while the player is already
- * outside (pos.z past the wall) so a sideways move toward the pile isn't shoved back in.
- * The LEFT wall opens the same way at the gas-station gate (gasStation.gateZ) —
- * but only once the station exists (the first Expand Station purchase opens pump
- * lot 0); before that the wall is fully solid, exactly like the delivery gate
- * before the market is unlocked.
+ * (see clampFallbackToWalls). The LEFT wall opens the same way at the gas-station
+ * gate (gasStation.gateZ) — but only once the station exists (the first Expand
+ * Station purchase opens pump lot 0); before that the wall is fully solid,
+ * exactly like the delivery gate before the market is unlocked.
+ *
+ * Each openable wall is treated as a two-sided SLAB (inner face at ±half, outer
+ * face a wallThickness beyond): off-gate, a mover is held off whichever face it
+ * is on — the side is read against the slab's mid-plane, unambiguous because a
+ * per-frame step is far smaller than slab + radius. This blocks inside→outside
+ * and outside→inside identically; the old "already past the wall plane"
+ * allowance read the POST-move position, which let an outside mover that
+ * crossed the plane in one step register as inside and get pulled through.
  */
 function clampToBounds(state, pos) {
   const W = settings.world;
   const M = settings.supermarket;
   const r = settings.player.radius;
+  const t = W.wallThickness;
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
   const rightLim = (pos.z > BAY_ZONE_Z ? ownedRightX(state) : W.halfX) - r;
-  const leftLim = -limX;
 
-  // Left wall: solid except the gas-station gate at gateZ (same shape as the
-  // front wall's delivery gate below — open in the gap, and stays open while the
-  // player is already fully outside so lateral moves at the pumps aren't shoved
-  // back in). The gate exists only once the station's first lot is bought.
+  // Left wall: solid both ways except the gas-station gate at gateZ. The gate
+  // exists only once the station's first lot is bought.
   const atGasGate =
     state.gasStation.pumps[0].roomUnlocked && Math.abs(pos.z - settings.gasStation.gateZ) <= W.gateHalf;
-  const crossingLeft = atGasGate || pos.x < -W.halfX;
   pos.x = Math.min(rightLim, pos.x);
-  if (!crossingLeft) pos.x = Math.max(leftLim, pos.x);
+  if (!atGasGate) {
+    if (pos.x > -W.halfX - t / 2) pos.x = Math.max(-limX, pos.x); // inside: held off the inner face
+    else pos.x = Math.min(-W.halfX - t - r, pos.x); // outside: held off the outer face
+  }
 
   // Back wall is always solid; the front wall opens ONLY within gateHalf of the
-  // delivery-door x. The "already past the wall" allowance is gated against the true
-  // wall plane (-halfZ), a full radius beyond the clamp line (-limZ): the player can
-  // only get past the clamp line while standing in the gate, so off-gate the wall is
-  // completely solid; once fully outside it moves freely to/from the restock pile.
+  // delivery-door x — same two-sided slab treatment as the left wall.
   const atDeliveryGate =
     state.supermarket && state.supermarket.unlocked && Math.abs(pos.x - M.deliveryDoorX) <= W.gateHalf;
-  const crossingFront = atDeliveryGate || pos.z < -W.halfZ;
   pos.z = Math.min(limZ, pos.z);
-  if (!crossingFront) pos.z = Math.max(-limZ, pos.z);
+  if (!atDeliveryGate) {
+    if (pos.z > -W.halfZ - t / 2) pos.z = Math.max(-limZ, pos.z);
+    else pos.z = Math.min(-W.halfZ - t - r, pos.z);
+  }
 }

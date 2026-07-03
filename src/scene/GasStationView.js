@@ -106,6 +106,16 @@ export class GasStationView {
     // pumpModelScale / pumpModelYOffset / pumpYRotation are the tune-by-eye
     // fixups in settings.gasStation.
     const prop = cloneStorageModel('gasPump');
+    // Red tint (settings.gasStation.pumpTintColor): multiply every material's
+    // base colour so the glb's shading detail survives. Safe to mutate in place
+    // — cloneStorageModel already gave this clone its own materials.
+    const tint = new THREE.Color(G.pumpTintColor);
+    prop.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (m.color) m.color.multiply(tint);
+      }
+    });
     prop.scale.setScalar(G.pumpModelScale);
     prop.position.set(pos.x + G.pumpOffset.x, G.pumpModelYOffset, pos.z + G.pumpOffset.z);
     prop.rotation.y = G.pumpYRotation;

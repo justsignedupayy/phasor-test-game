@@ -43,6 +43,10 @@ import {
   gasExpandCost,
   gasEquipmentCost,
   attendantSpeed,
+  gasStationPrereqs,
+  getUnlockMarkers,
+  buyUnlockMarker,
+  hireCost,
 } from '../src/core/upgrades.js';
 import {
   createBreakState,
@@ -145,6 +149,7 @@ check('buying more land moves the fence (and the bay clamp) further right', () =
   const s = createInitialState();
   const before = ownedRightX(s);
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap; // clear every lot's rep gate
   buyExpandRoom(s);
   const after = ownedRightX(s);
   assert.ok(after > before);
@@ -153,6 +158,7 @@ check('buying more land moves the fence (and the bay clamp) further right', () =
 check('once every pit is owned, the fence settles at the last lot, short of the far wall', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap; // clear every lot's rep gate
   while (!allLandOwned(s)) buyExpandRoom(s);
   // The wide garage puts the outer wall a full pit-spacing past the last pit, so
   // the fence settles at the last lot's edge — within, not at, the outer wall.
@@ -224,6 +230,7 @@ check('locked/unequipped pits never get a car or a queue', () => {
 check('rusty cars route only to pit 0 (matching tier)', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap; // clear the rep gate for the buys
   buyExpandRoom(s);
   buyPitEquipment(s, 1); // pits 0 and 1 now equipped
   s.permanentReputation = 0; // every car is rusty → matches pit 0 only
@@ -238,6 +245,7 @@ check('rusty cars route only to pit 0 (matching tier)', () => {
 check('every queued car matches its pit tier (pit i ↔ carTiers[i])', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap; // clear every lot's rep gate for the buys
   for (let i = 1; i < settings.maxPits; i++) {
     buyExpandRoom(s); // unlocks pits in order (1, 2, 3, 4)
     buyPitEquipment(s, i);
@@ -368,6 +376,7 @@ console.log('\ncore room unlock (expand + equip)');
 check('buyExpandRoom unlocks the next lot only (not equipped)', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
   assert.equal(buyExpandRoom(s), true);
   assert.equal(s.pits[1].roomUnlocked, true);
   assert.equal(s.pits[1].equipped, false);
@@ -375,6 +384,7 @@ check('buyExpandRoom unlocks the next lot only (not equipped)', () => {
 
 check('expand fails without cash and leaves lot locked', () => {
   const s = createInitialState();
+  s.permanentReputation = settings.reputation.repCap; // isolate the cash gate
   s.cash = 0;
   assert.equal(buyExpandRoom(s), false);
   assert.equal(s.pits[1].roomUnlocked, false);
@@ -383,6 +393,7 @@ check('expand fails without cash and leaves lot locked', () => {
 check('buyPitEquipment needs a roomUnlocked lot, then equips it', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
   assert.equal(buyPitEquipment(s, 1), false); // not roomUnlocked yet
   buyExpandRoom(s);
   assert.equal(buyPitEquipment(s, 1), true);
@@ -392,6 +403,7 @@ check('buyPitEquipment needs a roomUnlocked lot, then equips it', () => {
 check('a freshly equipped pit starts accepting cars', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap; // clear the rep gate for the buy
   buyExpandRoom(s);
   buyPitEquipment(s, 1);
   s.permanentReputation = 0.25; // 50% rusty (→ pit 0), 50% normal (→ pit 1)
@@ -403,6 +415,7 @@ check('a freshly equipped pit starts accepting cars', () => {
 check('expand cost grows geometrically per opened lot', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
   const c0 = expandRoomCost(s);
   buyExpandRoom(s);
   const c1 = expandRoomCost(s);
@@ -415,12 +428,53 @@ check('pit equipment cost scales with pit index', () => {
   assert.ok(pitEquipmentCost(s, 2) > pitEquipmentCost(s, 1));
 });
 
+check('expand is reputation-gated: cash alone cannot open a rep-gated lot', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  s.permanentReputation = settings.pit.unlockReputation[1] - 0.01; // just under lot B's gate
+  assert.equal(buyExpandRoom(s), false, 'blocked by reputation despite ample cash');
+  assert.equal(s.pits[1].roomUnlocked, false);
+  assert.equal(s.cash, 1e9, 'nothing charged');
+});
+
+check('reputation alone does not unlock a lot — the cash cost still applies', () => {
+  const s = createInitialState();
+  s.permanentReputation = settings.reputation.repCap;
+  s.cash = 0;
+  assert.equal(buyExpandRoom(s), false, 'reputation alone never unlocks');
+  assert.equal(s.pits[1].roomUnlocked, false);
+  s.cash = expandRoomCost(s);
+  assert.equal(buyExpandRoom(s), true, 'both requirements met → unlocked');
+  assert.equal(s.pits[1].roomUnlocked, true);
+});
+
+check('each lot enforces its own reputation threshold (10/30/50/70%)', () => {
+  assert.deepEqual(settings.pit.unlockReputation, [0, 0.1, 0.3, 0.5, 0.7]);
+  const s = createInitialState();
+  s.cash = 1e9;
+  for (let i = 1; i < settings.maxPits; i++) {
+    s.permanentReputation = settings.pit.unlockReputation[i] - 0.01;
+    assert.equal(buyExpandRoom(s), false, `lot ${i} blocked just under its threshold`);
+    s.permanentReputation = settings.pit.unlockReputation[i];
+    assert.equal(buyExpandRoom(s), true, `lot ${i} opens at its threshold`);
+  }
+});
+
+check('a temporary ad boost does NOT clear a reputation gate (permanent rep only)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  s.permanentReputation = 0.05; // under lot B's 10% gate...
+  s.repBoostRemaining = 1000; // ...even while boosted well past it (0.05 × 4 = 20%)
+  assert.equal(buyExpandRoom(s), false, 'boosted reputation never opens land');
+});
+
 // --- per-pit upgrades -----------------------------------------------------
 console.log('\ncore per-pit upgrades');
 
 check('hireMechanic requires an equipped pit', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
   buyExpandRoom(s); // pit 1 roomUnlocked but not equipped
   assert.equal(hireMechanic(s, 1), false);
   buyPitEquipment(s, 1);
@@ -518,6 +572,7 @@ check('hurry only works on a manned pit and multiplies the work rate', () => {
 check('hurry is per-pit: hurrying one pit does not boost another', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
   buyExpandRoom(s);
   buyPitEquipment(s, 1);
   hireMechanic(s, 0);
@@ -665,6 +720,7 @@ check('player picks up a box at the shelf and delivers it to the worker to refil
 check('a box only delivers to the pit it was taken from', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
   buyExpandRoom(s);
   buyPitEquipment(s, 1); // pit 1 equipped too
   s.pits[1].tiresRemaining = 2;
@@ -1312,11 +1368,28 @@ check('buyMarketBreakRoom needs a hired market worker and is one-time', () => {
 // --- gas station -------------------------------------------------------------
 console.log('\ncore gas station');
 
+// The station's first purchase is locked behind a fully built-out garage +
+// market (see upgrades.gasStationPrereqs). Force-complete both directly on the
+// state — the same style as setting permanentReputation — so gas tests can buy.
+const completeGasPrereqs = (s) => {
+  for (const pit of s.pits) {
+    pit.roomUnlocked = true;
+    pit.equipped = true;
+    pit.hasMechanic = true;
+    pit.workerSpeedLevel = settings.upgrades.workerSpeed.maxLevel;
+    pit.fixingTimeLevel = settings.upgrades.fixingTime.maxLevel;
+  }
+  s.supermarket.unlocked = true;
+  s.supermarket.workerLevel = 2;
+  s.supermarket.truckUpgradeLevel = settings.supermarket.truck.intervals.length - 1;
+};
+
 // Unlock + equip a pump: unlike pit 0 there is no free starter pump, so every
 // gas test that needs a working pump buys its way there first (cash restored after).
 const openGasPump = (s, i = 0) => {
   const saved = s.cash;
   s.cash = 1e12;
+  completeGasPrereqs(s); // the first expand is gated on the finished garage + market
   while (!s.gasStation.pumps[i].roomUnlocked) buyGasExpand(s);
   buyGasEquipment(s, i);
   s.cash = saved;
@@ -1414,6 +1487,7 @@ check('cars route to the shortest line across the open pumps', () => {
 
 check('the FIRST buyGasExpand opens pump lot 0 (the whole station), not equipped yet', () => {
   const s = createInitialState();
+  completeGasPrereqs(s); // isolate the cash gate from the endgame prereq gate
   s.cash = 0;
   assert.equal(buyGasExpand(s), false, 'gated on cash');
   assert.equal(s.gasStation.pumps[0].roomUnlocked, false);
@@ -1428,8 +1502,75 @@ check('the FIRST buyGasExpand opens pump lot 0 (the whole station), not equipped
   assert.equal(s.gasStation.pumps[1].equipped, false);
 });
 
+check('the first gas expand is locked until the garage AND market are fully built out', () => {
+  const s = createInitialState();
+  s.cash = 1e12; // cash is never the blocker in this test
+  assert.equal(gasStationPrereqs(s).ready, false);
+  assert.equal(buyGasExpand(s), false, 'fresh game: station locked despite ample cash');
+  assert.equal(s.gasStation.pumps[0].roomUnlocked, false);
+  assert.equal(s.cash, 1e12, 'nothing charged');
+
+  // Garage fully built out but the market untouched: still locked.
+  for (const pit of s.pits) {
+    pit.roomUnlocked = true;
+    pit.equipped = true;
+    pit.hasMechanic = true;
+    pit.workerSpeedLevel = settings.upgrades.workerSpeed.maxLevel;
+    pit.fixingTimeLevel = settings.upgrades.fixingTime.maxLevel;
+  }
+  assert.equal(buyGasExpand(s), false, 'garage alone is not enough');
+  assert.ok(gasStationPrereqs(s).missing.length > 0, 'market requirements still listed');
+
+  // Market complete too: the station finally opens.
+  s.supermarket.unlocked = true;
+  s.supermarket.workerLevel = 2;
+  s.supermarket.truckUpgradeLevel = settings.supermarket.truck.intervals.length - 1;
+  assert.equal(gasStationPrereqs(s).ready, true);
+  assert.deepEqual(gasStationPrereqs(s).missing, []);
+  assert.equal(buyGasExpand(s), true, 'both complete → the station can be bought');
+  assert.equal(s.gasStation.pumps[0].roomUnlocked, true);
+});
+
+check('every single unmet prereq keeps the station locked (mechanics, levels, market steps)', () => {
+  const base = () => {
+    const s = createInitialState();
+    completeGasPrereqs(s);
+    s.cash = 1e12;
+    return s;
+  };
+  const blocked = (mutate) => {
+    const s = base();
+    mutate(s);
+    assert.equal(gasStationPrereqs(s).ready, false);
+    assert.equal(buyGasExpand(s), false);
+  };
+  blocked((s) => (s.pits[4].equipped = false));
+  blocked((s) => (s.pits[2].hasMechanic = false));
+  blocked((s) => (s.pits[0].workerSpeedLevel = settings.upgrades.workerSpeed.maxLevel - 1));
+  blocked((s) => (s.pits[3].fixingTimeLevel = settings.upgrades.fixingTime.maxLevel - 1));
+  blocked((s) => (s.supermarket.unlocked = false));
+  blocked((s) => (s.supermarket.workerLevel = 1));
+  blocked((s) => (s.supermarket.truckUpgradeLevel = 0));
+
+  // The unmutated baseline does open.
+  const s = base();
+  assert.equal(buyGasExpand(s), true);
+});
+
+check('the prereq gate only guards the FIRST gas expand, not later lots', () => {
+  const s = createInitialState();
+  completeGasPrereqs(s);
+  s.cash = 1e12;
+  assert.equal(buyGasExpand(s), true); // lot 0: the gated station purchase
+  // Un-max the garage again: later lots must still be purchasable (cash-only gate).
+  s.pits[0].workerSpeedLevel = 0;
+  assert.equal(buyGasExpand(s), true, 'lot 1 is cash-gated only');
+  assert.equal(s.gasStation.pumps[1].roomUnlocked, true);
+});
+
 check('buyGasEquipment needs an opened lot, then equips it; freshly equipped pump takes cars', () => {
   const s = createInitialState();
+  completeGasPrereqs(s);
   s.cash = 1e9;
   assert.equal(buyGasEquipment(s, 0), false); // station not bought yet
   buyGasExpand(s);
@@ -1445,6 +1586,7 @@ check('buyGasEquipment needs an opened lot, then equips it; freshly equipped pum
 
 check('gas expand cost grows geometrically; pump equipment cost scales with index', () => {
   const s = createInitialState();
+  completeGasPrereqs(s);
   s.cash = 1e9;
   const c0 = gasExpandCost(s);
   buyGasExpand(s);
@@ -1491,6 +1633,7 @@ check('finishing a fill parks its payout at the pump, collected on the next tick
 
 check('hireAttendant requires an equipped pump and is one-time', () => {
   const s = createInitialState();
+  completeGasPrereqs(s);
   s.cash = 1e9;
   assert.equal(hireAttendant(s, 0), false, 'station not bought yet');
   buyGasExpand(s); // pump lot 0 opened but not equipped
@@ -1616,6 +1759,7 @@ check('the gas gate only exists once the station is bought; then the player can 
 
   // After buying the first lot: pushing left at the gate's z crosses the wall.
   const s = createInitialState();
+  completeGasPrereqs(s);
   s.cash = 1e9;
   buyGasExpand(s); // opens pump lot 0 — the station (and its gate) now exists
   s.player.position = { x: -40, z: settings.gasStation.gateZ };
@@ -1625,6 +1769,7 @@ check('the gas gate only exists once the station is bought; then the player can 
 
   // Away from the gate's z: the left wall stays solid even with the station open.
   const s2 = createInitialState();
+  completeGasPrereqs(s2);
   s2.cash = 1e9;
   buyGasExpand(s2);
   s2.player.position = { x: -40, z: -8 };
@@ -1698,6 +1843,119 @@ check('buyGasBreakRoom needs a hired attendant and is one-time per attendant', (
   assert.equal(buyGasBreakRoom(s, 0), true);
   assert.equal(s.gasStation.pumps[0].break.breakDurationUpgraded, true);
   assert.equal(buyGasBreakRoom(s, 0), false, 'one-time');
+});
+
+// --- physical unlock markers ------------------------------------------------
+console.log('\ncore physical unlock markers');
+
+const markersByKind = (s) => {
+  const map = new Map();
+  for (const m of getUnlockMarkers(s)) map.set(m.index === undefined ? m.kind : `${m.kind}:${m.index}`, m);
+  return map;
+};
+
+check('fresh game: expand (rep-locked), pit-0 hire, market, cashier and gas markers — nothing else', () => {
+  const s = createInitialState();
+  const m = markersByKind(s);
+  assert.equal(m.size, 5);
+
+  const expand = m.get('expandRoom:1');
+  assert.ok(expand, 'next locked lot (B) carries the expand marker');
+  assert.equal(expand.cost, expandRoomCost(s));
+  assert.equal(expand.locked, true, 'rep 5% < lot B\'s 10% gate');
+  assert.deepEqual({ x: expand.x, z: expand.z }, settings.pit.positions[1]);
+
+  const hire = m.get('hireMechanic:0');
+  assert.ok(hire, 'pit 0 is equipped but unmanned → hire marker');
+  assert.equal(hire.cost, hireCost(s, 0));
+  assert.equal(hire.x, settings.pit.positions[0].x + settings.unlockMarkers.hireOffset.x);
+  assert.equal(hire.z, settings.pit.positions[0].z + settings.unlockMarkers.hireOffset.z);
+
+  const gas = m.get('gasExpand:0');
+  assert.ok(gas, 'the station purchase has a marker from the start');
+  assert.equal(gas.locked, true, 'locked behind the garage+market prereqs');
+  assert.equal(gas.x, -settings.world.halfX + settings.unlockMarkers.gasEntryInset, 'inside the left wall — the pump row is unreachable');
+  assert.equal(gas.z, settings.gasStation.gateZ);
+
+  assert.equal(m.get('openMarket').cost, supermarketCost(s));
+  assert.equal(m.get('hireCashier').cost, cashierCost(s));
+  assert.ok(!m.has('pitEquipment:1'), 'no equipment marker before the land is bought');
+  assert.ok(!m.has('hireMarketWorker'), 'no worker hire before the market opens');
+});
+
+check('markers advance with progression: expand → equipment → hire, unlock → worker hire', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
+
+  let m = markersByKind(s);
+  assert.equal(m.get('expandRoom:1').locked, false, 'rep met → unlocked marker');
+
+  buyExpandRoom(s);
+  m = markersByKind(s);
+  assert.ok(m.has('pitEquipment:1'), 'equipment marker appears on the bought lot');
+  assert.ok(m.has('expandRoom:2'), 'the expand marker moved to the next lot');
+
+  buyPitEquipment(s, 1);
+  m = markersByKind(s);
+  assert.ok(!m.has('pitEquipment:1'));
+  assert.ok(m.has('hireMechanic:1'), 'hire marker appears once equipped');
+
+  hireMechanic(s, 1);
+  assert.ok(!markersByKind(s).has('hireMechanic:1'), 'hire marker gone once manned');
+
+  buySupermarket(s);
+  m = markersByKind(s);
+  assert.ok(!m.has('openMarket'));
+  assert.ok(m.has('hireMarketWorker'), 'worker hire marker appears once the market opens');
+  hireMarketWorker(s);
+  assert.ok(!markersByKind(s).has('hireMarketWorker'));
+
+  buyCashier(s);
+  assert.ok(!markersByKind(s).has('hireCashier'));
+});
+
+check('gas markers: station first (at the gate), then per-lot expand/equip/hire on the pumps', () => {
+  const s = createInitialState();
+  completeGasPrereqs(s);
+  s.cash = 1e12;
+
+  let m = markersByKind(s);
+  assert.equal(m.get('gasExpand:0').locked, false, 'prereqs met → station marker unlocked');
+
+  buyGasExpand(s); // the station now exists
+  m = markersByKind(s);
+  const expand1 = m.get('gasExpand:1');
+  assert.ok(expand1, 'next lot\'s expand marker sits on the pump row');
+  assert.deepEqual({ x: expand1.x, z: expand1.z }, settings.gasStation.positions[1]);
+  assert.ok(m.has('gasEquipment:0'), 'lot 0 wants its pump installed');
+
+  buyGasEquipment(s, 0);
+  m = markersByKind(s);
+  assert.ok(!m.has('gasEquipment:0'));
+  assert.ok(m.has('hireAttendant:0'), 'attendant hire marker appears once the pump is in');
+  hireAttendant(s, 0);
+  assert.ok(!markersByKind(s).has('hireAttendant:0'));
+});
+
+check('buyUnlockMarker routes to the same gated purchases (rep + prereq + cash gates intact)', () => {
+  const s = createInitialState();
+  assert.equal(buyUnlockMarker(s, 'hireMechanic', 0), false, 'cash gate holds at the marker');
+  s.cash = 1e9;
+  assert.equal(buyUnlockMarker(s, 'expandRoom', 1), false, 'rep gate holds at the marker');
+  assert.equal(buyUnlockMarker(s, 'gasExpand', 0), false, 'gas prereq gate holds at the marker');
+
+  s.permanentReputation = settings.pit.unlockReputation[1];
+  assert.equal(buyUnlockMarker(s, 'expandRoom', 1), true);
+  assert.equal(buyUnlockMarker(s, 'pitEquipment', 1), true);
+  assert.equal(buyUnlockMarker(s, 'hireMechanic', 1), true);
+  assert.equal(buyUnlockMarker(s, 'openMarket'), true);
+  assert.equal(buyUnlockMarker(s, 'hireMarketWorker'), true);
+  assert.equal(buyUnlockMarker(s, 'hireCashier'), true);
+  assert.equal(s.pits[1].equipped && s.pits[1].hasMechanic, true);
+  assert.equal(s.supermarket.workerLevel, 1);
+  assert.equal(s.hasCashier, true);
+  assert.equal(buyUnlockMarker(s, 'bogusKind'), false, 'unknown kinds are a safe no-op');
 });
 
 console.log(`\n${passed} passed`);

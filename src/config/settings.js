@@ -19,8 +19,8 @@ export const settings = {
   world: {
     halfX: 48,
     halfZ: 10,
-    wallHeight: 1.6,
-    wallThickness: 0.4,
+    wallHeight: 3,
+    wallThickness: 1,
     gateHalf: 1.8, // half-width of the door gaps in the left/right walls
     // Garage approach roads + their dashed centre lines (scene/Garage.js, visual only).
     // extent = how far (world units) the roads run out from the building walls (±halfZ)
@@ -154,36 +154,38 @@ export const settings = {
   // (pit 0 = rusty … pit 4 = luxury; see simulation.spawnToMatchingPit) and is
   // discarded if that pit can't take it.
   spawn: {
-    interval: 0.1, // seconds between spawns
+    interval: 5, // seconds between spawns — paces the whole repair economy
     maxQueuePerPit: 10, // max cars waiting per pit's own queue
     basePayoutPerPart: 5, // payout = basePayoutPerPart × numParts (3-damage car = $15)
   },
 
   // Two-stage room unlock + the per-pit upgrades. All costs are geometric
   // (cost = baseCost × costGrowth^level); see upgrades.js for the level used.
+  //
+  // Balance anchors: an average rusty car pays ~$6 every ~8s of pit-0 work, so the
+  // first mechanic ($60) lands a couple of minutes in; each new income stream
+  // (pit land + equipment + mechanic) costs roughly a few minutes of the income
+  // that came before it; the gas tier is priced against the full-garage income it
+  // is gated behind (see upgrades.gas below).
   upgrades: {
-    // TESTING: all baseCosts slashed to $1 for cheap iteration (costGrowth left
-    // intact so cost still climbs per level — flattening both broke the
-    // geometric-growth invariant via Math.round). Restore the commented
-    // baseCost values below before shipping.
     // Stage 1: add empty floor space (reveals the next lot).
     expandRoom: {
-      baseCost: 1, // was 300
+      baseCost: 300,
       costGrowth: 1.6,
     },
     // Stage 2: install the repair station on a roomUnlocked lot. Scales by pit index.
     pitEquipment: {
-      baseCost: 1, // was 150
+      baseCost: 150,
       costGrowth: 1.6,
     },
     // One-time worker hire per pit (enables auto-repair + remote hurry). Scales by index.
     mechanic: {
-      baseCost: 1, // was 60
+      baseCost: 60,
       costGrowth: 1.5,
     },
     // Per-pit worker speed (ticks/sec).
     workerSpeed: {
-      baseCost: 1, // was 50
+      baseCost: 50,
       costGrowth: 1.6,
       maxLevel: 8,
       baseRate: 1, // ticks/sec at level 0 → a 15-tick car takes ~15s
@@ -191,7 +193,7 @@ export const settings = {
     },
     // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
     fixingTime: {
-      baseCost: 1, // was 75
+      baseCost: 75,
       costGrowth: 1.5,
       maxLevel: 5,
       factorPerLevel: 0.15, // each level: factor -0.15 (15-tick car → ~13, ~11, ...)
@@ -200,44 +202,46 @@ export const settings = {
     // One-time, garage-wide cashier hire: payouts then skip the per-pit waiting
     // pile and land straight in cash. Flat cost (no growth — it's bought once).
     cashier: {
-      baseCost: 1, // TESTING: cheap for iteration (was 500)
+      baseCost: 500,
     },
     // One-time, PER-WORKER "Upgrade Break Room": halves that worker's break
     // duration (breakDurations.base -> .upgraded) and swaps its chair for a
     // couch. Bought separately for each pit mechanic and the market worker.
     breakRoom: {
-      baseCost: 1, // TESTING: cheap for iteration (was 200)
+      baseCost: 200,
     },
     // Global "Faster Deliveries": 3 levels, each steps the supermarket restock
     // truck down one entry in settings.supermarket.truck.intervals (300→240→180
     // →120s). Geometric cost like the rest. Not per-worker — one truck serves
     // the whole market (see core/supermarket.truckDeliveryInterval).
     truckFrequency: {
-      baseCost: 1, // TESTING: cheap for iteration (was 150)
+      baseCost: 150,
       costGrowth: 1.6,
     },
     // Gas-station upgrades, mirroring the pit set 1:1 (two-stage pump unlock +
-    // per-pump attendant hire/speed — see core/upgrades.js). TESTING: baseCosts
-    // slashed to $1 like the rest above; restore the commented values before shipping.
+    // per-pump attendant hire/speed — see core/upgrades.js). Priced well above
+    // the pit equivalents: the station only unlocks once the garage + market are
+    // fully built out (see upgrades.gasStationPrereqs), so these are endgame
+    // sinks against a full multi-stream income.
     gas: {
       // Stage 1: open the next pump lot (roomUnlocked), mirrors expandRoom.
       expand: {
-        baseCost: 1, // was 400
+        baseCost: 2000,
         costGrowth: 1.6,
       },
       // Stage 2: install the pump on an opened lot (equipped), mirrors pitEquipment.
       equipment: {
-        baseCost: 1, // was 200
+        baseCost: 1000,
         costGrowth: 1.6,
       },
       // One-time attendant hire per pump (auto-fill + remote hurry), mirrors mechanic.
       attendant: {
-        baseCost: 1, // was 80
+        baseCost: 400,
         costGrowth: 1.5,
       },
       // Per-pump attendant speed (ticks/sec), mirrors workerSpeed.
       workerSpeed: {
-        baseCost: 1, // was 60
+        baseCost: 250,
         costGrowth: 1.6,
         maxLevel: 8,
         baseRate: 1,
@@ -259,9 +263,14 @@ export const settings = {
   // running — no stacking).
   reputation: {
     baseReputation: 0.05, // starting/permanent reputation at game start
-    repStep: 0.01, // +1% permanent reputation per Buy Advertising purchase
+    // +5% permanent reputation per Buy Advertising purchase: 19 buys from base to
+    // cap. Chunky on purpose — at adGrowth 1.5 a +1% step would make the higher
+    // pit reputation gates (settings.pit.unlockReputation) astronomically
+    // expensive; at +5% the last gate (70%) is 13 buys (~$15K cumulative) and the
+    // cap is a long-tail sink (~$180K cumulative).
+    repStep: 0.05,
     repCap: 1.0,
-    adBaseCost: 1, // TESTING: cheap for iteration, like upgrades.* above
+    adBaseCost: 40,
     adGrowth: 1.5,
     boostMultiplier: 4, // rewarded-ad: multiplies effective reputation while active
     boostDurationSeconds: 3000,
@@ -283,13 +292,33 @@ export const settings = {
     autoSaveInterval: 5, // seconds between auto-saves, on top of after-purchase saves
   },
 
+  // Physical unlock markers: every "create a location / hire a worker" purchase
+  // (expand/equip a pit or pump lot, hire mechanic/attendant/cashier/market
+  // worker, open the market or gas station) is bought IN the world — a white
+  // ground circle + cost label at the spot the purchase creates, tapped while
+  // standing in range. Tuning upgrades stay in the phone menu. The marker list
+  // itself is derived per-frame in core/upgrades.getUnlockMarkers; the scene
+  // renders it in scene/UnlockMarkers.js.
+  unlockMarkers: {
+    radius: 1.0, // ground circle radius (world units)
+    labelHeight: 1.6, // cost label height above the circle
+    // Hire markers sit on the lane in FRONT of their pit/pump (offset from its
+    // centre): clear of the car spot (z ≈ ±2.2 around the centre), the tire
+    // stack (x+2.9, z+0.2) and the pump prop (x+2, z+1.1).
+    hireOffset: { x: 2.1, z: -3.2 },
+    // The "Open Gas Station" marker stands just INSIDE the left wall at the
+    // future gate's z — the pump row is unreachable until the station exists.
+    gasEntryInset: 1.7,
+    interactRadius: 1.8, // tap range around a marker, mirrors supermarket.interactRadius
+  },
+
   // Pay from finished cars waits at its own pit as a small stack of bills (see
   // scene/PitMoney.js) until the player walks up to collect (core banks it on
   // proximity). A hired cashier banks every payout straight to cash instead, so
   // no bills ever appear. Bill count shown ≈ pendingCash / cashPerBill (capped).
   money: {
     cashPerBill: 15, // pending dollars represented by each visible bill at a pit
-    maxBills: 8, // cap on bills shown stacked at one pit
+    maxBills: 40, // cap on bills shown stacked at one pit (raised 5× from 8 so big piles read)
     billSpacing: 0.05, // y gap between stacked bills
     billScale: 0.5, // scale Money.glb down to fit scene
     flyDuration: 0.4, // seconds for bills to fly to the player on collection
@@ -345,10 +374,9 @@ export const settings = {
   // the player still restocks. Level 2 ("Train Market Worker"): the worker
   // does both, hands-free. See core/supermarket.js.
   supermarket: {
-    // TESTING: cheap for iteration — restore before shipping.
-    unlockBaseCost: 1, // was 800
-    workerHireCost: 1, // was 250 — Hire Market Worker (workerLevel 0 -> 1)
-    workerTrainCost: 1, // was 450 — Train Market Worker (workerLevel 1 -> 2)
+    unlockBaseCost: 800,
+    workerHireCost: 250, // Hire Market Worker (workerLevel 0 -> 1)
+    workerTrainCost: 450, // Train Market Worker (workerLevel 1 -> 2)
 
     // Cash-register prop (cash-register.glb) that appears when the cashier is
     // hired (see scene/Cashier.js). Placed at its OWN world position (independent
@@ -362,12 +390,12 @@ export const settings = {
 
     shelfCapacity: 20, // max units per product, per shelf; starts full once unlocked
 
-    // TESTING: cheap for iteration (was A:8, B:6, C:11, D:15)
+    // A customer order is 1-5 items, so an average basket pays ~$30.
     products: {
-      A: { price: 1, label: 'Canned Goods' },
-      B: { price: 1, label: 'Snacks' },
-      C: { price: 1, label: 'Frozen Pizza' },
-      D: { price: 1, label: 'Ice Cream' },
+      A: { price: 8, label: 'Canned Goods' },
+      B: { price: 6, label: 'Snacks' },
+      C: { price: 11, label: 'Frozen Pizza' },
+      D: { price: 15, label: 'Ice Cream' },
     },
 
     customerSpawnInterval: 5, // seconds between spawns, once unlocked
@@ -401,10 +429,10 @@ export const settings = {
 
     deliveryDoorX: -38, // restock TRUCK's gate in the FRONT wall (z = -halfZ), in the aisle between the shelf clusters
     shelves: [
-      { x: -42, z: -9, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
-      { x: -34, z: -9, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
-      { x: -44, z: -9, productType: 'C', model: 'freezer', offset: { x: 0, z: 0 } },
-      { x: -32, z: -9, productType: 'D', model: 'freezer', offset: { x: 0, z: 0 } },
+      { x: -41, z: -9, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
+      { x: -35, z: -9, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
+      { x: -45, z: -9, productType: 'C', model: 'freezer', offset: { x: 0, z: 0 } },
+      { x: -31, z: -9, productType: 'D', model: 'freezer', offset: { x: 0, z: 0 } },
     ],
     // The single restock box: just OUTSIDE the front-wall delivery door
     // (deliveryDoorX), on the exterior dock where the truck pulls up — so it
@@ -413,7 +441,7 @@ export const settings = {
     // core/supermarket.planRoute threads that gate into the route, and
     // simulation.clampToBounds opens the same gap for the player. Off-grid
     // (outside the room), so the final leg to it is a straight walk. Tune by eye.
-    restockBoxPosition: { x: -41, z: -15.5 },
+    restockBoxPosition: { x: -42, z: -14.5 },
 
     // The restock box holds a SHARED, limited inventory (one unit restocks any
     // one shelf fully, to shelfCapacity). A delivery truck tops it back up to
@@ -432,8 +460,7 @@ export const settings = {
     // array. Scene choreography (Truck.glb, loaded once) lives in scene/TruckView.js.
     // Offsets are along z (front-wall approach), relative to restockBoxPosition.
     truck: {
-      // TESTING: short intervals for cheap iteration. Real: [300, 240, 180, 120].
-      intervals: [30, 20, 15, 10], // seconds, index = truckUpgradeLevel (0..3)
+      intervals: [300, 240, 180, 120], // seconds, index = truckUpgradeLevel (0..3)
       deliverOffset: { x: 0, z: -3.5 }, // where the truck stops: just beyond the dock box (box.z - 3.5 ≈ -19)
       startOffset: { x: 0, z: -25.5 }, // off-screen start/end point down the front road it drives in from / out to
       waitDuration: 1.5, // seconds paused at the gate before driving back out
@@ -480,8 +507,8 @@ export const settings = {
     freezerCollisionOffset: { x: 0, z: 0 },
 
     // Per-model scale fixups (tune by eye once visible, like settings.storage.*Scale).
-    shelfScale: 1.8,
-    freezerScale: 1.8,
+    shelfScale: 2.5,
+    freezerScale: 2.5,
     bagScale: 1,
     restockPileScale: 0.6,
     // Local placement of a hand-held Bag.glb (the customer's groceries after
@@ -524,6 +551,11 @@ export const settings = {
   // out to the right as Expand Room is bought.
   pit: {
     radius: 1.7,
+    // Reputation gate per pit, index-aligned with positions: opening pit i's land
+    // (Expand Room) requires permanentReputation >= unlockReputation[i] ON TOP OF
+    // the cash cost (see upgrades.buyExpandRoom). Fractions of repCap — shown as
+    // % in the Upgrades menu (0.10 = 10%). Pit 0 starts owned, so its 0 is moot.
+    unlockReputation: [0, 0.1, 0.3, 0.5, 0.7],
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out)
     // Decorative blue "pit stop" rectangle painted on the floor at each pit
     // position (approx car-sized; tune without touching scene code).
@@ -576,15 +608,21 @@ export const settings = {
     // gas_pump.glb prop, placed beside each pump's car spot (offset from the pump
     // position, LEFT of the car so the attendant's spot to the right stays clear —
     // mirrors the pit's toolbox-vs-mechanic split).
-    pumpOffset: { x: -2.2, z: 0 },
+    pumpOffset: { x: 2, z: 1.1 },
     // ── pump MODEL fixups — TUNE THESE BY EYE in `npm run dev` ──────────────
     // pumpModelScale:   overall size of each gas_pump.glb clone.
     // pumpModelYOffset: vertical placement; NEGATIVE sinks the model into the
     //                   ground (useful when the glb's origin floats above its base).
     // pumpYRotation:    facing; flip ±π/2 if it reads wrong against the car lane.
     pumpModelScale: 1.5,
-    pumpModelYOffset: 0,
+    // gas_pump.glb's origin is at its vertical CENTER (geometry minY ≈ -0.6435),
+    // so the base sits at y=0 only when lifted by 0.6435 × pumpModelScale.
+    // Recompute if pumpModelScale changes.
+    pumpModelYOffset: 0.6435 * 1.5,
     pumpYRotation: Math.PI / 2,
+    // Multiplied into every gas_pump.glb material's base colour (see
+    // scene/GasStationView.js #buildPump) so the pumps read red.
+    pumpTintColor: 0xd03a2a,
     // Collision half-extents (AABB) for the pump prop, blocking all movers (see
     // core/collision.js buildObstacleList). STARTING VALUES — tune by eye.
     pumpCollisionHalf: { x: 0.6, z: 0.5 },
@@ -605,7 +643,7 @@ export const settings = {
     // shortest line among the equipped pumps and is discarded only when every
     // open pump is full (see core/gasStation.spawnToShortestQueue).
     spawn: {
-      interval: 0.1, // seconds between spawns
+      interval: 5, // seconds between spawns, mirrors settings.spawn.interval
       maxQueuePerPump: 10,
     },
   },
@@ -621,18 +659,17 @@ export const settings = {
   // How many jobs each worker completes before it earns a break (see
   // core/breaks.js). A car mechanic's job = one finished repair; the market
   // worker's job = one checked-out customer. Each worker tracks its own count.
-  // TESTING: halved for cheap iteration (real values in comments).
   breakThresholds: {
-    carMechanic: 50, // real: 100
-    marketWorker: 25, // real: 50
-    gasAttendant: 50, // one job = one filled car; real: 100
+    carMechanic: 100,
+    marketWorker: 50,
+    gasAttendant: 100, // one job = one filled car
   },
 
   // How long (real seconds) a break lasts. The per-worker "Upgrade Break Room"
-  // purchase swaps `base` for `upgraded`. TESTING: slashed to 10/5 (real in comments).
+  // purchase swaps `base` for `upgraded`.
   breakDurations: {
-    base: 100, // real: 300 (5 min)
-    upgraded: 50, // real: 150 (2.5 min)
+    base: 300, // 5 min
+    upgraded: 150, // 2.5 min
   },
 
   // Break-room layout + per-model fixups (tune by eye once visible, like the

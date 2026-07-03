@@ -454,8 +454,10 @@ export class Garage {
       this.group.add(p);
       return p;
     };
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, g * 2 + 0.6), gateMat);
-    lintel.position.set(x, h * 1.6, gateZ);
+    // Lintel top sits flush with the wall top (y = h), never above it.
+    const lintelH = 0.5;
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.6, lintelH, g * 2 + 0.6), gateMat);
+    lintel.position.set(x, h - lintelH / 2, gateZ);
     lintel.castShadow = true;
     lintel.visible = false;
     this.group.add(lintel);
@@ -479,8 +481,10 @@ export class Garage {
       return p;
     };
     const lintel = (x) => {
-      const l = new THREE.Mesh(new THREE.BoxGeometry(g * 2 + 0.6, 0.5, 0.6), gateMat);
-      l.position.set(x, h * 1.6, z);
+      // Lintel top sits flush with the wall top (y = h), never above it.
+      const lintelH = 0.5;
+      const l = new THREE.Mesh(new THREE.BoxGeometry(g * 2 + 0.6, lintelH, 0.6), gateMat);
+      l.position.set(x, h - lintelH / 2, z);
       l.castShadow = true;
       l.visible = false;
       this.group.add(l);

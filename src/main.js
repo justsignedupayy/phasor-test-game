@@ -21,7 +21,7 @@ import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
-import { ownedRightX } from './core/upgrades.js';
+import { ownedRightX, buyUnlockMarker } from './core/upgrades.js';
 import { roomWallBox } from './core/collision.js';
 import { rebuildGrid } from './core/pathfinding.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
@@ -33,6 +33,7 @@ import { SupermarketView } from './scene/SupermarketView.js';
 import { GasStationView } from './scene/GasStationView.js';
 import { BreakMenu } from './scene/BreakMenu.js';
 import { TruckMenu } from './scene/TruckMenu.js';
+import { UnlockMarkers } from './scene/UnlockMarkers.js';
 
 const container = document.getElementById('app');
 
@@ -80,6 +81,9 @@ async function main() {
   const pumpMoney = new PitMoney(sceneManager, settings.gasStation.positions, (s) => s.gasStation.pumps);
   const breakMenu = new BreakMenu(state); // opened by tapping a seated worker's chair
   const truckMenu = new TruckMenu(state); // opened by tapping an empty restock box
+  // World-space create/hire purchases: ground circles tapped in range (step-1
+  // physical unlocks; see core/upgrades.getUnlockMarkers).
+  const unlockMarkers = new UnlockMarkers(sceneManager);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -108,6 +112,18 @@ async function main() {
     const chairPump = gasStationView.raycastChair(raycaster, state);
     if (chairPump >= 0) {
       breakMenu.open(state.gasStation.pumps[chairPump].break, `Attendant ${chairPump + 1}`);
+      return;
+    }
+
+    // A physical unlock marker: buy it if the player is standing in range —
+    // the same proximity pattern as a shelf tap, then the same core purchase
+    // (and save-on-purchase) its old menu row made.
+    const marker = unlockMarkers.raycast(raycaster);
+    if (marker) {
+      const d = Math.hypot(state.player.position.x - marker.x, state.player.position.z - marker.z);
+      if (d <= settings.unlockMarkers.interactRadius && buyUnlockMarker(state, marker.kind, marker.index)) {
+        saveGame(state);
+      }
       return;
     }
 
@@ -250,6 +266,7 @@ async function main() {
     gasStationView.update(dt, state);
     pitMoney.update(dt, state, state.player.position);
     pumpMoney.update(dt, state, state.player.position);
+    unlockMarkers.update(state);
     breakMenu.update();
     truckMenu.update();
     hud.update(state.cash, state.repBoostRemaining);

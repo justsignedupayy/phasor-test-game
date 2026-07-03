@@ -199,19 +199,20 @@ function waypointNpc(state, mover, target, speed, dt) {
  * Crossing is gated STRICTLY by door x: a mover may only pass through a wall while it
  * is within gateHalf of that wall's door — the front (-z) wall's delivery gate
  * (deliveryDoorX), or the back (+z) wall's customer entry/exit doors (marketX /
- * marketExitX). Everywhere else those walls are completely solid. The earlier
- * "target lies past the wall" / "pos already past the wall by any epsilon" relaxations
- * are gone: they opened the whole wall at every x (the target term) or let a one-frame
- * penetration self-justify (clamp threshold == relaxation threshold), which is what let
- * movers walk through the wall anywhere. The gate band is enforced against the true wall
- * plane (halfZ), a full radius beyond the clamp (limZ), so a mover can only get past the
- * clamp line at all while standing in the gate; once fully past the wall plane it is on
- * the far side and moves freely there. Left/right walls are always solid.
+ * marketExitX). Everywhere else those walls are completely solid, BOTH WAYS: like
+ * simulation.clampToBounds, each wall is a two-sided slab (inner face at ±halfZ, outer
+ * face a wallThickness beyond) and an off-gate mover is held off whichever face it is
+ * on — the side read against the slab's mid-plane, unambiguous because a per-frame
+ * step is far smaller than slab + radius. The earlier "pos already past the wall
+ * plane" relaxation read the POST-move position, so an outside mover that crossed the
+ * plane in one step registered as inside and was pulled through — walls only blocked
+ * inside→outside. Left/right walls are always solid.
  */
 function clampFallbackToWalls(pos, r, target) {
   const W = settings.world;
   const M = settings.supermarket;
   const g = W.gateHalf;
+  const t = W.wallThickness;
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
 
@@ -222,10 +223,14 @@ function clampFallbackToWalls(pos, r, target) {
   // Front (-z) + back (+z) walls: solid except within gateHalf of that wall's door x.
   const atFrontGate = Math.abs(pos.x - M.deliveryDoorX) <= g;
   const atBackGate = Math.abs(pos.x - M.marketX) <= g || Math.abs(pos.x - M.marketExitX) <= g;
-  const crossingBack = atBackGate || pos.z > W.halfZ;
-  const crossingFront = atFrontGate || pos.z < -W.halfZ;
-  if (!crossingBack && pos.z > limZ) pos.z = limZ;
-  if (!crossingFront && pos.z < -limZ) pos.z = -limZ;
+  if (!atBackGate) {
+    if (pos.z < W.halfZ + t / 2) pos.z = Math.min(limZ, pos.z); // inside: held off the inner face
+    else pos.z = Math.max(W.halfZ + t + r, pos.z); // outside: held off the outer face
+  }
+  if (!atFrontGate) {
+    if (pos.z > -W.halfZ - t / 2) pos.z = Math.max(-limZ, pos.z);
+    else pos.z = Math.min(-W.halfZ - t - r, pos.z);
+  }
 }
 
 /**

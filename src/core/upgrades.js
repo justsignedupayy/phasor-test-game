@@ -220,7 +220,7 @@ export function hireMechanic(state, pitIndex) {
 
 export function buyWorkerSpeed(state, pitIndex) {
   const pit = state.pits[pitIndex];
-  if (!pit || !pit.equipped || pit.workerSpeedLevel >= U.workerSpeed.maxLevel) return false;
+  if (!pit || !pit.hasMechanic || pit.workerSpeedLevel >= U.workerSpeed.maxLevel) return false;
   const cost = workerSpeedCost(state, pit);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -230,7 +230,7 @@ export function buyWorkerSpeed(state, pitIndex) {
 
 export function buyFixingTime(state, pitIndex) {
   const pit = state.pits[pitIndex];
-  if (!pit || !pit.equipped || pit.fixingTimeLevel >= U.fixingTime.maxLevel) return false;
+  if (!pit || !pit.hasMechanic || pit.fixingTimeLevel >= U.fixingTime.maxLevel) return false;
   const cost = fixingTimeCost(state, pit);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -308,7 +308,7 @@ export function hireAttendant(state, pumpIndex) {
 /** Per-pump attendant speed level — buyWorkerSpeed's mirror. */
 export function buyAttendantSpeed(state, pumpIndex) {
   const pump = state.gasStation.pumps[pumpIndex];
-  if (!pump || !pump.equipped || pump.workerSpeedLevel >= U.gas.workerSpeed.maxLevel) return false;
+  if (!pump || !pump.hasAttendant || pump.workerSpeedLevel >= U.gas.workerSpeed.maxLevel) return false;
   const cost = attendantSpeedCost(state, pump);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -606,7 +606,10 @@ export function getMenuModel(state) {
   return {
     automation: [autoRestockRow(state)],
     supermarket: supermarketRows(state),
-    workers: state.pits.filter((p) => p.equipped).map((p) => workerBlock(state, p)),
+    workers: state.pits
+      .filter((p) => p.equipped)
+      .map((p) => workerBlock(state, p))
+      .filter((b) => b.rows.length > 0),
     attendants: state.gasStation.pumps
       .filter((p) => p.equipped)
       .map((p) => attendantBlock(state, p))
@@ -738,12 +741,15 @@ function workerBlock(state, pit) {
   const L = letter(pit.index);
   const rows = [];
 
-  // The mechanic itself is hired at its pit-side marker; the block carries only
-  // the tuning rows (Fixing Time works even before anyone is hired).
-  if (pit.hasMechanic) rows.push(workerSpeedRow(state, pit));
-  rows.push(fixingTimeRow(state, pit));
-  // A hired worker takes breaks, so it can have its break room upgraded.
-  if (pit.hasMechanic) rows.push(breakRoomRow(state, pit.break, 'breakRoom', pit.index));
+  // The mechanic itself is hired at its pit-side marker; until then this pit
+  // has nothing to tune (rows stay empty and the block is filtered out) — all
+  // three rows tune the hired worker, so none exist before the hire.
+  if (pit.hasMechanic) {
+    rows.push(workerSpeedRow(state, pit));
+    rows.push(fixingTimeRow(state, pit));
+    // A hired worker takes breaks, so it can have its break room upgraded.
+    rows.push(breakRoomRow(state, pit.break, 'breakRoom', pit.index));
+  }
 
   return { index: pit.index, title: `Worker ${L}`, rows };
 }

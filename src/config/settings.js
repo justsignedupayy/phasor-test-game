@@ -34,6 +34,21 @@ export const settings = {
     },
   },
 
+  // Automatic sliding glass doors (scene/SlidingDoors.js, visual only): two
+  // panels per door that part from the centre when a mover (player, customer,
+  // truck) comes within range and glide shut once clear. Fitted to the walk-in
+  // entrances — the gas gate, the market's customer entry/exit and the restock
+  // truck's delivery gate — never the pit car doors.
+  slidingDoors: {
+    glassColor: 0x4aa3df, // semi-transparent blue glass panes
+    glassOpacity: 0.5,
+    frameColor: 0x8a9099, // grey edge bars around each pane
+    panelThickness: 0.16, // door depth (y-axis of the wall plane)
+    frameBar: 0.12, // thickness of the grey edge bars
+    range: 5, // mover distance (world units) that triggers opening
+    openDuration: 0.45, // seconds for a full open/close slide
+  },
+
   player: {
     speed: 6, // world units / second
     radius: 0.6, // used for bounds clamping
@@ -322,6 +337,7 @@ export const settings = {
     billSpacing: 0.05, // y gap between stacked bills
     billScale: 0.5, // scale Money.glb down to fit scene
     flyDuration: 0.4, // seconds for bills to fly to the player on collection
+    cashTintColor: 0x5fd98b, // multiplies Money.glb materials so the stacks read green (see scene/PitMoney.js)
   },
 
   // Per-pit tire stock + the shelf/boxes that replenish it. The player carries a
@@ -424,10 +440,23 @@ export const settings = {
     // existing front/back walls, shared with the car system's doorZ/exitDoorZ.
     marketX: -38, // entry door's x, clear of every pit lot
     marketExitX: -44, // exit door's x — same (back) wall as entry, to its left; lines up near the checkout
-    customerEntryOutside: { x: -38, z: 11.5 }, // = { marketX, world.halfZ + 1.5 }, mirrors pit.doorZ
-    customerExitOutside: { x: -44, z: 11.5 }, // = { marketExitX, world.halfZ + 1.5 } — same side as entry, just left of it
+    // Both customer openings extend OUTWARD from the back wall as walled
+    // corridors this long, with the actual door (frame + sliding glass) at the
+    // FAR end — the building wall keeps its gap as the corridor mouth. Gives
+    // customers walking room before the queue slots (which don't move). The
+    // door plane (customerDoorZ) and the spawn/despawn points
+    // (customerEntryOutside / customerExitOutside) are derived from this at the
+    // bottom of the file, so this one number is the whole tune-by-eye knob.
+    customerCorridorLength: 4,
 
     deliveryDoorX: -38, // restock TRUCK's gate in the FRONT wall (z = -halfZ), in the aisle between the shelf clusters
+    // The delivery/restock opening gets the same corridor treatment on the FRONT
+    // wall: a walled corridor this long with the door (frame + sliding glass) at
+    // the far end — deliveryDoorZ / deliveryDoorOutside are derived at the bottom
+    // of the file. Keeps the automatic door clear of the shelf aisles (z ≈ -9) so
+    // a worker restocking a shelf never trips it; only an actual walk down the
+    // corridor does. Tune by eye in `npm run dev`.
+    deliveryCorridorLength: 3,
     shelves: [
       { x: -41, z: -9, productType: 'A', model: 'shelfEnd', offset: { x: 0, z: 0 } },
       { x: -35, z: -9, productType: 'B', model: 'shelfEnd', offset: { x: 0, z: 0 } },
@@ -490,6 +519,11 @@ export const settings = {
     queueStep: { x: 1.4, z: 0 }, // each further-back slot steps this much further east, toward the entry door
 
     interactRadius: 1.8, // tap-affordance radius for shelves/checkout/restock pile (mirrors settings.pit.radius)
+
+    // Visual tile grid painted over the market's (lobby) floor once it opens —
+    // square cells this many world units across, drawn as thin painted lines in
+    // the lane-marking style (see Garage.#buildMarketFloorGrid). Tune by eye.
+    floorTileSize: 2,
 
     // AABB collision half-extents for the solid market props (see core/collision.js).
     // Centres come from each shelf's x/z and checkoutPosition; the half-extents are
@@ -714,6 +748,7 @@ export const settings = {
     background: 0xf0ece4,
     floor: 0xc8c4bc, // light concrete
     lobby: 0x474f43, // the left lobby floor patch (distinct from the shop floor)
+    marketTileLine: 0x555e50, // the market floor's tile-grid lines, a shade lighter than the lobby they sit on
     wall: 0xdedad4, // off-white walls
     gate: 0xc0bbb4, // gate pillars / lintels
     pit: 0x7a6e5e, // the bay/work-area floor patch, darker for contrast
@@ -757,6 +792,36 @@ settings.breaks.pumpChairPositions = settings.gasStation.positions.map((p) => ({
 settings.pit.pitWallCollisionHalf = {
   x: settings.world.wallThickness / 2,
   z: settings.world.halfZ + settings.world.wallThickness / 2,
+};
+
+// Customer entry/exit door plane: the FAR end of each corridor, a
+// customerCorridorLength beyond the back wall's own (relocated) opening —
+// Garage.js (door frames + corridor walls) and scene/SlidingDoors.js (glass
+// panels) both anchor here, derived so they can never drift apart. The
+// spawn/despawn points sit 1.5 beyond the door, the same margin the old
+// literals kept against the old wall opening (mirrors pit.doorZ).
+settings.supermarket.customerDoorZ =
+  settings.world.halfZ + settings.world.wallThickness / 2 + settings.supermarket.customerCorridorLength;
+settings.supermarket.customerEntryOutside = {
+  x: settings.supermarket.marketX,
+  z: settings.world.halfZ + settings.supermarket.customerCorridorLength + 1.5,
+};
+settings.supermarket.customerExitOutside = {
+  x: settings.supermarket.marketExitX,
+  z: settings.world.halfZ + settings.supermarket.customerCorridorLength + 1.5,
+};
+
+// The delivery gate's mirror of the customer block above, on the FRONT wall:
+// the door plane at the far end of its corridor, plus the outside turn-point
+// movers walk to before heading for the restock box/dock (and back). The same
+// 1.5 margin past the door as the customer points — far enough out that the
+// lateral leg to the box clears the corridor walls and the retracted door
+// panels (which park flush with the door plane when open).
+settings.supermarket.deliveryDoorZ =
+  -(settings.world.halfZ + settings.world.wallThickness / 2 + settings.supermarket.deliveryCorridorLength);
+settings.supermarket.deliveryDoorOutside = {
+  x: settings.supermarket.deliveryDoorX,
+  z: -(settings.world.halfZ + settings.supermarket.deliveryCorridorLength + 1.5),
 };
 
 export default settings;

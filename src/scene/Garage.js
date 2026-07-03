@@ -14,10 +14,13 @@ import { ownedRightX } from '../core/upgrades.js';
  * both. The pit lots/stations and all cars are dynamic and owned by CarYard/PitView.
  *
  * The supermarket gets a similar but asymmetric treatment, once unlocked:
- * customers get their own entry + exit doors, BOTH on the back wall (unlike a
+ * customers get their own entry + exit openings, BOTH on the back wall (unlike a
  * pit's back/front pair) — entry at settings.supermarket.marketX, exit at
- * marketExitX just to its left — marketEntryDoor/marketExitDoor, built by the
- * same #buildDoorRow as the pit doors. A third, separate delivery door on the
+ * marketExitX just to its left. Each opening extends OUTWARD as a walled
+ * corridor (#buildCustomerCorridors), and the actual door frame
+ * (marketEntryDoor/marketExitDoor, built by the same #buildDoorRow as the pit
+ * doors) stands at the corridor's FAR end (customerDoorZ) — the back wall keeps
+ * its gap as the corridor mouth. A third, separate delivery door on the
  * FRONT wall (marketDeliveryDoor, at settings.supermarket.deliveryDoorX — parallel
  * to the pit exit doors) is for the restock truck only, never customers.
  */
@@ -71,6 +74,10 @@ export class Garage {
       d.pillarR.visible = marketOpen;
       d.lintel.visible = marketOpen;
     }
+    // The corridors (floor + side walls) and the floor's tile grid share the
+    // market doors' visibility.
+    this.marketCorridors.visible = marketOpen;
+    this.marketFloorGrid.visible = marketOpen;
     // The restock truck's exterior travel road shares the delivery door's visibility.
     this.deliveryRoad.visible = marketOpen;
 
@@ -149,8 +156,42 @@ export class Garage {
     this.group.add(bay);
     this.bayPatch = { mesh: bay, leftX: lobbyRightX, baseW: bayW, maxRightX: W.halfX };
 
+    this.#buildMarketFloorGrid(lobbyRightX, floorD);
     this.#buildLaneMarkings(floorD);
     this.#buildPitDividers(floorD);
+  }
+
+  /**
+   * Square-tile grid painted over the market's floor (the lobby patch, which is
+   * the shop's footprint): thin line strips in the lane-marking style, one set
+   * running along z and one along x, spaced settings.supermarket.floorTileSize
+   * apart. Shown only once the supermarket is open (see update()).
+   */
+  #buildMarketFloorGrid(lobbyRightX, floorD) {
+    const W = settings.world;
+    const tile = settings.supermarket.floorTileSize;
+    const lineMat = new THREE.MeshBasicMaterial({ color: settings.colors.marketTileLine });
+    const group = new THREE.Group();
+    const leftX = -W.halfX;
+    const width = lobbyRightX - leftX;
+
+    // Interior lines only — the walls and the lobby/bay seam already edge the area.
+    for (let x = leftX + tile; x < lobbyRightX - 1e-6; x += tile) {
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.06, floorD), lineMat);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(x, 0.0125, 0); // above the lobby patch (0.012), under the lane paint (0.013)
+      group.add(line);
+    }
+    for (let z = -W.halfZ + tile; z < W.halfZ - 1e-6; z += tile) {
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.06), lineMat);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(leftX + width / 2, 0.0125, z);
+      group.add(line);
+    }
+
+    group.visible = false;
+    this.group.add(group);
+    this.marketFloorGrid = group;
   }
 
   /** Yellow divider line between each pair of adjacent pit bays; shown only when
@@ -419,22 +460,80 @@ export class Garage {
     this.backDoors = this.#buildDoorRow(this.backWallZ);
     this.frontDoors = this.#buildDoorRow(this.frontWallZ);
 
-    // The supermarket's own entry/exit: same builder, but BOTH doors sit on the
-    // back wall — the exit at marketExitX, to the entry's left, instead of clear
-    // across the building on the front wall.
-    this.marketEntryDoor = this.#buildDoorRow(this.backWallZ, [settings.supermarket.marketX])[0];
-    this.marketExitDoor = this.#buildDoorRow(this.backWallZ, [settings.supermarket.marketExitX])[0];
+    // The supermarket's own entry/exit: same builder, but BOTH openings sit on
+    // the back wall — the exit at marketExitX, to the entry's left, instead of
+    // clear across the building on the front wall. The frames stand at the FAR
+    // end of the customer corridors (customerDoorZ), not on the wall itself —
+    // the wall's gap is the corridor mouth (see #buildCustomerCorridors).
+    this.marketEntryDoor = this.#buildDoorRow(settings.supermarket.customerDoorZ, [settings.supermarket.marketX])[0];
+    this.marketExitDoor = this.#buildDoorRow(settings.supermarket.customerDoorZ, [settings.supermarket.marketExitX])[0];
 
-    // The restock truck's delivery door: a single gate on the FRONT wall, at
-    // deliveryDoorX — parallel to the pit exit doors. The truck pulls up to its
-    // exterior road and stays at the gate (see scene/TruckView.js).
-    this.marketDeliveryDoor = this.#buildDoorRow(this.frontWallZ, [settings.supermarket.deliveryDoorX])[0];
+    // The restock truck's delivery door: a single gate off the FRONT wall, at
+    // deliveryDoorX — corridor-relocated like the customer doors, to the far end
+    // of its own corridor (deliveryDoorZ), keeping the automatic door clear of
+    // the shelf aisles. The truck pulls up to its exterior road and stays at the
+    // dock outside (see scene/TruckView.js).
+    this.marketDeliveryDoor = this.#buildDoorRow(settings.supermarket.deliveryDoorZ, [settings.supermarket.deliveryDoorX])[0];
+
+    this.#buildMarketCorridors();
 
     // The gas-station gate: a single door in the LEFT wall at gasStation.gateZ,
     // the player's walkway to the pump row. Same pillar/lintel shape as the
     // z-wall doors, rotated onto the x-wall; hidden (solid wall) until the
     // station's first lot is bought — toggled in update() like the market doors.
     this.gasGateDoor = this.#buildLeftDoor(settings.gasStation.gateZ);
+  }
+
+  /**
+   * The market's walk/drive-through corridors: each relocated opening (customer
+   * entry + exit on the back wall, the delivery gate on the front wall) extends
+   * outward as a floor slab flanked by two side walls, running from the building
+   * to the relocated door frame (customerDoorZ / deliveryDoorZ). Shown only once
+   * the supermarket is open, together with the market door frames (see
+   * update()). Lengths are the customerCorridorLength / deliveryCorridorLength
+   * knobs in settings.supermarket.
+   */
+  #buildMarketCorridors() {
+    const W = settings.world;
+    const S = settings.supermarket;
+    const g = W.gateHalf;
+    const t = W.wallThickness;
+    const h = W.wallHeight;
+
+    const group = new THREE.Group();
+    // Matches the lobby floor the corridors spill out of, so they read as one space.
+    const floorMat = new THREE.MeshStandardMaterial({ color: settings.colors.lobby });
+
+    // One corridor from the building wall's slab centre (wallZ) out to the
+    // relocated door plane (doorZ); works on either wall — the direction falls
+    // out of the two z's.
+    const corridor = (doorX, wallZ, doorZ) => {
+      const dir = Math.sign(doorZ - wallZ);
+      // Floor: the corridor interior, from the building wall out past the door frame.
+      const depth = Math.abs(doorZ) + t / 2 - W.halfZ;
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(g * 2, depth), floorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(doorX, 0.012, dir * (W.halfZ + depth / 2));
+      floor.receiveShadow = true;
+      group.add(floor);
+
+      // Side walls: from the building wall's slab to the door plane, flanking the gap.
+      for (const side of [-1, 1]) {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, Math.abs(doorZ - wallZ)), this.wallMat);
+        wall.position.set(doorX + side * (g + t / 2), h / 2, (wallZ + doorZ) / 2);
+        wall.castShadow = true;
+        wall.receiveShadow = true;
+        group.add(wall);
+      }
+    };
+
+    corridor(S.marketX, this.backWallZ, S.customerDoorZ);
+    corridor(S.marketExitX, this.backWallZ, S.customerDoorZ);
+    corridor(S.deliveryDoorX, this.frontWallZ, S.deliveryDoorZ);
+
+    group.visible = false;
+    this.group.add(group);
+    this.marketCorridors = group;
   }
 
   /** A door on the LEFT wall (x = -halfX): pillars flank the gap along z. */
@@ -446,9 +545,11 @@ export class Garage {
     const x = -W.halfX - W.wallThickness / 2;
 
     const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
+    // Pillar tops sit flush with the wall top (y = h), like the lintel — nothing
+    // pokes above the frame.
     const pillar = (z) => {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h * 1.6, 0.6), gateMat);
-      p.position.set(x, h * 0.8, z);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h, 0.6), gateMat);
+      p.position.set(x, h / 2, z);
       p.castShadow = true;
       p.visible = false;
       this.group.add(p);
@@ -472,9 +573,11 @@ export class Garage {
     const g = W.gateHalf;
 
     const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
+    // Pillar tops sit flush with the wall top (y = h), like the lintel — nothing
+    // pokes above the frame.
     const pillar = (x) => {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h * 1.6, 0.6), gateMat);
-      p.position.set(x, h * 0.8, z);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h, 0.6), gateMat);
+      p.position.set(x, h / 2, z);
       p.castShadow = true;
       p.visible = false;
       this.group.add(p);

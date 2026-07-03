@@ -75,7 +75,7 @@ export class UpgradeMenu {
       transform: 'translateY(-50%)',
       display: 'none',
       flexDirection: 'column',
-      width: '224px',
+      width: '316px',
       maxHeight: '88vh',
       background: 'linear-gradient(180deg, #12151d 0%, #0b0d13 100%)',
       border: '7px solid #23262e',

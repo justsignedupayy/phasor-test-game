@@ -5,7 +5,8 @@ import { formatMoney } from '../core/format.js';
  * plus a small badge under it counting down an active rewarded-ad rep boost.
  */
 export class Hud {
-  constructor() {
+  constructor(state) {
+    this.state = state;
     // Top-center column: the cash counter with the boost badge flowing directly
     // beneath it. Stacking in a flex column (rather than two fixed elements with
     // hardcoded `top` values) keeps the badge correctly placed even as the cash
@@ -52,36 +53,56 @@ export class Hud {
     document.body.appendChild(wrap);
     this.wrap = wrap;
 
-    this.#buildResetButton();
+    this.#buildDebugButtons();
 
     this.update(0, 0);
   }
 
-  #buildResetButton() {
-    const btn = document.createElement('button');
-    btn.textContent = 'RESET';
-    Object.assign(btn.style, {
+  // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe save).
+  #buildDebugButtons() {
+    const row = document.createElement('div');
+    Object.assign(row.style, {
       position: 'fixed',
       right: '14px',
       top: '14px',
+      display: 'flex',
+      gap: '8px',
+      zIndex: '17',
+    });
+
+    const cashBtn = this.#debugButton('💵 QUICK CASH', '#27ae60');
+    cashBtn.addEventListener('click', () => {
+      this.state.cash += 1000;
+    });
+    this.quickCashButton = cashBtn;
+
+    const resetBtn = this.#debugButton('RESET', '#c0392b');
+    resetBtn.addEventListener('click', () => {
+      localStorage.clear();
+      location.reload();
+    });
+    this.resetButton = resetBtn;
+
+    row.append(cashBtn, resetBtn);
+    document.body.appendChild(row);
+  }
+
+  #debugButton(text, background) {
+    const btn = document.createElement('button');
+    btn.textContent = text;
+    Object.assign(btn.style, {
       padding: '10px 14px',
       borderRadius: '10px',
       border: 'none',
-      background: '#c0392b',
+      background,
       color: '#fff',
       fontWeight: '800',
       fontSize: '14px',
       fontFamily: 'Arial, sans-serif',
       cursor: 'pointer',
-      zIndex: '17',
       boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
     });
-    btn.addEventListener('click', () => {
-      localStorage.clear();
-      location.reload();
-    });
-    document.body.appendChild(btn);
-    this.resetButton = btn;
+    return btn;
   }
 
   update(cash, repBoostRemaining = 0) {

@@ -65,15 +65,22 @@ function clearPath(mover) {
  * Plan a mover's route to target — normally plain A* (findPath), with one special
  * case that threads a mandatory gap waypoint first:
  *
- *  • Customer EXIT (target = the outside exit point): A* to the BACK-wall exit-door
- *    gap { marketExitX, halfZ } — which routes the customer AROUND the inflated
- *    checkout box instead of straight through it — then a direct leg out through the
- *    gap. (Entry needs none: its straight path already clears the box and its own door.)
+ *  • Customer EXIT (target = the outside exit point): A* to the BACK-wall exit
+ *    corridor mouth { marketExitX, halfZ } — which routes the customer AROUND the
+ *    inflated checkout box instead of straight through it — then a direct leg out
+ *    along the exit corridor, through its far-end door.
+ *
+ *  • Customer ENTRY (mover still outside the back wall, walking to a queue slot):
+ *    the mirror image — a straight leg down the entry corridor to its mouth
+ *    { marketX, halfZ }, then A* from the mouth to the slot, so the outside leg
+ *    never cuts across the corridor's side walls.
  *
  *  • Crossing the FRONT wall (the restock box sits on the exterior dock just
- *    outside it): thread the delivery-door gate { deliveryDoorX, -halfZ } between
- *    the in-room A* leg and the straight off-grid leg, in either direction —
- *    handled by the front-gate case below.
+ *    outside it): thread the delivery corridor — its mouth { deliveryDoorX,
+ *    -halfZ } AND the outside turn-point past its far-end door
+ *    (deliveryDoorOutside) — between the in-room A* leg and the straight
+ *    off-grid leg to the box, in either direction, so the outside leg walks the
+ *    corridor axis instead of cutting through its side walls.
  *
  * Every special route still uses findPath for the in-room leg, so the A* grid is
  * the single source of static obstacle avoidance; only the gap waypoint is
@@ -84,28 +91,42 @@ function planRoute(mover, target) {
   const M = settings.supermarket;
   const pos = mover.position;
 
-  // Customer leaving: A* to the exit door (routes around the checkout box), then out.
+  // Customer leaving: A* to the exit corridor's mouth (routes around the checkout
+  // box), then straight out along the corridor through its far-end door.
   if (samePoint(target, M.customerExitOutside)) {
     const exitDoor = { x: M.marketExitX, z: W.halfZ };
     const toDoor = findPath(grid, pos, exitDoor);
     return toDoor ? [...toDoor, exitDoor] : [exitDoor];
   }
 
-  // Crossing the FRONT wall (the restock box sits just outside it) now that the
-  // wall is solid except at the delivery-door gate: thread that gate so the route
-  // honours the wall instead of walking through it. The off-wall leg is a straight
-  // shot (no A* grid out there) — same shape as the customer-exit case above, just
-  // through the front gate, and handling both directions (out to the box / back in).
+  // Customer arriving (still outside the back wall, i.e. in the entry corridor):
+  // straight down the corridor to its mouth, then A* from the mouth to the queue
+  // slot — the exit case's mirror, pointed the other way.
+  if (pos.z > W.halfZ && target.z < W.halfZ) {
+    const entryMouth = { x: M.marketX, z: W.halfZ };
+    const fromMouth = findPath(grid, entryMouth, target);
+    return fromMouth ? [entryMouth, ...fromMouth] : [entryMouth];
+  }
+
+  // Crossing the FRONT wall (the restock box sits just outside it): thread the
+  // delivery corridor — the gate at the wall, then straight down the corridor to
+  // the turn-point past its far-end door (deliveryDoorOutside) — so the route
+  // honours the corridor's side walls instead of cutting through them. The
+  // remaining off-wall leg to/from the box is a straight shot (no A* grid out
+  // there), same shape as the customer cases above, in both directions.
   const frontGate = { x: M.deliveryDoorX, z: -W.halfZ };
   const targetOutsideFront = target.z < -W.halfZ;
   const posOutsideFront = pos.z < -W.halfZ;
   if (targetOutsideFront && !posOutsideFront) {
     const toGate = findPath(grid, pos, frontGate);
-    return toGate ? [...toGate, frontGate] : [frontGate];
+    return toGate ? [...toGate, frontGate, M.deliveryDoorOutside] : [frontGate, M.deliveryDoorOutside];
   }
   if (posOutsideFront && !targetOutsideFront) {
     const fromGate = findPath(grid, frontGate, target);
-    return fromGate ? [frontGate, ...fromGate] : [frontGate];
+    // Swing out past the door only when actually beyond its plane — a mover
+    // already inside the corridor heads straight for the mouth instead.
+    const head = pos.z < M.deliveryDoorZ ? [M.deliveryDoorOutside, frontGate] : [frontGate];
+    return fromGate ? [...head, ...fromGate] : head;
   }
 
   return findPath(grid, pos, target);

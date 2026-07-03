@@ -49,7 +49,10 @@ export function buildGrid(s, extraBoxes = []) {
   // walkable, so NPCs can route THROUGH the gate via A* instead of only the direct
   // fallback. Front wall (z = -halfZ): the supermarket delivery/restock gate
   // (deliveryDoorX). Back wall (z = +halfZ): the customer entry (marketX) + exit
-  // (marketExitX) doors. Mirrors the gate gaps Garage.js carves in the wall meshes.
+  // (marketExitX) corridor MOUTHS — the actual doors sit further out at the far
+  // end of each corridor (customerDoorZ, off-grid; supermarket.planRoute threads
+  // these mouths and walks the corridor leg straight). Mirrors the gate gaps
+  // Garage.js carves in the wall meshes.
   const g = W.gateHalf;
   const frontDoorXs = [M.deliveryDoorX];
   const backDoorXs = [M.marketX, M.marketExitX];

@@ -102,6 +102,26 @@ export function buildObstacleList(state, settings, opts = {}) {
       halfX: M.checkoutCollisionHalf.x,
       halfZ: M.checkoutCollisionHalf.z,
     });
+
+    // The delivery corridor's two side walls (front-wall mouth → the relocated
+    // door at deliveryDoorZ), matching Garage's corridor meshes — solid so the
+    // player walking out to the restock dock stays inside the corridor. They lie
+    // outside the A* grid's z range bar a sliver at the mouth (which only trims
+    // the gap's edge cells); NPCs thread the corridor via waypoints anyway. The
+    // player can never reach the back-wall customer corridors (that wall is
+    // solid for the player), so those stay scene-only.
+    const W = settings.world;
+    const corridorWallX = W.gateHalf + W.wallThickness / 2;
+    const corridorZ = (-W.halfZ + M.deliveryDoorZ) / 2;
+    const corridorHalfZ = (Math.abs(M.deliveryDoorZ) - W.halfZ) / 2;
+    for (const side of [-1, 1]) {
+      boxes.push({
+        x: M.deliveryDoorX + side * corridorWallX,
+        z: corridorZ,
+        halfX: W.wallThickness / 2,
+        halfZ: corridorHalfZ,
+      });
+    }
   }
 
   if (garage) {

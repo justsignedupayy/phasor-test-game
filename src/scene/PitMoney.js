@@ -23,6 +23,17 @@ export function preloadMoneyModel() {
   if (!moneyModelPromise) {
     moneyModelPromise = new GLTFLoader().loadAsync('/models/Money.glb').then((gltf) => {
       moneyModel = gltf.scene;
+      // Green tint (settings.money.cashTintColor): multiply every material's base
+      // colour so the glb's shading detail survives — same approach as the gas
+      // pump prop's pumpTintColor. Tinting the base once covers every bill clone
+      // (clone() shares these materials).
+      const tint = new THREE.Color(settings.money.cashTintColor);
+      moneyModel.traverse((o) => {
+        if (!o.isMesh || !o.material) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (m.color) m.color.multiply(tint);
+        }
+      });
     });
   }
   return moneyModelPromise;

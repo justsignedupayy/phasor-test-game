@@ -486,6 +486,8 @@ check('worker speed raises only its own pit rate', () => {
   const s = createInitialState();
   s.cash = 1e9;
   const r0 = workerSpeed(s.pits[0]);
+  assert.equal(buyWorkerSpeed(s, 0), false, 'gated until the mechanic is hired');
+  hireMechanic(s, 0);
   assert.equal(buyWorkerSpeed(s, 0), true);
   assert.ok(workerSpeed(s.pits[0]) > r0);
   assert.equal(workerSpeed(s.pits[1]), r0); // untouched
@@ -496,6 +498,8 @@ check('fixing time lowers required ticks for its own pit (with a floor)', () => 
   s.cash = 1e9;
   const car = { baseTicks: settings.repair.ticksPerPart * 3 };
   const before = requiredTicks(car, s.pits[0]);
+  assert.equal(buyFixingTime(s, 0), false, 'gated until the mechanic is hired');
+  hireMechanic(s, 0);
   buyFixingTime(s, 0);
   assert.ok(requiredTicks(car, s.pits[0]) < before);
   for (let i = 0; i < 50; i++) buyFixingTime(s, 0); // hit max
@@ -505,6 +509,7 @@ check('fixing time lowers required ticks for its own pit (with a floor)', () => 
 check('upgrade cost grows with level', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  hireMechanic(s, 0);
   const c0 = settings.upgrades.fixingTime.baseCost;
   buyFixingTime(s, 0);
   const before = s.cash;
@@ -1727,6 +1732,8 @@ check('attendant speed raises only its own pump rate, capped at maxLevel', () =>
   openGasPump(s, 1);
   s.cash = 1e9;
   const r0 = attendantSpeed(s.gasStation.pumps[0]);
+  assert.equal(buyAttendantSpeed(s, 0), false, 'gated until the attendant is hired');
+  hireAttendant(s, 0);
   assert.equal(buyAttendantSpeed(s, 0), true);
   assert.ok(attendantSpeed(s.gasStation.pumps[0]) > r0);
   assert.equal(attendantSpeed(s.gasStation.pumps[1]), r0); // untouched

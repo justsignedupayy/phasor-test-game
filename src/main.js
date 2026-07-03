@@ -34,6 +34,7 @@ import { GasStationView } from './scene/GasStationView.js';
 import { BreakMenu } from './scene/BreakMenu.js';
 import { TruckMenu } from './scene/TruckMenu.js';
 import { UnlockMarkers } from './scene/UnlockMarkers.js';
+import { SlidingDoors } from './scene/SlidingDoors.js';
 
 const container = document.getElementById('app');
 
@@ -48,7 +49,7 @@ seedIdCounter(state); // keep newly spawned ids past whatever the save already u
 rebuildGrid([roomWallBox(ownedRightX(state))]);
 const sceneManager = new SceneManager(container);
 const input = new Input();
-const hud = new Hud();
+const hud = new Hud(state);
 const menu = new UpgradeMenu(state);
 
 const garage = new Garage(sceneManager);
@@ -84,6 +85,9 @@ async function main() {
   // World-space create/hire purchases: ground circles tapped in range (step-1
   // physical unlocks; see core/upgrades.getUnlockMarkers).
   const unlockMarkers = new UnlockMarkers(sceneManager);
+  // Automatic sliding glass doors on the walk-in entrances (gas gate, customer
+  // entry/exit, delivery gate); the delivery door also tracks the truck's tween.
+  const slidingDoors = new SlidingDoors(sceneManager, () => supermarketView.truck.model);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -261,6 +265,7 @@ async function main() {
     character.update(dt, state.player);
     carriedBox.update(state.player);
     garage.update(dt, state);
+    slidingDoors.update(dt, state);
     carYard.update(dt, state);
     supermarketView.update(dt, state);
     gasStationView.update(dt, state);

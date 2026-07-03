@@ -205,13 +205,15 @@ export class PitView {
   }
 }
 
-// Remove a cloned storage mesh from the scene and free its geometry/materials
-// (materials are per-clone — see cloneStorageModel — so disposing is safe).
-// Exported for the gas station's seat swap (see scene/GasStationView.js).
+// Remove a cloned storage mesh from the scene and free ONLY its per-clone
+// materials (see cloneStorageModel). The geometry is NOT freed: clone() shares
+// it with the session-lifetime base model and every other clone of that prop,
+// so disposing it here would break them (the shared-resource hazard
+// CarView.dispose documents). Exported for the gas station's seat swap
+// (see scene/GasStationView.js).
 export function disposeStorageMesh(sceneManager, mesh) {
   sceneManager.remove(mesh);
   mesh.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
     if (o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach((mt) => mt.dispose());

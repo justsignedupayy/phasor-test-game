@@ -740,11 +740,15 @@ function updateWorker(state, dt) {
 
 // --- restock box + delivery truck -------------------------------------------
 
-/** Seconds between truck deliveries at the current "Faster Deliveries" level. */
-export function truckDeliveryInterval(state) {
-  const intervals = settings.supermarket.truck.intervals;
-  const lvl = Math.min(state.supermarket.truckUpgradeLevel, intervals.length - 1);
-  return intervals[lvl];
+/** Highest "Faster Deliveries" level (last entry of truck.deliveryTimes). */
+const MAX_TRUCK_LEVEL = settings.supermarket.truck.deliveryTimes.length - 1;
+
+/** Seconds from placing an order to the truck's arrival at the current
+ * "Faster Deliveries" level. */
+export function truckDeliveryTime(state) {
+  const times = settings.supermarket.truck.deliveryTimes;
+  const lvl = Math.min(state.supermarket.truckUpgradeLevel, MAX_TRUCK_LEVEL);
+  return times[lvl];
 }
 
 /**
@@ -760,18 +764,43 @@ export function takeRestockUnit(state) {
 }
 
 /**
- * Advance the delivery-truck clock. Once truckTimer reaches the current interval
- * a truck is dispatched (truckArriving = true) and the timer resets; the scene
- * plays the drive-in and calls deliverStock() when it lands. While a truck is in
- * flight the timer holds, so the next interval only starts counting after the
- * delivery completes.
+ * Place a delivery order: the truck is idle until ordered, then arrives
+ * truckDeliveryTime() seconds later (tickTruck counts it down). Called from the
+ * phone menu's Order Truck row / the empty-box panel, and automatically by
+ * tickTruck at the max "Faster Deliveries" level. Refused while an order is
+ * already pending or a truck is in flight, and when the box is already full
+ * (nothing to deliver).
+ */
+export function orderTruck(state) {
+  const S = state.supermarket;
+  if (!S.unlocked || S.truckOrdered || S.truckArriving) return false;
+  if (S.restockBox.units >= S.restockBox.maxUnits) return false;
+  S.truckOrdered = true;
+  S.truckTimer = 0;
+  return true;
+}
+
+/**
+ * Advance the delivery-truck order clock. The truck only moves against a placed
+ * order (orderTruck): truckTimer counts up while one is pending, and on reaching
+ * truckDeliveryTime() the truck is dispatched (truckArriving = true, order
+ * consumed); the scene plays the drive-in and calls deliverStock() when it
+ * lands. At the MAX "Faster Deliveries" level the order itself is placed
+ * automatically the instant the restock box runs dry — below it, an empty box
+ * simply blocks restocking until the player orders (the same waits-for-the-
+ * player pattern as manual restocking before the worker is trained).
  */
 export function tickTruck(state, dt) {
   const S = state.supermarket;
-  if (S.truckArriving) return; // a truck is already on its way — hold the clock
+  // Final tier: auto-order the moment the box empties.
+  if (S.truckUpgradeLevel >= MAX_TRUCK_LEVEL && S.restockBox.units <= 0) {
+    orderTruck(state); // no-op if already ordered / in flight
+  }
+  if (!S.truckOrdered || S.truckArriving) return;
   S.truckTimer += dt;
-  if (S.truckTimer >= truckDeliveryInterval(state)) {
+  if (S.truckTimer >= truckDeliveryTime(state)) {
     S.truckArriving = true;
+    S.truckOrdered = false;
     S.truckTimer = 0;
   }
 }
@@ -788,13 +817,15 @@ export function deliverStock(state) {
 }
 
 /**
- * Summon the truck immediately (the rewarded-ad "Call Truck Early" path): fast-
- * forward the clock so the very next tickTruck dispatches a delivery. No-op if a
- * truck is already in flight.
+ * Skip a placed order's wait (the rewarded-ad "Call Truck Early" path): fast-
+ * forward the order clock so the very next tickTruck dispatches the delivery.
+ * Requires an order to be pending (manual, or auto at the max level) — with no
+ * order there is nothing to hurry — and is a no-op while a truck is in flight.
  */
 export function callTruckEarly(state) {
-  if (state.supermarket.truckArriving) return;
-  state.supermarket.truckTimer = truckDeliveryInterval(state);
+  const S = state.supermarket;
+  if (!S.truckOrdered || S.truckArriving) return;
+  S.truckTimer = truckDeliveryTime(state);
 }
 
 // --- top-level tick -----------------------------------------------------------
@@ -807,6 +838,6 @@ export function tickSupermarket(state, dt) {
   updateCustomerSpawning(state, dt);
   updateCustomers(state, dt);
   if (state.supermarket.workerLevel >= 1) updateWorker(state, dt);
-  tickTruck(state, dt); // advance the delivery-truck clock; dispatches on interval
+  tickTruck(state, dt); // advance a placed order's clock (auto-orders at max level); dispatches when due
   separateMovingAgents(state); // light agent-agent overlap net, after everyone has moved
 }

@@ -14,7 +14,7 @@
  */
 import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
-import { createMarketWorker } from './supermarket.js';
+import { createMarketWorker, truckDeliveryTime } from './supermarket.js';
 import { breakDuration } from './breaks.js';
 import { roomWallBox } from './collision.js';
 import { rebuildGrid } from './pathfinding.js';
@@ -159,8 +159,8 @@ export function marketWorkerTrainCost(state) {
   return settings.supermarket.workerTrainCost;
 }
 
-/** Highest truck-frequency level (last interval in the array). */
-const TRUCK_MAX_LEVEL = settings.supermarket.truck.intervals.length - 1;
+/** Highest truck-frequency level (last entry of truck.deliveryTimes). */
+const TRUCK_MAX_LEVEL = settings.supermarket.truck.deliveryTimes.length - 1;
 
 /** Geometric cost of the next "Faster Deliveries" level. */
 export function truckFrequencyCost(state) {
@@ -708,30 +708,73 @@ function supermarketRows(state) {
   // room can be upgraded — the market counterpart of each pit worker's row.
   if (S.worker) rows.push(breakRoomRow(state, S.worker.break, 'marketBreakRoom', undefined));
 
-  // Global restock-truck frequency upgrade (always shown once the market is open).
+  // The restock truck: idle until a delivery is ORDERED here (or at the
+  // empty-box panel), plus the global delivery-time upgrade. Both always shown
+  // once the market is open.
+  rows.push(orderTruckRow(state));
   rows.push(truckFrequencyRow(state));
 
   return rows;
 }
 
 /**
- * The "Faster Deliveries" row: steps the restock-truck interval down a level. The
- * label is constant (only effect/cost refresh live in the menu without a rebuild);
- * the level number rides the effect line, like Worker Speed / Fixing Time.
+ * The "Order Truck" row: the restock truck sits idle until a delivery is
+ * ordered (core/supermarket.orderTruck) — this row is the phone-menu trigger
+ * and the live order-state readout (idle / ordered + countdown / en route /
+ * stock full). The label is constant; only effect/cost/disabled refresh live.
+ * At the max Faster Deliveries level orders place themselves the moment the
+ * box empties, so the button is mostly a pre-order convenience there.
+ */
+function orderTruckRow(state) {
+  const S = state.supermarket;
+  const box = S.restockBox;
+  const label = 'Order Truck';
+  const stock = `Box ${box.units}/${box.maxUnits}`;
+  if (S.truckArriving) {
+    return { kind: 'orderTruck', label, effect: `${stock} — truck arriving…`, cost: 'EN ROUTE', disabled: true };
+  }
+  if (S.truckOrdered) {
+    const remaining = Math.max(0, Math.ceil(truckDeliveryTime(state) - S.truckTimer));
+    return { kind: 'orderTruck', label, effect: `${stock} — arriving in ${remaining}s`, cost: 'ORDERED', disabled: true };
+  }
+  if (box.units >= box.maxUnits) {
+    return { kind: 'orderTruck', label, effect: `${stock} — stock is full`, cost: 'FULL', disabled: true };
+  }
+  const effect =
+    S.truckUpgradeLevel >= TRUCK_MAX_LEVEL
+      ? `${stock} — auto-orders when empty`
+      : `${stock} — delivery takes ${truckDeliveryTime(state)}s`;
+  return { kind: 'orderTruck', label, effect, cost: 'ORDER', disabled: false };
+}
+
+/**
+ * The "Faster Deliveries" row: steps an ORDERED truck's delivery time (order →
+ * arrival) down a level; the final level also turns on auto-ordering the moment
+ * the restock box empties. The label is constant (only effect/cost refresh live
+ * in the menu without a rebuild); the level number rides the effect line, like
+ * Worker Speed / Fixing Time.
  */
 const ROMAN = ['I', 'II', 'III'];
 function truckFrequencyRow(state) {
-  const intervals = settings.supermarket.truck.intervals;
+  const times = settings.supermarket.truck.deliveryTimes;
   const lvl = state.supermarket.truckUpgradeLevel;
-  const cur = intervals[Math.min(lvl, intervals.length - 1)];
+  const cur = times[Math.min(lvl, TRUCK_MAX_LEVEL)];
   if (lvl >= TRUCK_MAX_LEVEL) {
-    return { kind: 'truckFrequency', label: 'Faster Deliveries', effect: `Truck every ${cur}s`, cost: 'MAX', disabled: true };
+    return {
+      kind: 'truckFrequency',
+      label: 'Faster Deliveries',
+      effect: `Delivery ${cur}s + auto-order when empty`,
+      cost: 'MAX',
+      disabled: true,
+    };
   }
   const cost = truckFrequencyCost(state);
+  // The last purchasable level also unlocks auto-ordering — say so up front.
+  const autoNote = lvl + 1 >= TRUCK_MAX_LEVEL ? ' + auto-order' : '';
   return {
     kind: 'truckFrequency',
     label: 'Faster Deliveries',
-    effect: `${ROMAN[lvl]}: truck ${cur}s → ${intervals[lvl + 1]}s`,
+    effect: `${ROMAN[lvl]}: delivery ${cur}s → ${times[lvl + 1]}s${autoNote}`,
     cost: `$${formatMoney(cost)}`,
     disabled: state.cash < cost,
   };

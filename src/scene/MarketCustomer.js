@@ -90,8 +90,16 @@ export class MarketCustomer {
     }
 
     sceneManager.remove(this.root);
+    // The head label's canvas texture is per-instance (see makeRequestSprite)
+    // and is NOT freed by its material's dispose — release it explicitly.
+    this.headLabel.userData.tex.dispose();
+    // Dispose ONLY per-instance materials (tintMesh clones them). The skinned
+    // geometry is NOT ours: SkeletonUtils.clone shares it with the base gltf
+    // used by the player and every worker NPC, so disposing it here would break
+    // them (the shared-resource hazard CarView.dispose documents). The tinted
+    // materials' texture maps are shared with the base too — material.dispose()
+    // leaves maps alone, which is exactly right.
     this.root.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
       if (o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((m) => m.dispose());

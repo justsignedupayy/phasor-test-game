@@ -300,11 +300,13 @@ export class SupermarketView {
   }
 }
 
-// Remove a cloned seat from the scene and free its (per-clone) geometry/materials.
+// Remove a cloned seat from the scene and free ONLY its per-clone materials
+// (see cloneStorageModel). The geometry stays: clone() shares it with the
+// session-lifetime base model and every other Chair/couch clone, so disposing
+// it here would break them (the shared-resource hazard CarView.dispose documents).
 function disposeSeat(sceneManager, mesh) {
   sceneManager.remove(mesh);
   mesh.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
     if (o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach((m) => m.dispose());

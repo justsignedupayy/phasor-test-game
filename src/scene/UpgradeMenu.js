@@ -11,6 +11,7 @@ import {
   buyGasBreakRoom,
 } from '../core/upgrades.js';
 import settings from '../config/settings.js';
+import { orderTruck } from '../core/supermarket.js';
 import { getReputationMenuModel, buyAdvertising, activateRepBoost } from '../core/reputation.js';
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
@@ -19,14 +20,18 @@ import { saveGame } from '../platform/storage.js';
  * UpgradeMenu — the TUNING purchases in one DOM overlay, opened by its own
  * corner button (top-left). Create/hire purchases (expand lots, equip, hire
  * workers, open the market/station) live at physical world markers instead —
- * see core/upgrades.getUnlockMarkers + scene/UnlockMarkers.js. Sections here:
- * Automation, Supermarket (train/breaks/deliveries), Workers (speed/fixing/
- * breaks per equipped pit), Attendants (speed/breaks per hired pump), and
- * Advertising (permanent rep purchase + rewarded-ad boost) at the bottom.
+ * see core/upgrades.getUnlockMarkers + scene/UnlockMarkers.js.
+ *
+ * The panel is dressed as a TABLET, its upgrades split across four category
+ * tabs (left to right): Garage (auto-restock + per-pit worker tuning), Market
+ * (train/breaks/truck), Gas Station (per-pump attendant tuning) and
+ * Advertising (permanent rep purchase + rewarded-ad boost). Only the active
+ * tab's rows exist in the DOM at a time.
  *
  * Hidden until open(); the structure can change while open (pits get
- * equipped/hired at their markers) so update() rebuilds the DOM when the row
- * signature changes and only refreshes text/disabled state otherwise.
+ * equipped/hired at their markers, tabs switch) so update() rebuilds the DOM
+ * when the row signature — which includes the active tab — changes, and only
+ * refreshes text/disabled state otherwise.
  */
 export class UpgradeMenu {
   constructor(state) {
@@ -34,6 +39,7 @@ export class UpgradeMenu {
     this.isOpen = false;
     this.rowEls = new Map(); // rowKey -> { effect, button }
     this.sig = '';
+    this.activeTab = 'garage'; // 'garage' | 'market' | 'gas' | 'ads'
 
     this.#buildButton();
     this.#buildPanel();
@@ -63,9 +69,10 @@ export class UpgradeMenu {
     this.button = btn;
   }
 
-  // The panel is dressed as a PHONE: a dark bezel frame with heavily rounded
-  // corners, a notch pill at the top, an app-bar header, and a home-indicator
-  // bar under the scrolling "screen". Pure CSS/DOM — no 3D involved.
+  // The panel is dressed as a TABLET: a wider screen in a slim, even dark
+  // bezel with moderately rounded corners, a front-camera dot at the top (no
+  // phone notch), an app-bar header, the category tab strip, and a
+  // home-indicator bar under the scrolling "screen". Pure CSS/DOM — no 3D.
   #buildPanel() {
     const panel = document.createElement('div');
     Object.assign(panel.style, {
@@ -75,31 +82,37 @@ export class UpgradeMenu {
       transform: 'translateY(-50%)',
       display: 'none',
       flexDirection: 'column',
-      width: '316px',
-      maxHeight: '88vh',
+      // A proper tablet-sized surface, clamped so it still fits small screens.
+      width: '1050px',
+      maxWidth: 'calc(100vw - 20px)',
+      // FIXED height: the frame never grows/shrinks with the active tab's
+      // content — a sparse category shows empty screen below its rows, a dense
+      // one scrolls inside the content area (which flexes to fill the rest).
+      height: 'min(840px, 88vh)',
       background: 'linear-gradient(180deg, #12151d 0%, #0b0d13 100%)',
-      border: '7px solid #23262e',
-      borderRadius: '34px',
+      border: '12px solid #23262e',
+      borderRadius: '26px',
       boxShadow: '0 14px 40px rgba(0,0,0,0.6), inset 0 0 0 2px #05060a',
-      padding: '10px 12px 12px',
+      padding: '8px 16px 12px',
       zIndex: '16',
       fontFamily: "-apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
       color: '#e7ecf2',
     });
 
-    // The notch: a centred dark pill "cut into" the top of the screen.
-    const notch = document.createElement('div');
-    Object.assign(notch.style, {
-      width: '80px',
-      height: '17px',
-      margin: '-4px auto 8px',
-      background: '#23262e',
-      borderRadius: '0 0 12px 12px',
+    // Front camera: a small centred lens dot where the phone's notch used to be.
+    const camera = document.createElement('div');
+    Object.assign(camera.style, {
+      width: '8px',
+      height: '8px',
+      margin: '0 auto 6px',
+      background: '#05060a',
+      border: '2px solid #1c2029',
+      borderRadius: '50%',
       flexShrink: '0',
     });
-    panel.appendChild(notch);
+    panel.appendChild(camera);
 
-    // App bar: title + close, like a phone app's header.
+    // App bar: title + close, like a tablet app's header.
     const header = document.createElement('div');
     Object.assign(header.style, {
       display: 'flex',
@@ -129,21 +142,27 @@ export class UpgradeMenu {
     header.append(title, closeBtn);
     panel.appendChild(header);
 
+    this.#buildTabs(panel);
+
     const content = document.createElement('div');
     Object.assign(content.style, {
       display: 'flex',
       flexDirection: 'column',
       gap: '8px',
+      // Fill whatever the fixed-height frame leaves after the header/tabs/home
+      // bar, and scroll internally past that — the frame itself never resizes.
+      flex: '1 1 auto',
+      minHeight: '0',
       overflowY: 'auto',
       userSelect: 'none',
     });
     panel.appendChild(content);
     this.content = content;
 
-    // Home-indicator bar under the screen, closing the phone silhouette.
+    // Home-indicator bar under the screen, closing the tablet silhouette.
     const homeBar = document.createElement('div');
     Object.assign(homeBar.style, {
-      width: '86px',
+      width: '130px',
       height: '4px',
       margin: '10px auto 0',
       background: 'rgba(255,255,255,0.28)',
@@ -154,6 +173,55 @@ export class UpgradeMenu {
 
     document.body.appendChild(panel);
     this.panel = panel;
+  }
+
+  // The four category tabs, left to right; exactly one is active and only its
+  // rows are built (see #rebuild + structureSignature).
+  #buildTabs(panel) {
+    const TABS = [
+      ['garage', 'Garage'],
+      ['market', 'Market'],
+      ['gas', 'Gas Station'],
+      ['ads', 'Advertising'],
+    ];
+    const bar = document.createElement('div');
+    Object.assign(bar.style, { display: 'flex', gap: '5px', marginBottom: '8px', flexShrink: '0' });
+    this.tabButtons = new Map();
+    for (const [key, label] of TABS) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      Object.assign(b.style, {
+        flex: '1',
+        padding: '7px 2px',
+        borderRadius: '9px',
+        border: 'none',
+        fontWeight: '800',
+        fontSize: '11px',
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      });
+      b.addEventListener('click', () => this.#selectTab(key));
+      bar.appendChild(b);
+      this.tabButtons.set(key, b);
+    }
+    panel.appendChild(bar);
+    this.#styleTabs();
+  }
+
+  #selectTab(key) {
+    if (this.activeTab === key) return;
+    this.activeTab = key;
+    this.#styleTabs();
+    if (this.isOpen) this.update(this.state); // the signature includes the tab → rebuilds now
+  }
+
+  /** Active tab reads as the pressed key; the rest recede into the bezel. */
+  #styleTabs() {
+    for (const [key, b] of this.tabButtons) {
+      const active = key === this.activeTab;
+      b.style.background = active ? '#3ad06a' : 'rgba(255,255,255,0.07)';
+      b.style.color = active ? '#06310f' : '#9fb0c0';
+    }
   }
 
   open() {
@@ -176,7 +244,7 @@ export class UpgradeMenu {
   update(state) {
     if (!this.isOpen) return;
     const model = getMenuModel(state);
-    const sig = structureSignature(model);
+    const sig = structureSignature(model, this.activeTab);
     if (sig !== this.sig) {
       this.sig = sig;
       this.#rebuild(model);
@@ -190,36 +258,66 @@ export class UpgradeMenu {
   #rebuild(model) {
     this.content.replaceChildren();
     this.rowEls.clear();
+    this.adRepLine = null; // recreated below only while the Advertising tab is up
 
     // Create/hire purchases live at their world markers (scene/UnlockMarkers.js),
-    // so the phone carries tuning sections only — and skips any that are empty
-    // (e.g. Supermarket before it's been opened at its floor marker).
-    this.content.appendChild(this.#sectionHeader('Automation'));
-    this.content.appendChild(this.#card(null, model.automation));
-
-    if (model.supermarket.length > 0) {
-      this.content.appendChild(this.#sectionHeader('Supermarket'));
-      this.content.appendChild(this.#card(null, model.supermarket));
-    }
-
-    if (model.workers.length > 0) {
-      this.content.appendChild(this.#sectionHeader('Workers'));
-      for (const worker of model.workers) {
-        this.content.appendChild(this.#card(worker.title, worker.rows));
+    // so the tablet carries tuning upgrades only, split across the category
+    // tabs — only the active tab's rows are built. A category whose content
+    // hasn't been unlocked yet shows a hint instead of an empty screen.
+    if (this.activeTab === 'garage') {
+      this.content.appendChild(this.#sectionHeader('Automation'));
+      this.content.appendChild(this.#card(null, model.automation));
+      if (model.workers.length > 0) {
+        this.content.appendChild(this.#sectionHeader('Workers'));
+        const grid = this.#cardGrid();
+        for (const worker of model.workers) grid.appendChild(this.#card(worker.title, worker.rows));
+        this.content.appendChild(grid);
       }
-    }
-
-    if (model.attendants.length > 0) {
-      this.content.appendChild(this.#sectionHeader('Attendants'));
-      for (const attendant of model.attendants) {
-        this.content.appendChild(this.#card(attendant.title, attendant.rows));
+    } else if (this.activeTab === 'market') {
+      if (model.supermarket.length > 0) {
+        this.content.appendChild(this.#sectionHeader('Supermarket'));
+        this.content.appendChild(this.#card(null, model.supermarket));
+      } else {
+        this.content.appendChild(this.#placeholder('Open the supermarket at its floor marker to unlock these upgrades.'));
       }
+    } else if (this.activeTab === 'gas') {
+      if (model.attendants.length > 0) {
+        this.content.appendChild(this.#sectionHeader('Attendants'));
+        const grid = this.#cardGrid();
+        for (const attendant of model.attendants) grid.appendChild(this.#card(attendant.title, attendant.rows));
+        this.content.appendChild(grid);
+      } else {
+        this.content.appendChild(this.#placeholder('Open the gas station and hire attendants to unlock these upgrades.'));
+      }
+    } else {
+      this.content.appendChild(this.#sectionHeader('Advertising'));
+      this.content.appendChild(this.#buildAdvertising());
     }
-
-    this.content.appendChild(this.#sectionHeader('Advertising'));
-    this.content.appendChild(this.#buildAdvertising());
 
     this.#refresh(model);
+  }
+
+  /** Two-column card grid for the per-worker blocks — uses the tablet's width. */
+  #cardGrid() {
+    const grid = document.createElement('div');
+    Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' });
+    return grid;
+  }
+
+  /** Shown on a tab whose category isn't unlocked yet — a hint, not an empty screen. */
+  #placeholder(text) {
+    const p = document.createElement('div');
+    p.textContent = text;
+    Object.assign(p.style, {
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px dashed rgba(255,255,255,0.14)',
+      borderRadius: '16px',
+      padding: '18px 14px',
+      fontSize: '12px',
+      color: '#9fb0c0',
+      textAlign: 'center',
+    });
+    return p;
   }
 
   // The Advertising card — reputation readout + the two reputation actions
@@ -416,6 +514,9 @@ export class UpgradeMenu {
       case 'truckFrequency':
         ok = buyTruckFrequency(this.state);
         break;
+      case 'orderTruck':
+        ok = orderTruck(this.state); // free: places the delivery order, no cash involved
+        break;
       case 'attendantSpeed':
         ok = buyAttendantSpeed(this.state, pitIndex);
         break;
@@ -451,11 +552,12 @@ function mmss(seconds) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-// Changes whenever the set/shape of rows changes (equip, hire, train).
-function structureSignature(model) {
+// Changes whenever the set/shape of rows changes (equip, hire, train) OR the
+// active tab switches — either way the DOM is rebuilt for the visible category.
+function structureSignature(model, activeTab) {
   const automation = model.automation.map(rowKey).join(',');
   const supermarket = model.supermarket.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
   const attendants = model.attendants.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `A[${automation}]S[${supermarket}]W[${workers}]P[${attendants}]`;
+  return `${activeTab}|A[${automation}]S[${supermarket}]W[${workers}]P[${attendants}]`;
 }

@@ -109,15 +109,19 @@ function createSupermarketState() {
     worker: null, // { position:{x,z}, rotation, moving, carrying, state:'idle'|'packaging'|'restocking', ... } once workerLevel >= 1
     restockBoxPosition: { ...settings.supermarket.restockBoxPosition },
     // The restock box's shared inventory (one unit = one full shelf refill). A
-    // delivery truck tops it back up to maxUnits on a timer; at 0 nobody can
-    // restock until the next truck (see core/supermarket.js: takeRestockUnit /
-    // tickTruck / deliverStock / callTruckEarly). Starts full.
+    // delivery truck tops it back up to maxUnits once ORDERED (see
+    // core/supermarket.js: takeRestockUnit / orderTruck / tickTruck /
+    // deliverStock / callTruckEarly). At 0 nobody can restock until a delivery
+    // lands; below the max "Faster Deliveries" level the player must place the
+    // order themselves (the max level auto-orders the instant the box runs
+    // dry). Starts full.
     restockBox: {
       units: settings.supermarket.restockBox.maxUnits,
       maxUnits: settings.supermarket.restockBox.maxUnits,
     },
-    truckTimer: 0, // counts up; at >= truckDeliveryInterval() the next truck is dispatched
-    truckUpgradeLevel: 0, // "Faster Deliveries" level (0..3); indexes settings.supermarket.truck.intervals
+    truckOrdered: false, // a delivery is ordered (manually, auto at max level, or via ad) and counting down
+    truckTimer: 0, // counts up WHILE ordered; at >= truckDeliveryTime() the truck is dispatched
+    truckUpgradeLevel: 0, // "Faster Deliveries" level (0..3); indexes settings.supermarket.truck.deliveryTimes
     truckArriving: false, // true while the truck's drive-in animation is in flight (scene drives this back to false via deliverStock)
     paidThisTick: 0, // one-tick render signal (the scene pops "+$" at checkout when this is > 0), mirrors pit.collectedThisTick
     lastCustomerTint: null, // the most recently spawned customer's tint, so spawnCustomer never repeats it back-to-back

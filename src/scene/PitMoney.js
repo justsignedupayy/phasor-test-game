@@ -137,13 +137,12 @@ export class PitMoney {
   }
 }
 
+// A bill is a plain clone of the shared Money.glb base: its geometry AND
+// materials belong to that session-lifetime base (nothing is cloned per bill —
+// no per-instance mutation needs it; the green tint is applied once at preload).
+// So a despawned bill only leaves the scene — disposing here would yank the
+// shared GPU resources out from under every bill still stacked at other pits
+// (the shared-resource hazard CarView.dispose documents).
 function disposeBill(sceneManager, bill) {
   sceneManager.remove(bill);
-  bill.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material) {
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      mats.forEach((m) => m.dispose());
-    }
-  });
 }

@@ -1,14 +1,17 @@
-import { truckDeliveryInterval, callTruckEarly } from '../core/supermarket.js';
+import { truckDeliveryTime, orderTruck, callTruckEarly } from '../core/supermarket.js';
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 
 /**
  * TruckMenu — a small DOM panel (styled to match BreakMenu / the Advertising
- * panel) opened by tapping the restock box while it's EMPTY. Shows a live
- * countdown to the next scheduled delivery and a "Call Truck Early (Watch Ad)"
- * button. The ad is the only way to summon a truck early: on its success the box
- * is refilled on the next tick (callTruckEarly). Auto-closes once the box has
- * stock again (a truck arrived) so a stale panel never lingers.
+ * panel) opened by tapping the restock box while it's EMPTY. The truck is idle
+ * until a delivery is ORDERED (core/supermarket.orderTruck): with no order
+ * pending the panel offers the free "Order Truck" button; once one is placed
+ * (here, in the phone menu, or automatically at the max Faster Deliveries
+ * level) it shows a live countdown to arrival plus the rewarded-ad "Call Truck
+ * Early" button that skips the remaining wait (callTruckEarly). Auto-closes
+ * once the box has stock again (a truck delivered) so a stale panel never
+ * lingers.
  */
 export class TruckMenu {
   constructor(state) {
@@ -70,20 +73,28 @@ export class TruckMenu {
     Object.assign(this.timerLine.style, { fontSize: '22px', fontWeight: '800', color: '#ffd23f', minHeight: '26px' });
     panel.appendChild(this.timerLine);
 
-    this.adBtn = document.createElement('button');
-    Object.assign(this.adBtn.style, {
-      padding: '10px 8px',
-      borderRadius: '8px',
-      border: 'none',
-      fontWeight: '800',
-      fontSize: '13px',
-      cursor: 'pointer',
-      background: '#3ad06a',
-      color: '#06310f',
-    });
-    this.adBtn.textContent = 'Call Truck Early (Watch Ad)';
-    this.adBtn.addEventListener('click', () => this.#callEarly());
-    panel.appendChild(this.adBtn);
+    const button = (text, background, color, onClick) => {
+      const b = document.createElement('button');
+      Object.assign(b.style, {
+        padding: '10px 8px',
+        borderRadius: '8px',
+        border: 'none',
+        fontWeight: '800',
+        fontSize: '13px',
+        cursor: 'pointer',
+        background,
+        color,
+      });
+      b.textContent = text;
+      b.addEventListener('click', onClick);
+      panel.appendChild(b);
+      return b;
+    };
+
+    // Free order button (shown while no delivery is ordered or en route).
+    this.orderBtn = button('Order Truck', '#ffd23f', '#1a1400', () => this.#order());
+    // Rewarded-ad skip (shown while an order's countdown is running).
+    this.adBtn = button('Call Truck Early (Watch Ad)', '#3ad06a', '#06310f', () => this.#callEarly());
 
     document.body.appendChild(panel);
     this.panel = panel;
@@ -100,10 +111,17 @@ export class TruckMenu {
     this.panel.style.display = 'none';
   }
 
+  #order() {
+    if (orderTruck(this.state)) {
+      saveGame(this.state);
+      this.#refresh(); // flip straight to the countdown view
+    }
+  }
+
   #callEarly() {
     showRewardedAd(
       () => {
-        callTruckEarly(this.state); // truck dispatched on the next tick, box refills on arrival
+        callTruckEarly(this.state); // pending order dispatched on the next tick, box refills on arrival
         saveGame(this.state);
         this.close();
       },
@@ -127,11 +145,23 @@ export class TruckMenu {
     if (S.truckArriving) {
       this.statusLine.textContent = 'Truck arriving…';
       this.timerLine.textContent = 'Now';
+      this.orderBtn.style.display = 'none';
+      this.adBtn.style.display = 'none';
       return;
     }
-    this.statusLine.textContent = 'Waiting for truck…';
-    const remaining = Math.max(0, truckDeliveryInterval(this.state) - S.truckTimer);
-    this.timerLine.textContent = mmss(remaining);
+    if (S.truckOrdered) {
+      this.statusLine.textContent = 'Order placed — truck on the way…';
+      this.timerLine.textContent = mmss(truckDeliveryTime(this.state) - S.truckTimer);
+      this.orderBtn.style.display = 'none';
+      this.adBtn.style.display = 'block';
+      return;
+    }
+    // Idle: nothing ordered yet — restocking stays blocked until the player
+    // orders (the max Faster Deliveries level auto-orders before this is seen).
+    this.statusLine.textContent = 'No delivery ordered.';
+    this.timerLine.textContent = '—';
+    this.orderBtn.style.display = 'block';
+    this.adBtn.style.display = 'none';
   }
 }
 

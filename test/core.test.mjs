@@ -76,7 +76,8 @@ import {
   tickTruck,
   deliverStock,
   callTruckEarly,
-  truckDeliveryInterval,
+  orderTruck,
+  truckDeliveryTime,
 } from '../src/core/supermarket.js';
 import settings from '../src/config/settings.js';
 
@@ -1127,24 +1128,38 @@ check('takeRestockUnit decrements until empty, then returns false', () => {
   assert.equal(s.supermarket.restockBox.units, 0, 'never goes negative');
 });
 
-check('truckDeliveryInterval follows the upgrade level', () => {
+check('truckDeliveryTime follows the upgrade level', () => {
   const s = createInitialState();
-  const intervals = settings.supermarket.truck.intervals;
-  assert.equal(truckDeliveryInterval(s), intervals[0]);
+  const times = settings.supermarket.truck.deliveryTimes;
+  assert.equal(truckDeliveryTime(s), times[0]);
   s.supermarket.truckUpgradeLevel = 2;
-  assert.equal(truckDeliveryInterval(s), intervals[2]);
+  assert.equal(truckDeliveryTime(s), times[2]);
 });
 
-check('tickTruck dispatches at the interval; deliverStock refills and clears the flag', () => {
+check('the truck is idle until ordered: tickTruck never dispatches on its own', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.restockBox.units = 0; // empty box alone is not enough below max level
+  tickTruck(s, truckDeliveryTime(s) * 10);
+  assert.equal(s.supermarket.truckOrdered, false, 'no order placed itself');
+  assert.equal(s.supermarket.truckArriving, false, 'no truck without an order');
+  assert.equal(s.supermarket.truckTimer, 0, 'the clock only runs against an order');
+});
+
+check('orderTruck places an order; tickTruck dispatches after the delivery time; deliverStock refills', () => {
   const s = createInitialState();
   s.supermarket.unlocked = true;
   s.supermarket.restockBox.units = 0;
-  const interval = truckDeliveryInterval(s);
 
-  tickTruck(s, interval - 0.01);
+  assert.equal(orderTruck(s), true, 'order accepted');
+  assert.equal(s.supermarket.truckOrdered, true);
+  const time = truckDeliveryTime(s);
+
+  tickTruck(s, time - 0.01);
   assert.equal(s.supermarket.truckArriving, false, 'not due yet');
-  tickTruck(s, 0.02); // crosses the interval
+  tickTruck(s, 0.02); // crosses the delivery time
   assert.equal(s.supermarket.truckArriving, true, 'truck dispatched');
+  assert.equal(s.supermarket.truckOrdered, false, 'order consumed on dispatch');
   assert.equal(s.supermarket.truckTimer, 0, 'timer reset on dispatch');
   assert.equal(s.supermarket.restockBox.units, 0, 'box not filled until the truck lands');
 
@@ -1153,13 +1168,46 @@ check('tickTruck dispatches at the interval; deliverStock refills and clears the
   assert.equal(s.supermarket.truckArriving, false, 'arrival cleared');
 });
 
+check('orderTruck refuses duplicates, in-flight trucks, a full box, and a locked market', () => {
+  const s = createInitialState();
+  assert.equal(orderTruck(s), false, 'market not open yet');
+  s.supermarket.unlocked = true;
+  assert.equal(orderTruck(s), false, 'box already full — nothing to deliver');
+  s.supermarket.restockBox.units = 0;
+  assert.equal(orderTruck(s), true);
+  assert.equal(orderTruck(s), false, 'an order is already pending');
+  s.supermarket.truckOrdered = false;
+  s.supermarket.truckArriving = true;
+  assert.equal(orderTruck(s), false, 'a truck is already on its way');
+});
+
 check('tickTruck holds the clock while a truck is already in flight', () => {
   const s = createInitialState();
   s.supermarket.unlocked = true;
+  s.supermarket.truckOrdered = true;
   s.supermarket.truckArriving = true;
   s.supermarket.truckTimer = 0;
   tickTruck(s, 100);
   assert.equal(s.supermarket.truckTimer, 0, 'no accrual mid-delivery');
+});
+
+check('at max Faster Deliveries level an order places itself the instant the box empties', () => {
+  const maxLevel = settings.supermarket.truck.deliveryTimes.length - 1;
+
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.truckUpgradeLevel = maxLevel;
+  s.supermarket.restockBox.units = 0;
+  tickTruck(s, 0.016);
+  assert.equal(s.supermarket.truckOrdered, true, 'auto-ordered at max level');
+
+  // One level below max: the empty box waits for the player instead.
+  const below = createInitialState();
+  below.supermarket.unlocked = true;
+  below.supermarket.truckUpgradeLevel = maxLevel - 1;
+  below.supermarket.restockBox.units = 0;
+  tickTruck(below, 0.016);
+  assert.equal(below.supermarket.truckOrdered, false, 'below max: waits for a manual order');
 });
 
 check('deliverStock never exceeds maxUnits', () => {
@@ -1170,19 +1218,31 @@ check('deliverStock never exceeds maxUnits', () => {
   assert.equal(s.supermarket.restockBox.units, max, 'tops up, never overfills');
 });
 
-check('callTruckEarly fast-forwards so the next tick dispatches a delivery', () => {
+check('callTruckEarly skips a placed order\'s wait so the next tick dispatches', () => {
   const s = createInitialState();
   s.supermarket.unlocked = true;
-  s.supermarket.truckTimer = 0;
+  s.supermarket.restockBox.units = 0;
+  orderTruck(s);
   callTruckEarly(s);
   assert.equal(s.supermarket.truckArriving, false, 'not dispatched until the next tick');
-  tickTruck(s, 0); // a zero-dt tick still sees timer >= interval
+  tickTruck(s, 0); // a zero-dt tick still sees timer >= delivery time
   assert.equal(s.supermarket.truckArriving, true, 'early call dispatched on the next tick');
+});
+
+check('callTruckEarly does nothing without a pending order', () => {
+  const s = createInitialState();
+  s.supermarket.unlocked = true;
+  s.supermarket.restockBox.units = 0; // empty, but nothing ordered
+  callTruckEarly(s);
+  assert.equal(s.supermarket.truckTimer, 0, 'no order to hurry');
+  tickTruck(s, 0);
+  assert.equal(s.supermarket.truckArriving, false, 'still no truck without an order');
 });
 
 check('callTruckEarly is a no-op while a truck is already in flight', () => {
   const s = createInitialState();
   s.supermarket.unlocked = true;
+  s.supermarket.truckOrdered = true;
   s.supermarket.truckArriving = true;
   s.supermarket.truckTimer = 5;
   callTruckEarly(s);
@@ -1194,7 +1254,7 @@ check('buyTruckFrequency steps the level with geometric cost, gated and capped',
   assert.equal(buyTruckFrequency(s), false, 'market not open yet');
   s.supermarket.unlocked = true;
 
-  const maxLevel = settings.supermarket.truck.intervals.length - 1;
+  const maxLevel = settings.supermarket.truck.deliveryTimes.length - 1;
   let prevCost = 0;
   for (let lvl = 0; lvl < maxLevel; lvl++) {
     const cost = truckFrequencyCost(s);
@@ -1218,11 +1278,12 @@ check('a level-2 worker waits while the box is empty, then restocks after a deli
   s.supermarket.shelves[2].stock = 0;
   s.supermarket.restockBox.units = 0;
 
-  // A window well under the delivery interval, so no truck arrives to refill it.
-  const window = truckDeliveryInterval(s) * 0.4;
+  // Nothing ordered (and below the auto-order level), so no truck ever comes on
+  // its own — the empty box blocks restocking for as long as we let it run.
+  const window = truckDeliveryTime(s) * 1.5;
   for (let t = 0; t < window; t += 0.1) tickSupermarket(s, 0.1);
   assert.equal(s.supermarket.shelves[2].stock, 0, 'no restock while the box is empty');
-  assert.equal(s.supermarket.restockBox.units, 0, 'box still empty (no early truck)');
+  assert.equal(s.supermarket.restockBox.units, 0, 'box still empty (nothing ordered)');
 
   // Stock the box and let the worker run: it restocks the empty shelf hands-free.
   deliverStock(s);
@@ -1386,7 +1447,7 @@ const completeGasPrereqs = (s) => {
   }
   s.supermarket.unlocked = true;
   s.supermarket.workerLevel = 2;
-  s.supermarket.truckUpgradeLevel = settings.supermarket.truck.intervals.length - 1;
+  s.supermarket.truckUpgradeLevel = settings.supermarket.truck.deliveryTimes.length - 1;
 };
 
 // Unlock + equip a pump: unlike pit 0 there is no free starter pump, so every
@@ -1529,7 +1590,7 @@ check('the first gas expand is locked until the garage AND market are fully buil
   // Market complete too: the station finally opens.
   s.supermarket.unlocked = true;
   s.supermarket.workerLevel = 2;
-  s.supermarket.truckUpgradeLevel = settings.supermarket.truck.intervals.length - 1;
+  s.supermarket.truckUpgradeLevel = settings.supermarket.truck.deliveryTimes.length - 1;
   assert.equal(gasStationPrereqs(s).ready, true);
   assert.deepEqual(gasStationPrereqs(s).missing, []);
   assert.equal(buyGasExpand(s), true, 'both complete → the station can be bought');

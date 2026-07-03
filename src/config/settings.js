@@ -225,10 +225,12 @@ export const settings = {
     breakRoom: {
       baseCost: 200,
     },
-    // Global "Faster Deliveries": 3 levels, each steps the supermarket restock
-    // truck down one entry in settings.supermarket.truck.intervals (300→240→180
-    // →120s). Geometric cost like the rest. Not per-worker — one truck serves
-    // the whole market (see core/supermarket.truckDeliveryInterval).
+    // Global "Faster Deliveries": 3 levels, each steps the ORDERED restock
+    // truck's delivery time down one entry in settings.supermarket.truck
+    // .deliveryTimes (300→240→180→120s from order to arrival); the FINAL level
+    // additionally auto-places an order the instant the restock box runs dry.
+    // Geometric cost like the rest. Not per-worker — one truck serves the whole
+    // market (see core/supermarket.truckDeliveryTime / orderTruck / tickTruck).
     truckFrequency: {
       baseCost: 150,
       costGrowth: 1.6,
@@ -481,15 +483,19 @@ export const settings = {
       maxUnits: 4,
     },
 
-    // Delivery truck. Every `intervals[truckUpgradeLevel]` seconds it drives up
-    // the front-wall exterior road to the delivery gate (deliveryDoorX), STAYS at
-    // the gate (just outside the wall — it never enters the room), tops the box up
-    // to restockBox.maxUnits, then reverses back out the way it came. The "Faster
-    // Deliveries" upgrade (3 levels, see upgrades.js) steps the interval down this
-    // array. Scene choreography (Truck.glb, loaded once) lives in scene/TruckView.js.
-    // Offsets are along z (front-wall approach), relative to restockBoxPosition.
+    // Delivery truck. The truck is idle until a delivery is ORDERED (the phone
+    // menu's Order Truck row / the empty-box panel — core/supermarket.orderTruck);
+    // deliveryTimes[truckUpgradeLevel] seconds later it drives up the front-wall
+    // exterior road to the delivery gate (deliveryDoorX), STAYS at the gate (just
+    // outside the wall — it never enters the room), tops the box up to
+    // restockBox.maxUnits, then reverses back out the way it came. The "Faster
+    // Deliveries" upgrade (3 levels, see upgrades.js) steps the post-order wait
+    // down this array; at the FINAL level an order is placed automatically the
+    // instant the box runs dry. Scene choreography (Truck.glb, loaded once) lives
+    // in scene/TruckView.js. Offsets are along z (front-wall approach), relative
+    // to restockBoxPosition.
     truck: {
-      intervals: [300, 240, 180, 120], // seconds, index = truckUpgradeLevel (0..3)
+      deliveryTimes: [300, 240, 180, 120], // seconds from order to arrival, index = truckUpgradeLevel (0..3)
       deliverOffset: { x: 0, z: -3.5 }, // where the truck stops: just beyond the dock box (box.z - 3.5 ≈ -19)
       startOffset: { x: 0, z: -25.5 }, // off-screen start/end point down the front road it drives in from / out to
       waitDuration: 1.5, // seconds paused at the gate before driving back out

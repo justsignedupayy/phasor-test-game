@@ -194,8 +194,14 @@ export class CarView {
 
   dispose(sceneManager) {
     sceneManager.remove(this.root);
+    // Dispose ONLY what this instance owns: its cloned materials (see #build).
+    // The GEOMETRY is NOT ours to free — clone() shares it with the preloaded
+    // base scene and every other live car of this tier, so disposing it here
+    // yanks the GPU buffers out from under all of them: the same shared-resource
+    // hazard the material cloning in #build guards against (cars keep casting
+    // shadows and taking taps but render nothing). The base models live for the
+    // whole session, so their geometry is never disposed per car.
     this.root.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
       if (o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((m) => m.dispose());

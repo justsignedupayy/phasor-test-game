@@ -40,11 +40,23 @@ export function tapRepair(state, pitIndex) {
   applyRepair(state, pit, settings.repair.tapTicks);
 }
 
-/** Remote hurry: only meaningful with a worker; refreshes that pit's boost window. */
+/**
+ * Remote hurry: only meaningful with a worker actually at its work spot beside
+ * the car (not on break, not still walking back from one) — the same arrival
+ * gate updatePit uses before it lets the mechanic auto-repair. Returns whether
+ * the boost was actually applied, so callers can skip the yell reaction otherwise.
+ */
 export function hurry(state, pitIndex) {
   const pit = state.pits[pitIndex];
-  if (!pit || !pit.hasMechanic) return;
+  if (!pit || !pit.hasMechanic || pit.break.onBreak) return false;
+  if (!pit.mechanic) pit.mechanic = createMechanic(pitIndex); // lazily, same as updatePit
+  const pos = settings.pit.positions[pitIndex];
+  const M = settings.mechanic;
+  const work = { x: pos.x + M.offsetX, z: pos.z + M.offsetZ };
+  const m = pit.mechanic;
+  if (Math.hypot(m.position.x - work.x, m.position.z - work.z) > settings.supermarket.arriveEpsilon) return false;
   pit.hurryTimer = settings.hurry.duration;
+  return true;
 }
 
 function updatePit(state, pit, dt) {

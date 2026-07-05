@@ -141,8 +141,7 @@ async function main() {
     const i = carYard.raycast(raycaster);
     if (i >= 0) {
       const pit = state.pits[i];
-      if (pit.hasMechanic) {
-        hurry(state, i);
+      if (pit.hasMechanic && hurry(state, i)) {
         character.yell();
         showHurryEmotes({
           x: settings.pit.positions[i].x + settings.mechanic.offsetX,
@@ -162,8 +161,7 @@ async function main() {
     if (gi < 0) return;
     const pump = state.gasStation.pumps[gi];
 
-    if (pump.hasAttendant) {
-      hurryPump(state, gi);
+    if (pump.hasAttendant && hurryPump(state, gi)) {
       character.yell();
       showHurryEmotes({
         x: settings.gasStation.positions[gi].x + settings.attendant.offsetX,
@@ -190,7 +188,7 @@ async function main() {
     const near = (pos) =>
       Math.hypot(state.player.position.x - pos.x, state.player.position.z - pos.z) <= M.interactRadius;
 
-    if (hit.kind === 'worker') {
+    if (hit.kind === 'worker' && !market.worker.break.onBreak) {
       hurryMarketWorker(state);
       character.yell();
       showHurryEmotes({

@@ -583,7 +583,7 @@ export function createMarketWorker() {
 /** Remote hurry: tapping the worker from anywhere refreshes its boost window. */
 export function hurryMarketWorker(state) {
   const w = state.supermarket.worker;
-  if (!w) return;
+  if (!w || w.break.onBreak) return;
   w.hurryTimer = settings.hurry.duration;
 }
 

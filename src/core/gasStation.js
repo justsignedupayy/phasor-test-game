@@ -47,11 +47,20 @@ export function tapFill(state, pumpIndex) {
   applyFill(state, pump, settings.repair.tapTicks);
 }
 
-/** Remote hurry: only meaningful with an attendant; refreshes that pump's boost window. */
+/**
+ * Remote hurry: only meaningful with an attendant actually at its work spot
+ * beside the pump (not on break, not still walking back from one) — mirrors
+ * hurry()'s arrival gate. Returns whether the boost was actually applied.
+ */
 export function hurryPump(state, pumpIndex) {
   const pump = state.gasStation.pumps[pumpIndex];
-  if (!pump || !pump.hasAttendant) return;
+  if (!pump || !pump.hasAttendant || pump.break.onBreak) return false;
+  if (!pump.attendant) pump.attendant = createAttendant(pumpIndex); // lazily, same as updatePump
+  const a = pump.attendant;
+  const work = workSpot(pumpIndex);
+  if (Math.hypot(a.position.x - work.x, a.position.z - work.z) > settings.supermarket.arriveEpsilon) return false;
   pump.hurryTimer = settings.hurry.duration;
+  return true;
 }
 
 /** Ticks a pump actually needs to finish a given car (no fixing-time upgrade at pumps). */

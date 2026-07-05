@@ -28,12 +28,10 @@ export class PitView {
     this.highlightT = 0;
     this.stationScale = 0; // animated 0..1
 
-    // Break chair: appears once this pit has a hired worker, swapped for a couch
-    // when its break room is upgraded. chairPos is where the worker walks to sit.
+    // Break spot: where this pit's worker walks to rest, once hired (leans
+    // against the wall — see Mechanic.js's onBreak handling).
     const B = settings.breaks;
     this.chairPos = { ...B.chairPositions[index] }; // = pos + chairOffset; the shared source (see settings)
-    this.seat = null; // the Chair/couch clone (tapped to open the break UI while seated)
-    this._seatModelKey = null; // 'chair' | 'couch' — current seat model, for swap detection
 
     this.boxes = []; // decorative shelf-box clones (a full grid; always shown when equipped)
     this._labelText = ''; // last storage-label text drawn (skip redraw if unchanged)
@@ -146,24 +144,6 @@ export class PitView {
     }
   }
 
-  /**
-   * Build (or swap) this pit's break seat: a Chair by default, a couch once the
-   * break room is upgraded. Cloned/disposed the same way as the storage props.
-   */
-  #ensureSeat(upgraded) {
-    const key = upgraded ? 'couch' : 'chair';
-    if (this._seatModelKey === key) return;
-    if (this.seat) disposeStorageMesh(this.sm, this.seat);
-    const B = settings.breaks;
-    const seat = cloneStorageModel(key);
-    seat.scale.setScalar(upgraded ? B.couchScale : B.chairScale);
-    seat.position.set(this.chairPos.x, 0, this.chairPos.z);
-    seat.rotation.y = B.chairFacing;
-    this.sm.add(seat);
-    this.seat = seat;
-    this._seatModelKey = key;
-  }
-
   update(dt, pit, state) {
     this.#updateStorage(pit);
 
@@ -176,12 +156,11 @@ export class PitView {
     this.stationScale += (stationTarget - this.stationScale) * k;
     applyAppear(this.station, this.stationScale);
 
-    // Spawn this pit's worker (and its break chair) the moment one is hired.
+    // Spawn this pit's worker the moment one is hired.
     if (pit.hasMechanic && !this.mechanic) {
       this.mechanic = new Mechanic(this.gltf);
       this.sm.add(this.mechanic.root);
     }
-    if (pit.hasMechanic) this.#ensureSeat(pit.break.breakDurationUpgraded);
     if (this.mechanic && pit.mechanic) {
       const B = settings.breaks;
       this.mechanic.update(dt, {
@@ -192,7 +171,7 @@ export class PitView {
         hurrying: pit.hurryTimer > 0,
         onBreak: pit.break.onBreak,
         chairFacing: B.chairFacing,
-        seatOffset: pit.break.breakDurationUpgraded ? B.sitOffset.couch : B.sitOffset.chair,
+        seatOffset: B.leanOffset,
       });
     }
 
@@ -203,22 +182,6 @@ export class PitView {
     const target = canTap ? 0.45 + 0.22 * Math.sin(this.highlightT * 5) : 0;
     this.ring.material.opacity += (target - this.ring.material.opacity) * Math.min(1, 8 * dt);
   }
-}
-
-// Remove a cloned storage mesh from the scene and free ONLY its per-clone
-// materials (see cloneStorageModel). The geometry is NOT freed: clone() shares
-// it with the session-lifetime base model and every other clone of that prop,
-// so disposing it here would break them (the shared-resource hazard
-// CarView.dispose documents). Exported for the gas station's seat swap
-// (see scene/GasStationView.js).
-export function disposeStorageMesh(sceneManager, mesh) {
-  sceneManager.remove(mesh);
-  mesh.traverse((o) => {
-    if (o.material) {
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      mats.forEach((mt) => mt.dispose());
-    }
-  });
 }
 
 // Pop-in with a slight overshoot, applied to a group's scale (skips if ~0/hidden).

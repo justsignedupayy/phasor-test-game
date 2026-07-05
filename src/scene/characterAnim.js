@@ -116,13 +116,13 @@ export function attachToHand(model, prop, offset, rotation) {
 }
 
 /**
- * A seat offset ({ side, forward, lift }) resolved into a world-space delta for
- * a seat facing `facing` (radians; 0 faces +z, matching the game's atan2(dx,dz)
+ * A lean offset ({ side, forward, lift }) resolved into a world-space delta for
+ * a facing `facing` (radians; 0 faces +z, matching the game's atan2(dx,dz)
  * convention). `forward` runs along the facing, `side` across it, `lift` straight
- * up. Shared by Mechanic.js / MarketWorker.js so a seated worker rests on its
- * seat instead of clipping into it (see settings.breaks.sitOffset).
+ * up. Shared by Mechanic.js / MarketWorker.js so a worker on break leans upright
+ * against the wall at its break spot (see settings.breaks.leanOffset).
  */
-export function seatOffsetDelta(facing, offset) {
+export function leanOffsetDelta(facing, offset) {
   const fwdX = Math.sin(facing);
   const fwdZ = Math.cos(facing);
   const sideX = Math.cos(facing);

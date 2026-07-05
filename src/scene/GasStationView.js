@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { CarView } from './CarView.js';
 import { Mechanic } from './Mechanic.js';
-import { makeLabelSprite, disposeStorageMesh } from './PitView.js';
+import { makeLabelSprite } from './PitView.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { showCashPopup } from './popup.js';
 import { requiredFillTicks } from '../core/gasStation.js';
@@ -153,30 +153,10 @@ export class GasStationView {
       attendant: null,
       propScale: 0,
       highlightT: 0,
-      // Break seat beside the pump (appears once an attendant is hired, swapped
-      // for a couch when its break room is upgraded) — PitView's seat, mirrored.
+      // Break spot beside the pump — where the attendant walks to rest, once
+      // hired (leans against the wall — see Mechanic.js's onBreak handling).
       chairPos: { ...settings.breaks.pumpChairPositions[index] },
-      seat: null,
-      _seatModelKey: null,
     };
-  }
-
-  /**
-   * Build (or swap) a pump's break seat: a Chair by default, a couch once the
-   * break room is upgraded — PitView#ensureSeat, mirrored per pump view.
-   */
-  #ensureSeat(view, upgraded) {
-    const key = upgraded ? 'couch' : 'chair';
-    if (view._seatModelKey === key) return;
-    if (view.seat) disposeStorageMesh(this.sm, view.seat);
-    const B = settings.breaks;
-    const seat = cloneStorageModel(key);
-    seat.scale.setScalar(upgraded ? B.couchScale : B.chairScale);
-    seat.position.set(view.chairPos.x, 0, view.chairPos.z);
-    seat.rotation.y = B.chairFacing;
-    this.sm.add(seat);
-    view.seat = seat;
-    view._seatModelKey = key;
   }
 
   /** Tap feedback for a specific pump's car. */
@@ -185,15 +165,15 @@ export class GasStationView {
   }
 
   /**
-   * Raycast the pump break chairs; returns the pump index whose SEATED attendant's
-   * chair was hit (so main.js can open the break panel), or -1 — CarYard's
-   * raycastChair, mirrored. An empty chair isn't tappable.
+   * Raycast the resting attendants; returns the pump index whose attendant was
+   * hit while on break (so main.js can open the break panel), or -1 —
+   * CarYard's raycastChair, mirrored. An attendant not on break isn't tappable.
    */
   raycastChair(raycaster, state) {
     for (let i = 0; i < this.pumpViews.length; i++) {
       const view = this.pumpViews[i];
-      if (!view.seat || !state.gasStation.pumps[i].break.onBreak) continue;
-      if (raycaster.intersectObject(view.seat, true).length > 0) return i;
+      if (!view.attendant || !state.gasStation.pumps[i].break.onBreak) continue;
+      if (raycaster.intersectObject(view.attendant.model, true).length > 0) return i;
     }
     return -1;
   }
@@ -246,14 +226,13 @@ export class GasStationView {
       view.prop.scale.setScalar(Math.max(0.001, view.propScale * overshoot) * settings.gasStation.pumpModelScale);
     }
 
-    // Spawn this pump's attendant (and its break chair) the moment one is hired;
-    // mirror core each frame — PitView's worker/seat handling 1:1.
+    // Spawn this pump's attendant the moment one is hired; mirror core each
+    // frame — PitView's worker handling 1:1.
     if (pump.hasAttendant && !view.attendant) {
       // 'gaspump' = the attendant's fill clip (gasput.glb), instead of 'repair'.
       view.attendant = new Mechanic(this.gltf, settings.character.attendantTint, 'gaspump');
       this.sm.add(view.attendant.root);
     }
-    if (pump.hasAttendant) this.#ensureSeat(view, pump.break.breakDurationUpgraded);
     if (view.attendant && pump.attendant) {
       const B = settings.breaks;
       view.attendant.update(dt, {
@@ -262,7 +241,7 @@ export class GasStationView {
         hurrying: pump.hurryTimer > 0,
         onBreak: pump.break.onBreak,
         chairFacing: B.chairFacing,
-        seatOffset: pump.break.breakDurationUpgraded ? B.sitOffset.couch : B.sitOffset.chair,
+        seatOffset: B.leanOffset,
       });
     }
 

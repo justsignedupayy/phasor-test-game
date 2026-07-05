@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import settings from '../config/settings.js';
 import { showCashPopup } from './popup.js';
 import { formatMoney } from '../core/format.js';
+import { preloadMoneyModel, moneyModel, spawnFlyingBills } from './MoneyFly.js';
+
+export { preloadMoneyModel };
 
 /**
  * PitMoney — per-pit pay made visible. While a pit holds uncollected pay
@@ -15,30 +17,6 @@ import { formatMoney } from '../core/format.js';
  *
  * Render-only: reads core state, writes nothing back.
  */
-let moneyModelPromise = null;
-let moneyModel = null; // THREE.Object3D base scene to clone
-
-/** Loads Money.glb exactly once. Call (and await) before creating a PitMoney. */
-export function preloadMoneyModel() {
-  if (!moneyModelPromise) {
-    moneyModelPromise = new GLTFLoader().loadAsync('/models/Money.glb').then((gltf) => {
-      moneyModel = gltf.scene;
-      // Green tint (settings.money.cashTintColor): multiply every material's base
-      // colour so the glb's shading detail survives — same approach as the gas
-      // pump prop's pumpTintColor. Tinting the base once covers every bill clone
-      // (clone() shares these materials).
-      const tint = new THREE.Color(settings.money.cashTintColor);
-      moneyModel.traverse((o) => {
-        if (!o.isMesh || !o.material) return;
-        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-          if (m.color) m.color.multiply(tint);
-        }
-      });
-    });
-  }
-  return moneyModelPromise;
-}
-
 export class PitMoney {
   /**
    * Defaults to the repair pits; the gas station reuses this 1:1 by passing its
@@ -55,10 +33,7 @@ export class PitMoney {
       base: { x: pos.x + 1.5, y: 0.1, z: pos.z + 1.3 }, // front-right of the pad, clear of the car
       bills: [],
       prevPending: 0,
-      collecting: false,
-      flyT: 0,
-      flyFrom: [],
-      flyTarget: { x: 0, z: 0 },
+      flyController: null,
     }));
   }
 
@@ -68,8 +43,9 @@ export class PitMoney {
   }
 
   #updateSlot(dt, slot, pit, playerPos) {
-    if (slot.collecting) {
-      this.#updateFly(dt, slot);
+    if (slot.flyController) {
+      slot.flyController.update(dt);
+      if (slot.flyController.done) slot.flyController = null;
       return;
     }
 
@@ -85,10 +61,16 @@ export class PitMoney {
       this.#popup(collected, pos);
       slot.prevPending = 0;
       if (slot.bills.length > 0) {
-        slot.collecting = true;
-        slot.flyT = 0;
-        slot.flyFrom = slot.bills.map((b) => b.position.clone());
-        slot.flyTarget = { x: playerPos.x, z: playerPos.z };
+        const fromPositions = slot.bills.map((b) => b.position.clone());
+        for (const bill of slot.bills) disposeBill(this.sm, bill);
+        slot.bills = [];
+        slot.flyController = spawnFlyingBills(
+          this.sm,
+          fromPositions.length,
+          fromPositions,
+          { x: playerPos.x, z: playerPos.z },
+          { stagger: 0 } // original behavior: every bill flies in lockstep, no stagger
+        );
       }
       return;
     }
@@ -112,20 +94,6 @@ export class PitMoney {
     bill.position.set(slot.base.x, slot.base.y + i * settings.money.billSpacing, slot.base.z);
     this.sm.add(bill);
     return bill;
-  }
-
-  #updateFly(dt, slot) {
-    slot.flyT = Math.min(1, slot.flyT + dt / settings.money.flyDuration);
-    slot.bills.forEach((bill, i) => {
-      const from = slot.flyFrom[i];
-      bill.position.x = from.x + (slot.flyTarget.x - from.x) * slot.flyT;
-      bill.position.z = from.z + (slot.flyTarget.z - from.z) * slot.flyT;
-    });
-    if (slot.flyT >= 1) {
-      for (const bill of slot.bills) disposeBill(this.sm, bill);
-      slot.bills = [];
-      slot.collecting = false;
-    }
   }
 
   #popup(amount, pos) {

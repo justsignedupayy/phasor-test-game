@@ -88,6 +88,7 @@ export const settings = {
   character: {
     modelScale: 1,
     modelYRotationOffset: 0, // radians, added on top of the movement-facing rotation
+    headHeight: 2.3, // STARTING VALUE — tune by eye; shared by the player + every worker (same base model)
     animationMap: {
       idle: 'idle',
       walk: 'walk',
@@ -113,6 +114,11 @@ export const settings = {
       // pump (the attendant's counterpart to the mechanic's 'repair'); sourced
       // from gasput.glb, merged in CharacterModel.js.
       gaspump: 'gaspump',
+      // played by any worker (mechanic or market worker) while on a break,
+      // leaning against the wall (see core/breaks.js + Mechanic.js /
+      // MarketWorker.js); sourced from character_resting.glb, merged in
+      // CharacterModel.js.
+      resting: 'resting',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
@@ -127,12 +133,26 @@ export const settings = {
     customerTints: [0xc9956a, 0x6a8fc9, 0xc96a8a, 0x8ac96a, 0xc9b06a, 0x9a6ac9],
   },
 
+  // Reaction emotes ('💢'/'❗') popped above a character's head on a remote
+  // hurry tap (see main.js's showHurryEmotes + scene/popup.js's
+  // showEmotePopup). STARTING VALUES — tune by eye in npm run dev.
+  emote: {
+    heightAboveHead: 0.6, // world units added on top of character.headHeight
+    fontSize: 26, // px
+  },
+
   // Shared transform applied to every car glb when cloned (see CarView.js).
   // modelScale and modelYRotationOffset correct for glbs that import at the
   // wrong size/facing — tune once the models are visible in-scene.
   car: {
     modelScale: 1, // the per-tier glbs already bake their own ~0.01 scale; don't re-scale
     modelYRotationOffset: Math.PI, // ≈3.14 rad — cars now drive -z (door→pit); flip ±π if reversed
+    // Where a damaged car's smoke plumes emit from, relative to the car root.
+    // Cars drive -z (door→pit, see pit.doorZ/exitDoorZ), so the HOOD is on the
+    // -z side of root — don't flip these signs without re-checking drive
+    // direction. STARTING VALUES, tune by eye in npm run dev.
+    engineSmokeOffset: { x: 0, y: 0.7, z: -2.0 }, // engine bay: at the grille, sitting on the hood surface
+    hoodSmokeOffset: { x: 0, y: 0.8, z: -1.6 }, // hood surface: front, ahead of the windshield
   },
 
   // The five reputation tiers, ascending (index 0 = worst, index 4 = best).
@@ -220,8 +240,8 @@ export const settings = {
       baseCost: 500,
     },
     // One-time, PER-WORKER "Upgrade Break Room": halves that worker's break
-    // duration (breakDurations.base -> .upgraded) and swaps its chair for a
-    // couch. Bought separately for each pit mechanic and the market worker.
+    // duration (breakDurations.base -> .upgraded). Bought separately for each
+    // pit mechanic and the market worker.
     breakRoom: {
       baseCost: 200,
     },
@@ -326,7 +346,15 @@ export const settings = {
     // The "Open Gas Station" marker stands just INSIDE the left wall at the
     // future gate's z — the pump row is unreachable until the station exists.
     gasEntryInset: 1.7,
-    interactRadius: 1.8, // tap range around a marker, mirrors supermarket.interactRadius
+    interactRadius: 1.8, // proximity range that pays a marker down, mirrors supermarket.interactRadius
+    // Standing in range spends the cost gradually, one bill at a time (see
+    // scene/UnlockMarkers.js) — real cash, real progress: walking away mid-pay
+    // keeps whatever's already been sent, and standing back in range resumes
+    // from there. Deliberately quick (short interval + short flight) — this is
+    // a rapid-fire drip, not a slow ceremony. STARTING VALUES, tune by eye.
+    billValue: 10, // dollars deducted per flying bill
+    billInterval: 0.08, // seconds between each bill sent while in range
+    billFlyDuration: 0.15, // seconds for one bill's flight from player to marker
   },
 
   // Pay from finished cars waits at its own pit as a small stack of bills (see
@@ -730,24 +758,18 @@ export const settings = {
     // The stationary mechanic isn't core-driven, so the scene walks it to/from
     // its chair at this pace (world units/sec) when a break starts/ends.
     mechanicWalkSpeed: 3,
-    chairScale: 1,
-    couchScale: 0.7,
-    // Collision half-extent (AABB) for a pit break chair, blocking ALL movers
+    // Collision half-extent (AABB) for a pit break spot, blocking ALL movers
     // (see core/collision.js + pathfinding.js). MEASURED from Chair.glb (≈ 0.76 ×
-    // 0.83) at chairScale = 1 — STARTING VALUE, tune by eye. The upgraded couch
-    // (couch_small.glb at couchScale 0.7) is bulkier (≈ 2.0 × 1.5); bump this if
-    // its corners clip through movers.
+    // 0.83) — STARTING VALUE, tune by eye. There's no seat mesh anymore (the
+    // worker leans against the wall instead), but the spot still keeps other
+    // movers clear of it.
     chairCollisionHalf: { x: 0.38, z: 0.41 },
-    // Once seated, nudge the worker's body relative to its seat so it rests ON
-    // the seat instead of clipping into its frame — the couch is bulkier than
-    // the chair, so its occupant sinks into the cushion/back without this. Per
-    // seat type, applied in the seat's OWN frame (rotated by its facing):
-    // `forward` = toward the seat front, `side` = across it, `lift` = raise onto
-    // the cushion. Tune by eye in `npm run dev`.
-    sitOffset: {
-      chair: { side: 0, forward: 0, lift: 0 },
-      couch: { side: 0, forward: 0.45, lift: 0 },
-    },
+    // Once on break, nudge the worker's body relative to its break spot so it
+    // leans upright against the wall instead of standing in open space. Applied
+    // in the spot's OWN frame (rotated by its facing): `forward` = toward the
+    // wall, `side` = across it, `lift` = raise/lower. STARTING VALUE — tune by
+    // eye, worker leaning upright against the wall, no furniture to sink into.
+    leanOffset: { side: 0, forward: 0, lift: 0 },
   },
 
   colors: {

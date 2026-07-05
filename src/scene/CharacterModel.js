@@ -9,11 +9,13 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  * clip), character_carry_idle.glb (carry-while-standing clip),
  * character_sassy_walk.glb (a genuine walking-pace clip), character_carry_walk.glb
  * (a walking-pace carry cycle, for NPCs who haul a bag at walking speed),
- * character_sitting.glb (a seated pose played while a worker is on break), and
- * gasput.glb (the pump attendant's fill action, played while servicing a car), all
- * sharing the same skeleton. They load exactly once and are merged into a single
- * gltf-shaped { scene, animations } result — idle's scene as the base, clips
- * renamed to 'idle'/'walk'/'repair'/'yell'/'carry'/'carryIdle'/'walkSlow'/'carryWalk'/'sitting'/'gaspump'
+ * character_sitting.glb (a seated pose, unused by any worker since the break pose
+ * switched to leaning), gasput.glb (the pump attendant's fill action, played while
+ * servicing a car), and character_resting.glb (a lean-against-wall pose played while
+ * a worker is on break), all sharing the same skeleton. They load exactly once and
+ * are merged into a single gltf-shaped { scene, animations } result — idle's scene
+ * as the base, clips renamed to
+ * 'idle'/'walk'/'repair'/'yell'/'carry'/'carryIdle'/'walkSlow'/'carryWalk'/'sitting'/'gaspump'/'resting'
  * — so the player and every worker/customer clone share one fetched/parsed asset (see
  * Character.js + Mechanic.js + MarketWorker.js + MarketCustomer.js, which
  * build their own AnimationMixer off gltf.scene/animations).
@@ -48,7 +50,8 @@ export function loadCharacterModel() {
       loader.loadAsync('/models/character_carry_walk.glb'),
       loader.loadAsync('/models/character_sitting.glb'),
       loader.loadAsync('/models/gasput.glb'),
-    ]).then(([idleGltf, runGltf, repairGltf, yellGltf, carryGltf, carryIdleGltf, walkGltf, carryWalkGltf, sittingGltf, gasPumpGltf]) => {
+      loader.loadAsync('/models/character_resting.glb'),
+    ]).then(([idleGltf, runGltf, repairGltf, yellGltf, carryGltf, carryIdleGltf, walkGltf, carryWalkGltf, sittingGltf, gasPumpGltf, restingGltf]) => {
       const idleClip = idleGltf.animations[0];
       const walkClip = runGltf.animations[0];
       const repairClip = repairGltf.animations[0];
@@ -59,6 +62,7 @@ export function loadCharacterModel() {
       const carryWalkClip = carryWalkGltf.animations[0];
       const sittingClip = sittingGltf.animations[0];
       const gasPumpClip = gasPumpGltf.animations[0];
+      const restingClip = restingGltf.animations[0];
       idleClip.name = 'idle';
       walkClip.name = 'walk';
       repairClip.name = 'repair';
@@ -69,6 +73,7 @@ export function loadCharacterModel() {
       carryWalkClip.name = 'carryWalk';
       sittingClip.name = 'sitting';
       gasPumpClip.name = 'gaspump';
+      restingClip.name = 'resting';
 
       idleClip.uuid = MathUtils.generateUUID();
       walkClip.uuid = MathUtils.generateUUID();
@@ -80,11 +85,13 @@ export function loadCharacterModel() {
       carryWalkClip.uuid = MathUtils.generateUUID();
       sittingClip.uuid = MathUtils.generateUUID();
       gasPumpClip.uuid = MathUtils.generateUUID();
+      restingClip.uuid = MathUtils.generateUUID();
 
       // carryIdle is a standing pose (like idle), not a travel cycle, so it
       // keeps its root motion — only the walk-style clips get stripped. 'sitting'
-      // is an in-place pose held at the chair, so strip its root translation too
-      // (otherwise the baked-in forward motion would slide the seated worker off).
+      // and 'resting' are in-place poses held at the break spot, so strip their
+      // root translation too (otherwise the baked-in forward motion would slide
+      // the resting worker off).
       stripRootMotion(walkClip);
       stripRootMotion(repairClip);
       stripRootMotion(yellClip);
@@ -93,10 +100,23 @@ export function loadCharacterModel() {
       stripRootMotion(carryWalkClip);
       stripRootMotion(sittingClip);
       stripRootMotion(gasPumpClip); // in-place action at the pump, like repair
+      stripRootMotion(restingClip);
 
       return {
         scene: idleGltf.scene,
-        animations: [idleClip, walkClip, repairClip, yellClip, carryClip, carryIdleClip, walkSlowClip, carryWalkClip, sittingClip, gasPumpClip],
+        animations: [
+          idleClip,
+          walkClip,
+          repairClip,
+          yellClip,
+          carryClip,
+          carryIdleClip,
+          walkSlowClip,
+          carryWalkClip,
+          sittingClip,
+          gasPumpClip,
+          restingClip,
+        ],
       };
     });
   }

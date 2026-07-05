@@ -28,11 +28,6 @@ export class SupermarketView {
     this.customers = new Map(); // customerId -> MarketCustomer
     this.highlightT = 0;
 
-    // The market worker's break chair (a couch once its break room is upgraded),
-    // built once a worker exists; tapped to open the break UI while it's seated.
-    this.seat = null;
-    this._seatModelKey = null; // 'chair' | 'couch' — current model, for swap detection
-
     this.truck = new TruckView(sceneManager); // single reused Truck.glb instance
 
     this.#buildShelves();
@@ -147,29 +142,11 @@ export class SupermarketView {
     return null;
   }
 
-  /** True if the market worker's chair was hit AND the worker is seated on break. */
+  /** True if the market worker's model was hit AND the worker is on break. */
   raycastChair(raycaster, state) {
     const w = state.supermarket.worker;
-    if (!this.seat || !w || !w.break.onBreak) return false;
-    return raycaster.intersectObject(this.seat, true).length > 0;
-  }
-
-  /**
-   * Build (or swap) the market worker's break seat: a Chair by default, a couch
-   * once its break room is upgraded. Placed at settings.breaks.marketChairPosition.
-   */
-  #ensureSeat(upgraded) {
-    const key = upgraded ? 'couch' : 'chair';
-    if (this._seatModelKey === key) return;
-    if (this.seat) disposeSeat(this.sm, this.seat);
-    const B = settings.breaks;
-    const seat = cloneStorageModel(key);
-    seat.scale.setScalar(upgraded ? B.couchScale : B.chairScale);
-    seat.position.set(B.marketChairPosition.x, 0, B.marketChairPosition.z);
-    seat.rotation.y = B.marketChairFacing;
-    this.sm.add(seat);
-    this.seat = seat;
-    this._seatModelKey = key;
+    if (!this.worker || !w || !w.break.onBreak) return false;
+    return raycaster.intersectObject(this.worker.model, true).length > 0;
   }
 
   update(dt, state) {
@@ -217,7 +194,6 @@ export class SupermarketView {
       this.worker = new MarketWorker(this.gltf);
       this.sm.add(this.worker.root);
     }
-    if (S.worker) this.#ensureSeat(S.worker.break.breakDurationUpgraded);
     if (this.worker) this.worker.update(dt, S.worker);
 
     this.#updateHighlights(dt, state);
@@ -298,20 +274,6 @@ export class SupermarketView {
     const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
     showCashPopup(`+$${formatMoney(amount)}`, x, y);
   }
-}
-
-// Remove a cloned seat from the scene and free ONLY its per-clone materials
-// (see cloneStorageModel). The geometry stays: clone() shares it with the
-// session-lifetime base model and every other Chair/couch clone, so disposing
-// it here would break them (the shared-resource hazard CarView.dispose documents).
-function disposeSeat(sceneManager, mesh) {
-  sceneManager.remove(mesh);
-  mesh.traverse((o) => {
-    if (o.material) {
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      mats.forEach((m) => m.dispose());
-    }
-  });
 }
 
 // A camera-facing text label rendered to a small canvas texture (mirrors PitView's storage label).

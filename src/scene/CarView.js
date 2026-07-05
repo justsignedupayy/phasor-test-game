@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import settings from '../config/settings.js';
 import { groundModel } from './characterAnim.js';
+import { SmokeEffect } from './SmokeEffect.js';
 
 /**
  * CarView — wraps a clone of the glb model for its car's reputation tier (one
@@ -64,6 +65,19 @@ export class CarView {
     this.targetSlot = -1; // used by CarYard to avoid re-tweening to the same slot
 
     this.#build();
+
+    // Smoke plumes for damaged cars: engine bay + hood. Added to root (not
+    // bodyGroup) so the tap shake/pulse scaling never distorts them; each
+    // positioned by its own tunable offset.
+    this.engineSmoke = new SmokeEffect();
+    const e = settings.car.engineSmokeOffset;
+    this.engineSmoke.group.position.set(e.x, e.y, e.z);
+    this.root.add(this.engineSmoke.group);
+
+    this.hoodSmoke = new SmokeEffect();
+    const h = settings.car.hoodSmokeOffset;
+    this.hoodSmoke.group.position.set(h.x, h.y, h.z);
+    this.root.add(this.hoodSmoke.group);
   }
 
   #build() {
@@ -154,6 +168,10 @@ export class CarView {
   }
 
   update(dt) {
+    const smoking = this.car.damageParts.length > 0 && !this.car.fixed;
+    this.engineSmoke.update(dt, smoking);
+    this.hoodSmoke.update(dt, smoking);
+
     // Heal lerps (no visual effect now, but kept so progress tracking stays correct).
     const k = Math.min(1, FIX_LERP * dt);
     for (const name in this.fix) {
@@ -193,6 +211,8 @@ export class CarView {
   }
 
   dispose(sceneManager) {
+    this.engineSmoke.dispose();
+    this.hoodSmoke.dispose();
     sceneManager.remove(this.root);
     // Dispose ONLY what this instance owns: its cloned materials (see #build).
     // The GEOMETRY is NOT ours to free — clone() shares it with the preloaded

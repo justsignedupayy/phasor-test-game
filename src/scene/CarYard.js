@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { CarView } from './CarView.js';
 import { PitView } from './PitView.js';
-import { showCashPopup } from './popup.js';
+import { showCashPopup, worldToScreen } from './popup.js';
 import { requiredTicks } from '../core/upgrades.js';
 import { formatMoney } from '../core/format.js';
 
@@ -59,15 +59,15 @@ export class CarYard {
   }
 
   /**
-   * Raycast the break chairs; returns the pit index whose SEATED worker's chair
-   * was hit (so main.js can open the break panel), or -1. Only a chair whose
-   * worker is actually on break is a hit — an empty chair isn't tappable.
+   * Raycast the resting workers; returns the pit index whose worker was hit
+   * while on break (so main.js can open the break panel), or -1. A worker not
+   * on break isn't tappable.
    */
   raycastChair(raycaster, state) {
     for (let i = 0; i < this.pitViews.length; i++) {
       const view = this.pitViews[i];
-      if (!view.seat || !state.pits[i].break.onBreak) continue;
-      if (raycaster.intersectObject(view.seat, true).length > 0) return i;
+      if (!view.mechanic || !state.pits[i].break.onBreak) continue;
+      if (raycaster.intersectObject(view.mechanic.model, true).length > 0) return i;
     }
     return -1;
   }
@@ -199,10 +199,7 @@ export class CarYard {
   }
 
   #popup(amount, pos) {
-    const v = new THREE.Vector3(pos.x, 1.6, pos.z).project(this.sm.camera);
-    const rect = this.sm.renderer.domElement.getBoundingClientRect();
-    const x = (v.x * 0.5 + 0.5) * rect.width + rect.left;
-    const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+    const { x, y } = worldToScreen({ x: pos.x, y: 1.6, z: pos.z }, this.sm.camera, this.sm.renderer.domElement);
     showCashPopup(`+$${formatMoney(amount)}`, x, y);
   }
 }

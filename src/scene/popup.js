@@ -1,7 +1,20 @@
+import * as THREE from 'three';
+
 /**
- * popup.js — a one-shot floating text element (e.g. "+$15") at a screen point.
- * Pure DOM; floats up and fades, then removes itself.
+ * popup.js — one-shot floating DOM elements (cash text, reaction emotes) at a
+ * screen point. Pure DOM; animate then remove themselves.
  */
+
+/** Project a world point to fixed-position screen coords (for popup placement). */
+export function worldToScreen(pos3d, camera, rendererDom) {
+  const v = new THREE.Vector3(pos3d.x, pos3d.y, pos3d.z).project(camera);
+  const rect = rendererDom.getBoundingClientRect();
+  return {
+    x: (v.x * 0.5 + 0.5) * rect.width + rect.left,
+    y: (-v.y * 0.5 + 0.5) * rect.height + rect.top,
+  };
+}
+
 export function showCashPopup(text, x, y) {
   const el = document.createElement('div');
   el.textContent = text;
@@ -27,4 +40,34 @@ export function showCashPopup(text, x, y) {
   });
 
   setTimeout(() => el.remove(), 1000);
+}
+
+/** Quick reaction emote (e.g. '💢', '❗') — a snappy scale pop + fade, no color styling. */
+export function showEmotePopup(symbol, x, y, fontSize = 40) {
+  const el = document.createElement('div');
+  el.textContent = symbol;
+  Object.assign(el.style, {
+    position: 'fixed',
+    left: `${x}px`,
+    top: `${y}px`,
+    transform: 'translate(-50%, -50%) scale(0.5)',
+    font: `${fontSize}px Arial, sans-serif`,
+    pointerEvents: 'none',
+    zIndex: '20',
+    opacity: '1',
+    transition: 'transform 0.15s ease-out',
+  });
+  document.body.appendChild(el);
+
+  // Pop 0.5 -> 1.2 quickly, then settle 1.2 -> 1 while fading out.
+  requestAnimationFrame(() => {
+    el.style.transform = 'translate(-50%, -50%) scale(1.2)';
+  });
+  setTimeout(() => {
+    el.style.transition = 'transform 0.35s ease-out, opacity 0.35s ease-out';
+    el.style.transform = 'translate(-50%, -50%) scale(1)';
+    el.style.opacity = '0';
+  }, 150);
+
+  setTimeout(() => el.remove(), 550);
 }

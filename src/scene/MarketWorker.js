@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, seatOffsetDelta, tintMesh, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
+import { ZzzEffect } from './ZzzEffect.js';
 
 /**
  * MarketWorker — the supermarket's worker NPC (state.supermarket.workerLevel
@@ -53,6 +54,10 @@ export class MarketWorker {
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);
     this.state = 'idle';
     this.actions.idle?.play(); // starts at full weight; no fade-in from nothing
+
+    this.zzz = new ZzzEffect();
+    this.zzz.sprite.position.set(0, cfg.headHeight, 0);
+    this.root.add(this.zzz.sprite);
   }
 
   /** @param {object} worker core's state.supermarket.worker */
@@ -61,17 +66,17 @@ export class MarketWorker {
     this.root.position.z = worker.position.z;
     this.root.position.y = 0;
 
-    // Once seated on break, nudge the body onto the seat (the same per-seat-type
-    // offset the mechanics use) so it rests ON it instead of clipping into the
-    // bulkier couch. Pure render offset — core's worker.position is unchanged.
+    // Once on break, nudge the body onto its break spot (the same lean offset the
+    // mechanics use) so it leans upright against the wall. Pure render offset —
+    // core's worker.position is unchanged.
     if (worker.state === 'onBreak' && !worker.moving) {
       const B = settings.breaks;
-      const off = worker.break.breakDurationUpgraded ? B.sitOffset.couch : B.sitOffset.chair;
-      const d = seatOffsetDelta(B.marketChairFacing, off);
+      const d = leanOffsetDelta(B.marketChairFacing, B.leanOffset);
       this.root.position.x += d.x;
       this.root.position.z += d.z;
       this.root.position.y = d.y;
     }
+    this.zzz.update(dt, worker.state === 'onBreak' && !worker.moving);
 
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, worker.rotation, t);
@@ -87,8 +92,8 @@ export class MarketWorker {
     // for the rest of the trip. Everything else uses the walking-pace 'walkSlow'.
     let next;
     if (worker.state === 'onBreak') {
-      // Walks (empty-handed) to its chair, then sits for the break's duration.
-      next = worker.moving ? 'walkSlow' : 'sitting';
+      // Walks (empty-handed) to its break spot, then rests for the break's duration.
+      next = worker.moving ? 'walkSlow' : 'resting';
     } else if (haulingBox) {
       next = worker.moving ? 'carry' : 'carryIdle';
     } else if (worker.state === 'packaging') {

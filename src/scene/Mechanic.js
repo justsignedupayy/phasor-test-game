@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, seatOffsetDelta, tintMesh, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
+import { ZzzEffect } from './ZzzEffect.js';
 
 /**
  * Mechanic — a worker NPC: the same rigged glTF model as the player (see
@@ -53,6 +54,10 @@ export class Mechanic {
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);
     this.state = 'idle';
     this.actions.idle?.play(); // starts at full weight; no fade-in from nothing
+
+    this.zzz = new ZzzEffect();
+    this.zzz.sprite.position.set(0, cfg.headHeight, 0);
+    this.root.add(this.zzz.sprite);
   }
 
   /**
@@ -61,8 +66,8 @@ export class Mechanic {
    * @param {boolean} flags.carPresent a car is in the pit to work on
    * @param {boolean} flags.hurrying   a remote-hurry boost is active
    * @param {boolean} flags.onBreak    core break flag for this pit's worker
-   * @param {number} flags.chairFacing the Y-facing the seated worker holds
-   * @param {object} flags.seatOffset  per-seat sit offset (chair vs couch)
+   * @param {number} flags.chairFacing the Y-facing the resting worker holds
+   * @param {object} flags.seatOffset  the break-spot lean offset
    */
   update(dt, { mechanic, carPresent, hurrying, onBreak, chairFacing, seatOffset }) {
     if (!mechanic) {
@@ -74,23 +79,24 @@ export class Mechanic {
     this.root.position.z = mechanic.position.z;
     this.root.position.y = 0;
 
-    // Once seated on break, nudge the body onto the seat (the same per-seat-type
-    // offset the market worker uses) so it rests ON it instead of clipping into the
-    // bulkier couch. Pure render offset — core's mechanic.position is unchanged.
+    // Once on break, nudge the body onto its break spot (the same lean offset the
+    // market worker uses) so it leans upright against the wall. Pure render
+    // offset — core's mechanic.position is unchanged.
     if (onBreak && !mechanic.moving) {
-      const d = seatOffsetDelta(chairFacing, seatOffset);
+      const d = leanOffsetDelta(chairFacing, seatOffset);
       this.root.position.x += d.x;
       this.root.position.z += d.z;
       this.root.position.y = d.y;
     }
+    this.zzz.update(dt, onBreak && !mechanic.moving);
 
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, mechanic.rotation, t);
 
-    // Animation: seated on break; carrying a box on the restock haul (carry clip);
+    // Animation: resting on break; carrying a box on the restock haul (carry clip);
     // walking en route; otherwise repair/idle at the work spot.
     let next;
-    if (onBreak) next = mechanic.moving ? 'walk' : 'sitting';
+    if (onBreak) next = mechanic.moving ? 'walk' : 'resting';
     else if (mechanic.carrying) next = mechanic.moving ? 'carry' : 'carryIdle';
     else if (mechanic.moving) next = 'walk';
     else next = carPresent ? this.workClip : 'idle';

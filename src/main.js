@@ -21,7 +21,7 @@ import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
 import { loadGame, saveGame } from './platform/storage.js';
-import { ownedRightX, buyUnlockMarker } from './core/upgrades.js';
+import { ownedRightX } from './core/upgrades.js';
 import { roomWallBox } from './core/collision.js';
 import { rebuildGrid } from './core/pathfinding.js';
 import { loadCharacterModel } from './scene/CharacterModel.js';
@@ -35,6 +35,7 @@ import { BreakMenu } from './scene/BreakMenu.js';
 import { TruckMenu } from './scene/TruckMenu.js';
 import { UnlockMarkers } from './scene/UnlockMarkers.js';
 import { SlidingDoors } from './scene/SlidingDoors.js';
+import { worldToScreen, showEmotePopup } from './scene/popup.js';
 
 const container = document.getElementById('app');
 
@@ -55,6 +56,18 @@ const menu = new UpgradeMenu(state);
 const garage = new Garage(sceneManager);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
+
+/** Reaction pair for a remote hurry tap: an annoyed boss + an alarmed worker. */
+function showHurryEmotes(workerPos) {
+  const dom = sceneManager.renderer.domElement;
+  const y = settings.character.headHeight + settings.emote.heightAboveHead;
+
+  const boss = worldToScreen({ x: state.player.position.x, y, z: state.player.position.z }, sceneManager.camera, dom);
+  showEmotePopup('💢', boss.x, boss.y, settings.emote.fontSize);
+
+  const worker = worldToScreen({ x: workerPos.x, y, z: workerPos.z }, sceneManager.camera, dom);
+  showEmotePopup('❗', worker.x, worker.y, settings.emote.fontSize);
+}
 
 main();
 
@@ -82,8 +95,8 @@ async function main() {
   const pumpMoney = new PitMoney(sceneManager, settings.gasStation.positions, (s) => s.gasStation.pumps);
   const breakMenu = new BreakMenu(state); // opened by tapping a seated worker's chair
   const truckMenu = new TruckMenu(state); // opened by tapping an empty restock box
-  // World-space create/hire purchases: ground circles tapped in range (step-1
-  // physical unlocks; see core/upgrades.getUnlockMarkers).
+  // World-space create/hire purchases: ground circles that auto-buy on
+  // proximity (step-1 physical unlocks; see core/upgrades.getUnlockMarkers).
   const unlockMarkers = new UnlockMarkers(sceneManager);
   // Automatic sliding glass doors on the walk-in entrances (gas gate, customer
   // entry/exit, delivery gate); the delivery door also tracks the truck's tween.
@@ -119,18 +132,6 @@ async function main() {
       return;
     }
 
-    // A physical unlock marker: buy it if the player is standing in range —
-    // the same proximity pattern as a shelf tap, then the same core purchase
-    // (and save-on-purchase) its old menu row made.
-    const marker = unlockMarkers.raycast(raycaster);
-    if (marker) {
-      const d = Math.hypot(state.player.position.x - marker.x, state.player.position.z - marker.z);
-      if (d <= settings.unlockMarkers.interactRadius && buyUnlockMarker(state, marker.kind, marker.index)) {
-        saveGame(state);
-      }
-      return;
-    }
-
     const marketHit = supermarketView.raycastTap(raycaster);
     if (marketHit) {
       handleMarketTap(marketHit);
@@ -143,6 +144,10 @@ async function main() {
       if (pit.hasMechanic) {
         hurry(state, i);
         character.yell();
+        showHurryEmotes({
+          x: settings.pit.positions[i].x + settings.mechanic.offsetX,
+          z: settings.pit.positions[i].z + settings.mechanic.offsetZ,
+        });
       } else if (pit.playerPresent && pit.car && !pit.car.fixed) {
         tapRepair(state, i);
         character.repair();
@@ -160,6 +165,10 @@ async function main() {
     if (pump.hasAttendant) {
       hurryPump(state, gi);
       character.yell();
+      showHurryEmotes({
+        x: settings.gasStation.positions[gi].x + settings.attendant.offsetX,
+        z: settings.gasStation.positions[gi].z + settings.attendant.offsetZ,
+      });
     } else if (pump.playerPresent && pump.car && !pump.car.fixed) {
       tapFill(state, gi);
       character.repair();
@@ -184,6 +193,10 @@ async function main() {
     if (hit.kind === 'worker') {
       hurryMarketWorker(state);
       character.yell();
+      showHurryEmotes({
+        x: supermarketView.worker.root.position.x,
+        z: supermarketView.worker.root.position.z,
+      });
     } else if (hit.kind === 'shelf') {
       const cfg = M.shelves[hit.index];
       if (!near(cfg)) return;
@@ -271,7 +284,7 @@ async function main() {
     gasStationView.update(dt, state);
     pitMoney.update(dt, state, state.player.position);
     pumpMoney.update(dt, state, state.player.position);
-    unlockMarkers.update(state);
+    unlockMarkers.update(dt, state, state.player.position);
     breakMenu.update();
     truckMenu.update();
     hud.update(state.cash, state.repBoostRemaining);

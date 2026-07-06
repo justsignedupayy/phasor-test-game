@@ -56,8 +56,8 @@ export class MarketWorker {
     this.actions.idle?.play(); // starts at full weight; no fade-in from nothing
 
     this.zzz = new ZzzEffect();
-    this.zzz.sprite.position.set(0, cfg.headHeight, 0);
-    this.root.add(this.zzz.sprite);
+    this.zzz.root.position.set(0, cfg.headHeight, 0);
+    this.root.add(this.zzz.root);
   }
 
   /** @param {object} worker core's state.supermarket.worker */

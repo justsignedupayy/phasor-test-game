@@ -322,6 +322,7 @@ check('tapRepair needs a present player and a car in the pit', () => {
   const s = createInitialState();
   s.permanentReputation = 0; // rusty car → routes to pit 0
   tick(s, settings.spawn.interval); // car now in pit 0
+  s.pits[0].car.baseTicks = 1e6; // keep a single tap from completing the car outright
   s.pits[0].playerPresent = false;
   tapRepair(s, 0);
   assert.equal(s.pits[0].car.ticksDone, 0);
@@ -627,6 +628,7 @@ check('a pit keeps accepting and repairing the next car while pay is waiting', (
   s.pits[0].pendingCash = 500; // money already waiting, uncollected
   s.pits[0].playerPresent = false; // nobody to collect it
   const car = spawnCar(s);
+  car.baseTicks = 1e6; // keep the whole 1s tick from completing the car outright
   s.pits[0].car = car;
   tick(s, 1); // worker makes progress on the new car
   assert.ok(s.pits[0].car && s.pits[0].car.ticksDone > 0, 'repair proceeds despite waiting pay');

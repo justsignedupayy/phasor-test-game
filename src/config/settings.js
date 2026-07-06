@@ -181,54 +181,60 @@ export const settings = {
   // fixing-time upgrade (car.baseTicks × pit.fixTimeFactor).
   repair: {
     ticksPerPart: 5, // 3-damage car → 15 ticks
-    tapTicks: 1, // ticks added per manual repair tap (≈ a worker's base rate)
+    tapTicks: 5, // ticks added per manual repair tap (≈ a worker's base rate)
   },
 
   // Automatic spawning. Each pit owns its own waiting queue (no shared lane);
   // a spawned car is routed to the pit whose index matches its reputation tier
   // (pit 0 = rusty … pit 4 = luxury; see simulation.spawnToMatchingPit) and is
   // discarded if that pit can't take it.
+  //
+  // 5× TRAFFIC REBALANCE: interval ÷5 (5 → 1) for 5× the visual traffic, with
+  // per-car payout ÷5 and worker/attendant rates ×5 (plus driveDuration,
+  // tiresPerBox and breakThresholds scaled to match) so cars flow 5× faster at
+  // 1/5 the value each — $/min and the whole progression pace are unchanged.
   spawn: {
-    interval: 5, // seconds between spawns — paces the whole repair economy
+    interval: 1, // seconds between spawns — paces the whole repair economy
     maxQueuePerPit: 10, // max cars waiting per pit's own queue
-    basePayoutPerPart: 5, // payout = basePayoutPerPart × numParts (3-damage car = $15)
+    basePayoutPerPart: 4, // payout = basePayoutPerPart × numParts (3-damage car = $12)
   },
 
   // Two-stage room unlock + the per-pit upgrades. All costs are geometric
   // (cost = baseCost × costGrowth^level); see upgrades.js for the level used.
   //
-  // Balance anchors: an average rusty car pays ~$6 every ~8s of pit-0 work, so the
-  // first mechanic ($60) lands a couple of minutes in; each new income stream
+  // Balance anchors: an average rusty car pays ~$4.80 every ~1.6s of pit-0 work
+  // (the 5×-traffic rebalance kept $/min flat; the later flat 4× payout raise
+  // and 3× cost raise moved both sides together); each new income stream
   // (pit land + equipment + mechanic) costs roughly a few minutes of the income
   // that came before it; the gas tier is priced against the full-garage income it
   // is gated behind (see upgrades.gas below).
   upgrades: {
     // Stage 1: add empty floor space (reveals the next lot).
     expandRoom: {
-      baseCost: 300,
+      baseCost: 900,
       costGrowth: 1.6,
     },
     // Stage 2: install the repair station on a roomUnlocked lot. Scales by pit index.
     pitEquipment: {
-      baseCost: 150,
+      baseCost: 450,
       costGrowth: 1.6,
     },
     // One-time worker hire per pit (enables auto-repair + remote hurry). Scales by index.
     mechanic: {
-      baseCost: 60,
+      baseCost: 180,
       costGrowth: 1.5,
     },
     // Per-pit worker speed (ticks/sec).
     workerSpeed: {
-      baseCost: 50,
+      baseCost: 150,
       costGrowth: 1.6,
       maxLevel: 8,
-      baseRate: 1, // ticks/sec at level 0 → a 15-tick car takes ~15s
-      ratePerLevel: 0.5, // +ticks/sec per level
+      baseRate: 5, // ticks/sec at level 0 → a 15-tick car takes ~3s (5× traffic pace)
+      ratePerLevel: 2.5, // +ticks/sec per level
     },
     // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
     fixingTime: {
-      baseCost: 75,
+      baseCost: 225,
       costGrowth: 1.5,
       maxLevel: 5,
       factorPerLevel: 0.15, // each level: factor -0.15 (15-tick car → ~13, ~11, ...)
@@ -237,13 +243,13 @@ export const settings = {
     // One-time, garage-wide cashier hire: payouts then skip the per-pit waiting
     // pile and land straight in cash. Flat cost (no growth — it's bought once).
     cashier: {
-      baseCost: 500,
+      baseCost: 1500,
     },
     // One-time, PER-WORKER "Upgrade Break Room": halves that worker's break
     // duration (breakDurations.base -> .upgraded). Bought separately for each
     // pit mechanic and the market worker.
     breakRoom: {
-      baseCost: 200,
+      baseCost: 600,
     },
     // Global "Faster Deliveries": 3 levels, each steps the ORDERED restock
     // truck's delivery time down one entry in settings.supermarket.truck
@@ -252,7 +258,7 @@ export const settings = {
     // Geometric cost like the rest. Not per-worker — one truck serves the whole
     // market (see core/supermarket.truckDeliveryTime / orderTruck / tickTruck).
     truckFrequency: {
-      baseCost: 150,
+      baseCost: 450,
       costGrowth: 1.6,
     },
     // Gas-station upgrades, mirroring the pit set 1:1 (two-stage pump unlock +
@@ -263,26 +269,26 @@ export const settings = {
     gas: {
       // Stage 1: open the next pump lot (roomUnlocked), mirrors expandRoom.
       expand: {
-        baseCost: 2000,
+        baseCost: 6000,
         costGrowth: 1.6,
       },
       // Stage 2: install the pump on an opened lot (equipped), mirrors pitEquipment.
       equipment: {
-        baseCost: 1000,
+        baseCost: 3000,
         costGrowth: 1.6,
       },
       // One-time attendant hire per pump (auto-fill + remote hurry), mirrors mechanic.
       attendant: {
-        baseCost: 400,
+        baseCost: 1200,
         costGrowth: 1.5,
       },
       // Per-pump attendant speed (ticks/sec), mirrors workerSpeed.
       workerSpeed: {
-        baseCost: 250,
+        baseCost: 750,
         costGrowth: 1.6,
         maxLevel: 8,
-        baseRate: 1,
-        ratePerLevel: 0.5,
+        baseRate: 5,
+        ratePerLevel: 2.5,
       },
     },
   },
@@ -307,7 +313,7 @@ export const settings = {
     // cap is a long-tail sink (~$180K cumulative).
     repStep: 0.05,
     repCap: 1.0,
-    adBaseCost: 40,
+    adBaseCost: 120,
     adGrowth: 1.5,
     boostMultiplier: 4, // rewarded-ad: multiplies effective reputation while active
     boostDurationSeconds: 3000,
@@ -347,13 +353,14 @@ export const settings = {
     // future gate's z — the pump row is unreachable until the station exists.
     gasEntryInset: 1.7,
     interactRadius: 1.8, // proximity range that pays a marker down, mirrors supermarket.interactRadius
-    // Standing in range spends the cost gradually, one bill at a time (see
-    // scene/UnlockMarkers.js) — real cash, real progress: walking away mid-pay
-    // keeps whatever's already been sent, and standing back in range resumes
-    // from there. Deliberately quick (short interval + short flight) — this is
-    // a rapid-fire drip, not a slow ceremony. STARTING VALUES, tune by eye.
-    billValue: 10, // dollars deducted per flying bill
-    billInterval: 0.08, // seconds between each bill sent while in range
+    // Standing in range drains the cost CONTINUOUSLY at cost/unlockDuration per
+    // second, so every unlock takes exactly unlockDuration seconds regardless
+    // of price (see scene/UnlockMarkers.js) — a $180 hire drains $36/s, a $6000
+    // gas lot $1200/s. Leaving the circle before it completes refunds whatever
+    // has drained so far: no partial unlock, no lost cash. The flying bills are
+    // cosmetic pacing on top of the continuous drain.
+    unlockDuration: 5, // seconds of standing in a marker to complete ANY unlock
+    billInterval: 0.08, // seconds between cosmetic bill flights while draining
     billFlyDuration: 0.15, // seconds for one bill's flight from player to marker
   },
 
@@ -377,9 +384,11 @@ export const settings = {
   // its own shelf and refill the tire stack itself.
   storage: {
     shelfCapacity: 10, // max boxes a shelf holds (starts full)
-    tiresPerBox: 20, // repairs one delivered box enables
-    maxTiresPerPit: 20, // a pit's tire stack caps here (one box worth)
-    autoRestockBaseCost: 500, // one-time, garage-wide mechanic auto-restock upgrade
+    // ×5 with the spawn rate: repairs (each burning one tire) complete 5× as
+    // often, so a box lasts the same wall-clock time as before (~2 minutes).
+    tiresPerBox: 100, // repairs one delivered box enables
+    maxTiresPerPit: 100, // a pit's tire stack caps here (one box worth)
+    autoRestockBaseCost: 1500, // one-time, garage-wide mechanic auto-restock upgrade
     pickupRadius: 1.9, // how close to a shelf the player must stand to grab a box
     // Placements are offsets from each pit's position (settings.pit.positions[i]).
     shelfOffset: { x: 3.2, z: -13.5 }, // exit-door (front wall) side of the pit, clear of the exit lane
@@ -420,9 +429,9 @@ export const settings = {
   // the player still restocks. Level 2 ("Train Market Worker"): the worker
   // does both, hands-free. See core/supermarket.js.
   supermarket: {
-    unlockBaseCost: 800,
-    workerHireCost: 250, // Hire Market Worker (workerLevel 0 -> 1)
-    workerTrainCost: 450, // Train Market Worker (workerLevel 1 -> 2)
+    unlockBaseCost: 2400,
+    workerHireCost: 750, // Hire Market Worker (workerLevel 0 -> 1)
+    workerTrainCost: 1350, // Train Market Worker (workerLevel 1 -> 2)
 
     // Cash-register prop (cash-register.glb) that appears when the cashier is
     // hired (see scene/Cashier.js). Placed at its OWN world position (independent
@@ -704,16 +713,46 @@ export const settings = {
     // (same tier scaling as repairs, own base numbers). STARTING VALUES.
     fill: {
       baseTicks: 8,
-      basePayout: 12,
+      basePayout: 9.6, // 2.4 × 4 (the flat 4× payout raise on top of the 5×-traffic rebalance)
     },
     // Automatic spawning, mirroring settings.spawn: each pump owns its own queue.
     // UNLIKE pits there is no tier routing — a spawned car (any tier) joins the
     // shortest line among the equipped pumps and is discarded only when every
     // open pump is full (see core/gasStation.spawnToShortestQueue).
     spawn: {
-      interval: 5, // seconds between spawns, mirrors settings.spawn.interval
+      interval: 1, // seconds between spawns, mirrors settings.spawn.interval
       maxQueuePerPump: 10,
     },
+  },
+
+  // Pedestrian bridges over the vehicle roads + player-side road blocking (see
+  // core/roads.js + scene/Bridges.js). Roads are solid to the PLAYER only —
+  // NPCs keep their own navigation (mechanics/attendants WORK on the lanes and
+  // the market NPCs' A* grid never reaches a road). Each road group gets one
+  // raised deck crossing it along x, with a ramp at each end; the deck's
+  // corridor (its width in z) is carved out of the road collision so the bridge
+  // is the one walkable line through the band. The elevation is visual only
+  // (core positions stay 2D): cars/trucks drive underneath unaffected.
+  //
+  // Two at-grade exemptions keep the game playable: the delivery DOCK (front
+  // wall out to the truck's stop — the restock box lives there) and the gas
+  // FORECOURT (pumpZ ± gasForecourtHalfDepth — pumps, work spots, chairs and
+  // unlock markers all stand on that asphalt). STARTING VALUES, tune by eye.
+  bridges: {
+    deckHeight: 3.2, // deck walking surface y — clears every car and the delivery truck
+    deckWidth: 3.0, // walkway width (z); also the collision corridor carved through the road
+    deckThickness: 0.3,
+    rampLength: 6, // horizontal run of each end ramp
+    railHeight: 0.9,
+    legSpacing: 12, // a support leg pair lands roughly every this many units along the deck
+    deckColor: 0x9aa0a8,
+    railColor: 0x646a73,
+    // One crossing per road group: the deck centreline's z.
+    garageEntryZ: 15, // over the entry band, behind the back wall (decorative — the player can never get back there, but every road gets its bridge)
+    garageExitZ: -15, // over the exit band: connects the delivery dock/west side to the east front exterior
+    deliveryZ: -22, // over the delivery road, just south of the truck's stop (the dock itself stays at grade)
+    gasZ: -6.5, // over the gas band's south sliver, inside the player's reachable z-range
+    gasForecourtHalfDepth: 7.5, // walkable service band around the pump row (z = pumpZ ± this)
   },
 
   // Each pump attendant stands beside its pump (offset from the pump centre,
@@ -727,10 +766,13 @@ export const settings = {
   // How many jobs each worker completes before it earns a break (see
   // core/breaks.js). A car mechanic's job = one finished repair; the market
   // worker's job = one checked-out customer. Each worker tracks its own count.
+  // Car-servicing thresholds are ×5 with the spawn rate (jobs complete 5× as
+  // often, so breaks-per-hour stay unchanged); the market worker's is untouched
+  // because customer traffic (customerSpawnInterval) didn't change.
   breakThresholds: {
-    carMechanic: 100,
+    carMechanic: 500,
     marketWorker: 50,
-    gasAttendant: 100, // one job = one filled car
+    gasAttendant: 500, // one job = one filled car
   },
 
   // How long (real seconds) a break lasts. The per-worker "Upgrade Break Room"

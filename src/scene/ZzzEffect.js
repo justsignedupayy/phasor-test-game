@@ -1,69 +1,106 @@
 import * as THREE from 'three';
 
 /**
- * ZzzEffect — a persistent "Zzz" sprite hovering above a worker's head while
- * it's asleep on break. Purely render-side eye-candy (Mechanic.js /
- * MarketWorker.js own no game state); toggled by update(dt, active).
+ * ZzzEffect — the classic cartoon sleep effect above a worker's head while
+ * it's asleep on break: small "Z" sprites continuously spawn near the head,
+ * drift upward and slightly sideways, scale up and fade out, then respawn.
+ * Purely render-side eye-candy (Mechanic.js / MarketWorker.js own no game
+ * state); toggled by update(dt, active).
  *
- * The "Zzz" texture is a module-level singleton: one CanvasTexture drawn once
- * and shared by every instance. Each instance clones the SpriteMaterial so its
- * own visibility is independent, but the texture itself is never re-created
- * and never disposed per instance.
+ * The "Z" texture is a module-level singleton: one CanvasTexture drawn once
+ * and shared by every instance. Each sprite clones the SpriteMaterial so its
+ * own opacity is independent, but the texture itself is never re-created and
+ * never disposed per instance.
  */
 
-const BOB_AMPLITUDE = 0.1;
-const BOB_PERIOD = 1.5; // seconds per full up/down cycle
+const PARTICLES = 3;          // concurrent Zs — staggered thirds of one cycle
+const LIFE = 2.1;             // seconds each Z lives before respawning
+const RISE = 0.85;            // world units climbed over a lifetime
+const DRIFT = 0.22;           // sideways drift over a lifetime
+const SWAY_AMP = 0.07;        // amplitude of the wobble around the drift path
+const SWAY_CYCLES = 1.5;      // wobble cycles per lifetime
+const FADE_IN = 0.15;         // fraction of life spent fading in
+const FADE_OUT = 0.35;        // fraction of life spent fading out
+// Per-slot variety: base size (small → larger Z) and drift side.
+const BASE_SCALES = [0.26, 0.33, 0.4];
+const DRIFT_DIRS = [1, -0.6, 0.8];
 
 let sharedTexture = null;
 
-/** Build (once) a bold "Zzz" glyph, light grey with a dark outline for contrast. */
-function getZzzTexture() {
+/** Build (once) a bold "Z" glyph, light grey with a dark outline for contrast. */
+function getZTexture() {
   if (sharedTexture) return sharedTexture;
-  const w = 96;
-  const h = 64;
+  const size = 64;
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.font = 'bold 40px Arial, sans-serif';
+  ctx.font = 'bold 48px Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 7;
   ctx.strokeStyle = 'rgba(30,30,30,0.55)';
-  ctx.strokeText('Zzz', w / 2, h / 2);
+  ctx.strokeText('Z', size / 2, size / 2);
   ctx.fillStyle = 'rgba(235,235,235,0.95)';
-  ctx.fillText('Zzz', w / 2, h / 2);
+  ctx.fillText('Z', size / 2, size / 2);
   sharedTexture = new THREE.CanvasTexture(canvas);
   return sharedTexture;
 }
 
 export class ZzzEffect {
   constructor() {
-    const texture = getZzzTexture();
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.sprite = new THREE.Sprite(material);
-    this.sprite.scale.set(0.9, 0.6, 1);
-    this.sprite.visible = false;
-    this.baseY = null; // captured lazily from whatever y the caller positions the sprite at
+    const texture = getZTexture();
+    this.root = new THREE.Group();
+    this.root.visible = false;
+    this.sprites = [];
+    for (let i = 0; i < PARTICLES; i++) {
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      this.root.add(sprite);
+      this.sprites.push(sprite);
+    }
     this.t = 0;
   }
 
   update(dt, active) {
-    this.sprite.visible = active;
-    if (this.baseY === null) this.baseY = this.sprite.position.y;
-    if (!active) return;
-
+    if (!active) {
+      this.root.visible = false;
+      this.t = 0; // restart the stream from a fresh small Z next time
+      return;
+    }
+    this.root.visible = true;
     this.t += dt;
-    const phase = (this.t / BOB_PERIOD) * Math.PI * 2;
-    this.sprite.position.y = this.baseY + Math.sin(phase) * BOB_AMPLITUDE;
+
+    for (let i = 0; i < PARTICLES; i++) {
+      const sprite = this.sprites[i];
+      // Stagger the slots by thirds of a lifetime so a new Z spawns as an old
+      // one fades — a continuous ascending small→large stream.
+      const local = this.t - (i * LIFE) / PARTICLES;
+      if (local < 0) {
+        sprite.visible = false;
+        continue;
+      }
+      const p = (local % LIFE) / LIFE; // 0→1 progress through this Z's life
+
+      sprite.visible = true;
+      sprite.position.set(
+        DRIFT_DIRS[i] * p * DRIFT + Math.sin(p * Math.PI * 2 * SWAY_CYCLES + i * 2.1) * SWAY_AMP,
+        p * RISE,
+        0
+      );
+      const s = BASE_SCALES[i] * (0.6 + 0.7 * p); // grows as it rises
+      sprite.scale.set(s, s, 1);
+      sprite.material.opacity =
+        Math.min(1, p / FADE_IN) * Math.min(1, (1 - p) / FADE_OUT);
+    }
   }
 
   dispose() {
-    this.sprite.parent?.remove(this.sprite);
-    this.sprite.material.dispose();
+    this.root.parent?.remove(this.root);
+    for (const sprite of this.sprites) sprite.material.dispose();
   }
 }

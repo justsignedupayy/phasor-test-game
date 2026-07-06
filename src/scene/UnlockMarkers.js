@@ -9,18 +9,20 @@ import { spawnFlyingBills } from './MoneyFly.js';
  * circle + floating cost label per available create/hire purchase (the list
  * comes from core/upgrades.getUnlockMarkers; placement/visual tunables from
  * settings.unlockMarkers). Standing within settings.unlockMarkers.interactRadius
- * of a marker pays it down gradually — see update() below — one real $billValue
- * bill at a time, animated flying from the player to the marker's spot
- * (scene/MoneyFly.js), mirroring PitMoney's collection flight in reverse.
+ * of a marker drains its cost continuously at cost/unlockDuration per second —
+ * so EVERY unlock completes after exactly unlockDuration seconds of standing in
+ * it, whatever it costs. Flying bills (scene/MoneyFly.js, PitMoney's collection
+ * flight in reverse) are spawned on a fixed billInterval cadence purely as the
+ * visual for that flow — the drain itself is per-frame and continuous.
  *
- * The transaction is genuinely incremental and resumable: each bill's value is
- * deducted from state.cash the instant it's sent (so the HUD ticks down in real
- * time, not a cosmetic delay), and per-marker progress (this.progress) persists
- * across interruptions — walk away mid-purchase and whatever's already been
- * sent stays spent; walk back and it resumes from there. Only once the final
- * bill lands does the purchase actually complete: buyUnlockMarker fires (same
- * gates as ever), refunding the incrementally-spent total first so its own
- * atomic cash check + deduction nets to exactly one full-cost charge overall.
+ * The drain is real cash (the HUD ticks down live, not a cosmetic delay) but
+ * the purchase is all-or-nothing: leave the circle before the duration
+ * completes and everything drained so far is refunded on the spot — no partial
+ * unlock, no lost cash. A cash-starved drain simply stalls (it only takes what
+ * the player has) and resumes, stretching past unlockDuration until the full
+ * cost has flowed. Only then does the purchase complete: buyUnlockMarker fires
+ * (same gates as ever), refunding the drained total first so its own atomic
+ * cash check + deduction nets to exactly one full-cost charge overall.
  *
  * Render-only otherwise: reads core state through the marker view model, only
  * ever mutates cash/state via the same core/upgrades.buyUnlockMarker every
@@ -35,8 +37,9 @@ export class UnlockMarkers {
     this.group = new THREE.Group();
     this.sm.add(this.group);
     this.sig = '';
-    this.progress = new Map(); // "kind:index" -> { paid, sendTimer, flights[] } — survives across visits
+    this.progress = new Map(); // "kind:index" -> { paid, sendTimer, flights[] } — one live drain per marker
     this.labels = new Map(); // "kind:index" -> cost label sprite, so a payment can redraw it in place
+    this.orphanFlights = []; // bill visuals still airborne after their drain ended (refund/complete)
   }
 
   update(dt, state, playerPos) {
@@ -60,35 +63,45 @@ export class UnlockMarkers {
       const inRange = dist <= M.interactRadius && !m.locked;
       let p = this.progress.get(key);
 
-      if (inRange && (!p || p.paid < m.cost)) {
+      if (inRange) {
         if (!p) {
           p = { paid: 0, sendTimer: 0, flights: [] };
           this.progress.set(key, p);
         }
-        p.sendTimer -= dt;
-        if (p.sendTimer <= 0) {
-          p.sendTimer = M.billInterval;
-          const remaining = m.cost - p.paid;
-          const amount = Math.min(M.billValue, remaining, state.cash);
-          if (amount > 0) {
-            state.cash -= amount;
-            p.paid += amount;
-            const isLast = p.paid >= m.cost;
-            this.#refreshLabel(key, Math.max(0, m.cost - p.paid), m);
+        // Fixed-duration drain: rate = cost / unlockDuration, so any unlock
+        // completes after exactly unlockDuration seconds in the circle. Capped
+        // by cash on hand — a broke drain stalls and resumes, never overdraws.
+        const amount = Math.min((m.cost / M.unlockDuration) * dt, m.cost - p.paid, state.cash);
+        if (amount > 0) {
+          state.cash -= amount;
+          p.paid += amount;
+          this.#refreshLabel(key, Math.max(0, m.cost - p.paid), m);
+          // Cosmetic bill flights pace the continuous drain, one per interval.
+          p.sendTimer -= dt;
+          if (p.sendTimer <= 0) {
+            p.sendTimer = M.billInterval;
             p.flights.push(
               spawnFlyingBills(
                 this.sm,
                 1,
                 { x: playerPos.x, y: 1.0, z: playerPos.z },
                 { x: m.x, z: m.z },
-                { duration: M.billFlyDuration, onBillArrive: () => isLast && this.#finalize(state, m, key) }
+                { duration: M.billFlyDuration }
               )
             );
           }
-          // else: not enough cash yet — just retry after the usual interval.
         }
+        if (p.paid >= m.cost - 1e-9) this.#finalize(state, m, key);
+      } else if (p) {
+        // Left the circle (or the marker re-locked) before the drain finished:
+        // refund everything drained so far — no partial unlock, no lost cash.
+        state.cash += p.paid;
+        this.orphanFlights.push(...p.flights); // airborne bills finish their flight
+        this.progress.delete(key);
+        this.#refreshLabel(key, m.cost, m);
       }
 
+      p = this.progress.get(key); // finalize/refund above may have removed it
       if (p) {
         for (let i = p.flights.length - 1; i >= 0; i--) {
           p.flights[i].update(dt);
@@ -96,21 +109,27 @@ export class UnlockMarkers {
         }
       }
     }
+
+    for (let i = this.orphanFlights.length - 1; i >= 0; i--) {
+      this.orphanFlights[i].update(dt);
+      if (this.orphanFlights[i].done) this.orphanFlights.splice(i, 1);
+    }
   }
 
   /**
-   * The final bill has landed: refund the total already deducted bill-by-bill,
+   * The full cost has drained: refund the total already deducted frame-by-frame,
    * then let buyUnlockMarker do its normal atomic afford-check + deduction +
    * effect. Refund and re-deduct are the same amount in the same tick, so cash
    * never visibly jumps — this just lets the untouched core function do the
    * one thing only it knows how to (apply kind/index's actual effect) without
-   * double-charging for a cost this view already collected in installments.
+   * double-charging for a cost this view already collected as a flow.
    */
   #finalize(state, m, key) {
     const p = this.progress.get(key);
     if (!p) return;
     state.cash += p.paid;
     buyUnlockMarker(state, m.kind, m.index);
+    this.orphanFlights.push(...p.flights); // airborne bills finish their flight
     this.progress.delete(key);
   }
 
@@ -118,7 +137,10 @@ export class UnlockMarkers {
   #refreshLabel(key, remainingCost, m) {
     const label = this.labels.get(key);
     if (!label) return;
-    updateMarkerLabel(label, `$${formatMoney(remainingCost)}`, m.hint, m.locked);
+    const costText = `$${formatMoney(remainingCost)}`;
+    if (label.userData.lastCostText === costText) return; // continuous drain: skip no-op redraws
+    label.userData.lastCostText = costText;
+    updateMarkerLabel(label, costText, m.hint, m.locked);
   }
 
   #build(m) {

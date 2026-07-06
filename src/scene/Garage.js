@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { ownedRightX } from '../core/upgrades.js';
 
+// Door-frame pillar cross-section (a PILLAR_W × wallHeight × PILLAR_W box).
+// Shared by the frame builders AND the wall layout: pillar-framed door gaps are
+// widened by PILLAR_W / 2 per side so the wall segments BUTT against the
+// pillars' outer faces (and lintels span between their inner faces) instead of
+// overlapping them — overlapping boxes with coplanar tops z-fight.
+const PILLAR_W = 0.6;
+
 /**
  * Garage — the environment: floor, grid, a left lobby patch, and four perimeter
  * walls. The building grows rightward as Expand Room is bought: the left wall is
@@ -397,7 +404,9 @@ export class Garage {
     const W = settings.world;
     const h = W.wallHeight;
     const t = W.wallThickness;
-    const depthZ = W.halfZ * 2 + t;
+    // Full outer depth: reaches the front/back walls' OUTER faces (±(halfZ + t))
+    // so both right corners are filled flush — no gap where the bands meet.
+    const depthZ = W.halfZ * 2 + 2 * t;
 
     this.wallMat = new THREE.MeshStandardMaterial({ color: settings.colors.wall, flatShading: true });
     const box = (w, d) => {
@@ -517,10 +526,15 @@ export class Garage {
       floor.receiveShadow = true;
       group.add(floor);
 
-      // Side walls: from the building wall's slab to the door plane, flanking the gap.
+      // Side walls flanking the gap: from the building wall's OUTER face out to
+      // the relocated frame's pillar near-face — butting both (starting at the
+      // slab centre / running to the door plane would clip into the main wall
+      // band and the pillars, z-fighting along their coplanar tops).
+      const zStart = dir * (W.halfZ + t);
+      const zEnd = doorZ - dir * (PILLAR_W / 2);
       for (const side of [-1, 1]) {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, Math.abs(doorZ - wallZ)), this.wallMat);
-        wall.position.set(doorX + side * (g + t / 2), h / 2, (wallZ + doorZ) / 2);
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, Math.abs(zEnd - zStart)), this.wallMat);
+        wall.position.set(doorX + side * (g + t / 2), h / 2, (zStart + zEnd) / 2);
         wall.castShadow = true;
         wall.receiveShadow = true;
         group.add(wall);
@@ -546,18 +560,20 @@ export class Garage {
 
     const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
     // Pillar tops sit flush with the wall top (y = h), like the lintel — nothing
-    // pokes above the frame.
+    // pokes above the frame. The wall segments end at the pillars' outer faces
+    // (see #layoutLeftWall), so pillar and wall butt instead of overlapping.
     const pillar = (z) => {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h, 0.6), gateMat);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(PILLAR_W, h, PILLAR_W), gateMat);
       p.position.set(x, h / 2, z);
       p.castShadow = true;
       p.visible = false;
       this.group.add(p);
       return p;
     };
-    // Lintel top sits flush with the wall top (y = h), never above it.
+    // Lintel top sits flush with the wall top (y = h), never above it. It spans
+    // exactly between the pillars' inner faces — butting them, not overlapping.
     const lintelH = 0.5;
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.6, lintelH, g * 2 + 0.6), gateMat);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(PILLAR_W, lintelH, g * 2 - PILLAR_W), gateMat);
     lintel.position.set(x, h - lintelH / 2, gateZ);
     lintel.castShadow = true;
     lintel.visible = false;
@@ -574,9 +590,11 @@ export class Garage {
 
     const gateMat = new THREE.MeshStandardMaterial({ color: c.gate, flatShading: true });
     // Pillar tops sit flush with the wall top (y = h), like the lintel — nothing
-    // pokes above the frame.
+    // pokes above the frame. On-wall doors get their wall gap widened by
+    // PILLAR_W / 2 per side (see #layoutSegmentedWall), so the segments butt the
+    // pillars' outer faces instead of overlapping them.
     const pillar = (x) => {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, h, 0.6), gateMat);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(PILLAR_W, h, PILLAR_W), gateMat);
       p.position.set(x, h / 2, z);
       p.castShadow = true;
       p.visible = false;
@@ -584,9 +602,10 @@ export class Garage {
       return p;
     };
     const lintel = (x) => {
-      // Lintel top sits flush with the wall top (y = h), never above it.
+      // Lintel top sits flush with the wall top (y = h), never above it. It
+      // spans exactly between the pillars' inner faces — butting, not overlapping.
       const lintelH = 0.5;
-      const l = new THREE.Mesh(new THREE.BoxGeometry(g * 2 + 0.6, lintelH, 0.6), gateMat);
+      const l = new THREE.Mesh(new THREE.BoxGeometry(g * 2 - PILLAR_W, lintelH, PILLAR_W), gateMat);
       l.position.set(x, h - lintelH / 2, z);
       l.castShadow = true;
       l.visible = false;
@@ -622,16 +641,23 @@ export class Garage {
     const h = W.wallHeight;
     const leftX = -W.halfX;
 
-    const doors = state.pits.filter((p) => p.roomUnlocked).map((p) => settings.pit.positions[p.index].x);
-    if (state.supermarket.unlocked) doors.push(...marketDoorXs);
-    doors.sort((a, b) => a - b);
+    // Pit doors carry pillars ON the wall: their gap is widened by PILLAR_W / 2
+    // per side so the segments butt the pillars' outer faces (no overlap, no
+    // z-fighting tops). Market openings are bare corridor mouths — their gap
+    // stays exactly gateHalf so the corridor side walls (inner faces at ±g)
+    // continue the wall edge flush.
+    const doors = state.pits
+      .filter((p) => p.roomUnlocked)
+      .map((p) => ({ x: settings.pit.positions[p.index].x, half: g + PILLAR_W / 2 }));
+    if (state.supermarket.unlocked) doors.push(...marketDoorXs.map((x) => ({ x, half: g })));
+    doors.sort((a, b) => a.x - b.x);
 
     const segs = [];
     let cursor = leftX;
-    for (const dx of doors) {
-      const gapStart = dx - g;
+    for (const d of doors) {
+      const gapStart = d.x - d.half;
       if (gapStart > cursor) segs.push([cursor, gapStart]);
-      cursor = Math.max(cursor, dx + g);
+      cursor = Math.max(cursor, d.x + d.half);
     }
     if (rightX > cursor) segs.push([cursor, rightX]);
 
@@ -655,15 +681,19 @@ export class Garage {
     const W = settings.world;
     const h = W.wallHeight;
     const g = W.gateHalf;
+    const t = W.wallThickness;
     const gateZ = settings.gasStation.gateZ;
     const x = -W.halfX - W.wallThickness / 2;
 
+    // Spans run to the front/back walls' OUTER faces (±(halfZ + t)) so both
+    // left corners are filled flush; the gas gate's gap is widened by
+    // PILLAR_W / 2 per side so the wall butts its pillars (see #buildLeftDoor).
     const spans = gasOpen
       ? [
-          [-W.halfZ, gateZ - g],
-          [gateZ + g, W.halfZ],
+          [-W.halfZ - t, gateZ - g - PILLAR_W / 2],
+          [gateZ + g + PILLAR_W / 2, W.halfZ + t],
         ]
-      : [[-W.halfZ, W.halfZ]];
+      : [[-W.halfZ - t, W.halfZ + t]];
 
     this.leftSegments.forEach((mesh, i) => {
       const span = spans[i];

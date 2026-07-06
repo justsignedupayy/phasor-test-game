@@ -35,6 +35,7 @@ import { BreakMenu } from './scene/BreakMenu.js';
 import { TruckMenu } from './scene/TruckMenu.js';
 import { UnlockMarkers } from './scene/UnlockMarkers.js';
 import { SlidingDoors } from './scene/SlidingDoors.js';
+import { Bridges } from './scene/Bridges.js';
 import { worldToScreen, showEmotePopup } from './scene/popup.js';
 
 const container = document.getElementById('app');
@@ -54,6 +55,7 @@ const hud = new Hud(state);
 const menu = new UpgradeMenu(state);
 
 const garage = new Garage(sceneManager);
+const bridges = new Bridges(sceneManager);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
 
@@ -276,6 +278,7 @@ async function main() {
     character.update(dt, state.player);
     carriedBox.update(state.player);
     garage.update(dt, state);
+    bridges.update(state);
     slidingDoors.update(dt, state);
     carYard.update(dt, state);
     supermarketView.update(dt, state);

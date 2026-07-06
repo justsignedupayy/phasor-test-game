@@ -1,4 +1,5 @@
 import settings from '../config/settings.js';
+import { bridgeElevationAt } from '../core/roads.js';
 import { cloneStorageModel } from './StorageModels.js';
 
 /**
@@ -29,7 +30,8 @@ export class CarriedBox {
     const fwdZ = Math.cos(player.rotation);
     this.root.position.set(
       player.position.x + fwdX * o.forward,
-      o.y,
+      // Ride the player's bridge elevation so the box doesn't sink under a deck.
+      o.y + bridgeElevationAt(player.position.x, player.position.z),
       player.position.z + fwdZ * o.forward
     );
     this.root.rotation.y = player.rotation;

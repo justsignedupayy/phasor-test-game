@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
-import { bridgeElevationAt } from '../core/roads.js';
+import { laneBridgeElevationAt } from '../core/roads.js';
 import { buildActionMap, crossfadeTo, groundModel, lerpAngle, updateMixer } from './characterAnim.js';
 
 /**
@@ -50,12 +50,12 @@ export class Character {
     this.emoteTimer = EMOTE_TIME;
   }
 
-  update(dt, player) {
-    // Position from core state. Core positions are 2D — the y comes from the
-    // pedestrian bridges: deck height while crossing one, 0 on the ground.
+  update(dt, player, state) {
+    // Position from core state. Core positions stay 2D — the y is the pit-lane
+    // bridge deck height while crossing one (visual only), 0 on the ground.
     this.root.position.x = player.position.x;
     this.root.position.z = player.position.z;
-    this.root.position.y = bridgeElevationAt(player.position.x, player.position.z);
+    this.root.position.y = laneBridgeElevationAt(state, player.position.x, player.position.z);
 
     // Smoothly turn toward the target facing (frame-rate independent).
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);

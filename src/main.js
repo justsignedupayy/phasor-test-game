@@ -17,6 +17,7 @@ import { Input } from './scene/Input.js';
 import { Character } from './scene/Character.js';
 import { Cashier } from './scene/Cashier.js';
 import { Garage } from './scene/Garage.js';
+import { GroundField } from './scene/GroundField.js';
 import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
@@ -54,6 +55,7 @@ const input = new Input();
 const hud = new Hud(state);
 const menu = new UpgradeMenu(state);
 
+new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
 const bridges = new Bridges(sceneManager);
 
@@ -275,8 +277,8 @@ async function main() {
     }
     if (cashier) cashier.update(dt);
 
-    character.update(dt, state.player);
-    carriedBox.update(state.player);
+    character.update(dt, state.player, state);
+    carriedBox.update(state.player, state);
     garage.update(dt, state);
     bridges.update(state);
     slidingDoors.update(dt, state);

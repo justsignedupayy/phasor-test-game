@@ -32,6 +32,17 @@ export const settings = {
       dashLength: 1.0,
       dashGap: 0.5,
     },
+    // Low-poly grass field (scene/GroundField.js, visual only): one static plane
+    // under the whole world so the camera never sees the flat background colour.
+    // Sized from halfX/halfZ + road.extent + buffer, so it always outruns both the
+    // roads and the camera's follow-lerp. segments tunes the facet size; jitter is
+    // the max per-vertex saturation/lightness offset around colors.grass. Tune by
+    // eye in `npm run dev`.
+    grass: {
+      buffer: 60,
+      segments: 72,
+      colorJitter: 0.14,
+    },
   },
 
   // Automatic sliding glass doors (scene/SlidingDoors.js, visual only): two
@@ -627,7 +638,11 @@ export const settings = {
   // along x. The row starts at x = -27 (leaving the left lobby clear) and fills
   // out to the right as Expand Room is bought.
   pit: {
-    radius: 1.7,
+    // playerPresent range from the pit centre (manual repair ticks, box delivery,
+    // cash pickup, tap-repair). The pit-lane walls (settings.pitLane) keep the
+    // player at least halfWidth + player.radius ≈ 1.8 from the centre, so this
+    // must reach past them.
+    radius: 2.4,
     // Reputation gate per pit, index-aligned with positions: opening pit i's land
     // (Expand Room) requires permanentReputation >= unlockReputation[i] ON TOP OF
     // the cash cost (see upgrades.buyExpandRoom). Fractions of repCap — shown as
@@ -725,34 +740,60 @@ export const settings = {
     },
   },
 
-  // Pedestrian bridges over the vehicle roads + player-side road blocking (see
-  // core/roads.js + scene/Bridges.js). Roads are solid to the PLAYER only —
-  // NPCs keep their own navigation (mechanics/attendants WORK on the lanes and
-  // the market NPCs' A* grid never reaches a road). Each road group gets one
-  // raised deck crossing it along x, with a ramp at each end; the deck's
-  // corridor (its width in z) is carved out of the road collision so the bridge
-  // is the one walkable line through the band. The elevation is visual only
-  // (core positions stay 2D): cars/trucks drive underneath unaffected.
+  // Per-lane pedestrian crosswalks over the vehicle roads + player-side road
+  // blocking (see core/roads.js + scene/Bridges.js). Roads are solid to the
+  // PLAYER only — NPCs keep their own navigation (mechanics/attendants WORK on
+  // the lanes and the market NPCs' A* grid never reaches a road). Each pit's
+  // EXIT lane and each pump's lane gets one SMALL crosswalk exactly one lane
+  // wide at the z below; its corridor (deckWidth in z) is carved out of that
+  // lane's collision, so the crossing is the one walkable line through it.
+  // Decks sit FLUSH with the walkable ground — painted zebra stripes, no
+  // elevation, cars simply drive over the paint. Roads the player never needs
+  // to cross get none: the entry band (behind the back wall, unreachable) and
+  // the delivery road (solid only past the walkable dock) have no crossing.
   //
   // Two at-grade exemptions keep the game playable: the delivery DOCK (front
   // wall out to the truck's stop — the restock box lives there) and the gas
   // FORECOURT (pumpZ ± gasForecourtHalfDepth — pumps, work spots, chairs and
   // unlock markers all stand on that asphalt). STARTING VALUES, tune by eye.
   bridges: {
-    deckHeight: 3.2, // deck walking surface y — clears every car and the delivery truck
-    deckWidth: 3.0, // walkway width (z); also the collision corridor carved through the road
-    deckThickness: 0.3,
-    rampLength: 6, // horizontal run of each end ramp
-    railHeight: 0.9,
-    legSpacing: 12, // a support leg pair lands roughly every this many units along the deck
-    deckColor: 0x9aa0a8,
-    railColor: 0x646a73,
-    // One crossing per road group: the deck centreline's z.
-    garageEntryZ: 15, // over the entry band, behind the back wall (decorative — the player can never get back there, but every road gets its bridge)
-    garageExitZ: -15, // over the exit band: connects the delivery dock/west side to the east front exterior
-    deliveryZ: -22, // over the delivery road, just south of the truck's stop (the dock itself stays at grade)
-    gasZ: -6.5, // over the gas band's south sliver, inside the player's reachable z-range
+    deckWidth: 3.0, // crossing depth (z); also the collision corridor carved through the lane
+    stripeWidth: 0.55, // one zebra stripe's size along x
+    stripeSpacing: 1.1, // stripe repeat distance across the lane
+    stripeColor: 0xdadde0, // painted-marking off-white, like the lane dashes
+    // The crossing lines' z, one per road group (each lane's crosswalk sits on it).
+    garageExitZ: -15, // pit crosswalks, over each exit lane: connect the delivery dock/west side to the east front exterior
+    gasZ: -6.5, // pump crosswalks, over each lane's south sliver, inside the player's reachable z-range
     gasForecourtHalfDepth: 7.5, // walkable service band around the pump row (z = pumpZ ± this)
+  },
+
+  // Per-pit INTERIOR car-lane fencing + the raised pedestrian bridge over each
+  // lane (geometry in core/roads.js pitLaneBoxes / laneBridgeCrossings /
+  // laneBridgeElevationAt; the wall boxes ride with the other per-pit props in
+  // core/collision.js buildObstacleList; meshes in scene/Bridges.js). Once a
+  // pit is EQUIPPED (cars start driving its lane), the lane's full interior
+  // depth is walled off to walking movers by an invisible strip — its long
+  // faces are the walls along both lane edges, filled solid so the bridge gap
+  // can't be used to wander up the lane at grade — split only at the bridge
+  // corridor: the raised bridge just past the pit's hire marker (on the far
+  // side from the pit) is the ONE way across. Cars are NOT movers: they tween
+  // straight through underneath, completely unaffected. The bridge is simple
+  // primitive geometry (ramp up, flat deck, ramp down along x) in the grey
+  // road/floor palette; the player model is lifted by laneBridgeElevationAt
+  // while inside the corridor (visual only — core positions stay 2D).
+  // STARTING VALUES, tune by eye.
+  pitLane: {
+    halfWidth: 1.2, // lane half-extent in x — the invisible walls' faces; just covers the car spot (spotWidth / 2)
+    bridge: {
+      zOffset: -2.4, // deck centre z relative to the pit's HIRE MARKER (negative = past it, away from the pit)
+      width: 2.0, // deck depth (z); also the gap carved through the lane walls
+      height: 2.0, // deck walking surface y — clears a car's roof
+      thickness: 0.2,
+      rampLength: 1.5, // horizontal run of each end ramp — short, so the tips stay clear of the mechanics' chair/shelf walks (x ≈ pit.x + 2.9)
+      railHeight: 0.6,
+      deckColor: 0x9aa0a8,
+      railColor: 0x646a73,
+    },
   },
 
   // Each pump attendant stands beside its pump (offset from the pump centre,
@@ -824,6 +865,7 @@ export const settings = {
     pit: 0x7a6e5e, // the bay/work-area floor patch, darker for contrast
     pitGlow: 0xffe08a, // highlight ring when the player can repair
     toolbox: 0xc0392b, // a small toolbox marking an equipped pit
+    grass: 0x8fae7a, // soft muted green for the exterior ground field (scene/GroundField.js)
     road: 0x4a4a4a, // asphalt outside each gate + the exterior entry/exit roads
     roadLine: 0xf5e642, // yellow divider line between adjacent pit bays
     laneStripe: 0xffffff, // white guide paint on the garage floor + exterior lane dashes

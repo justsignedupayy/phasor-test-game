@@ -340,8 +340,9 @@ function updatePlayer(state, dt) {
     roomWallX: ownedRightX(state),
   });
   // Vehicle roads are solid to the player ALONE (never to NPCs — attendants and
-  // mechanics work on the lanes). Each road's bridge corridor is carved out of
-  // these boxes, so the bridges are the only way across (see core/roads.js).
+  // mechanics work on the lanes). Each pit/pump lane's crosswalk corridor is
+  // carved out of these boxes, so the crossings are the only way across
+  // (see core/roads.js).
   for (const b of playerRoadBoxes(state)) {
     pushOutOfRect(player.position, settings.player.radius, b);
   }

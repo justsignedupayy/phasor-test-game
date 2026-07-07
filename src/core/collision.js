@@ -12,6 +12,7 @@
  * never drift; the boxes are the same shelves/freezers/checkout/garage props it inflates.
  */
 import settings from '../config/settings.js';
+import { pitLaneBoxes } from './roads.js';
 
 /**
  * Resolve a circle (centre `pos` {x,z}, radius `r`) against one axis-aligned
@@ -54,7 +55,9 @@ export function pushOutOfRect(pos, r, b) {
  * before:
  *   market   (default true)  supermarket shelves/freezers (collision halves by model
  *                            type, nudged by its per-type offset) + the checkout
- *   garage   (default true)  pit shelves + tire stacks + break chairs
+ *   garage   (default true)  pit shelves + tire stacks + break chairs + each
+ *                            equipped pit's invisible car-lane walls (see
+ *                            core/roads.pitLaneBoxes)
  *   allPits  (default false) garage props for EVERY pit, state-free (the A* grid bakes
  *                            them all in once — harmless, market NPCs never reach the
  *                            bay row). When false, only the props that actually exist
@@ -144,6 +147,9 @@ export function buildObstacleList(state, settings, opts = {}) {
             halfZ: S.tireCollisionHalf.z,
           });
         }
+        // The car lane's invisible edge walls, split around its bridge
+        // corridor — the raised bridge is the only way across the lane.
+        for (const b of pitLaneBoxes(i)) boxes.push(b);
       }
       if (allPits || pit.hasMechanic) {
         const c = B.chairPositions[i];

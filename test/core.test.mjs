@@ -94,7 +94,9 @@ console.log('core simulation (3D movement)');
 check('initial state: $0, player inside pit 0\'s owned bay, not moving', () => {
   const s = createInitialState();
   assert.equal(s.cash, 0);
-  assert.deepEqual(s.player.position, { x: -27, z: 0 });
+  // Beside pit 0's work area — just EAST of its fenced car lane (settings.pitLane),
+  // never inside the lane walls.
+  assert.deepEqual(s.player.position, { x: -24.5, z: 0 });
   assert.equal(s.player.moving, false);
 });
 

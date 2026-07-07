@@ -1,5 +1,5 @@
 import settings from '../config/settings.js';
-import { bridgeElevationAt } from '../core/roads.js';
+import { laneBridgeElevationAt } from '../core/roads.js';
 import { cloneStorageModel } from './StorageModels.js';
 
 /**
@@ -17,7 +17,7 @@ export class CarriedBox {
     sceneManager.add(this.root);
   }
 
-  update(player) {
+  update(player, state) {
     if (!player.carryingBox) {
       this.root.visible = false;
       return;
@@ -30,8 +30,8 @@ export class CarriedBox {
     const fwdZ = Math.cos(player.rotation);
     this.root.position.set(
       player.position.x + fwdX * o.forward,
-      // Ride the player's bridge elevation so the box doesn't sink under a deck.
-      o.y + bridgeElevationAt(player.position.x, player.position.z),
+      // Ride the player's lane-bridge elevation so the box doesn't sink under a deck.
+      o.y + laneBridgeElevationAt(state, player.position.x, player.position.z),
       player.position.z + fwdZ * o.forward
     );
     this.root.rotation.y = player.rotation;

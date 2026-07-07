@@ -160,10 +160,11 @@ export class GameState {
     this.spawnTimer = settings.spawn.interval;
 
     // Starts inside pit 0's own bay (the only owned land at game start; see
-    // upgrades.js ownedRightX). Pit 0 sits at x = -27, so the player spawns there
-    // (in front of it) rather than at the world origin or the left lobby.
+    // upgrades.js ownedRightX), just EAST of pit 0's fenced car lane
+    // (settings.pitLane) beside its work area and hire marker — not on the
+    // lane itself, so the spawn never lands inside the lane walls.
     this.player = {
-      position: { x: -27, z: 0 },
+      position: { x: -24.5, z: 0 },
       rotation: 0, // radians around Y; 0 faces +z
       moving: false,
       carryingBox: false, // is the player holding a box right now?

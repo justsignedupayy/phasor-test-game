@@ -1853,6 +1853,21 @@ check('the gas gate only exists once the station is bought; then the player can 
   );
 });
 
+check('out at the gas station, the far edge is an invisible wall — the player cannot leave the game area', () => {
+  const s = createInitialState();
+  completeGasPrereqs(s);
+  s.cash = 1e9;
+  buyGasExpand(s);
+  s.player.position = { x: -40, z: settings.gasStation.gateZ };
+  s.input.x = -1;
+  for (let i = 0; i < 500; i++) tick(s, 0.1); // far more than enough to cross the whole station
+  assert.ok(s.player.position.x < -settings.world.halfX, 'walked out through the gas gate');
+  assert.ok(
+    s.player.position.x >= settings.gasStation.leftLimitX + settings.player.radius - 1e-6,
+    'held at the station\'s far edge (gasStation.leftLimitX), never off the world'
+  );
+});
+
 check('an attendant goes on break after breakThreshold fills, sits at its pump chair, then resumes', () => {
   const s = createInitialState();
   openGasPump(s);

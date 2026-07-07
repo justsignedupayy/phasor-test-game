@@ -340,9 +340,9 @@ function updatePlayer(state, dt) {
     roomWallX: ownedRightX(state),
   });
   // Vehicle roads are solid to the player ALONE (never to NPCs — attendants and
-  // mechanics work on the lanes). Each pit/pump lane's crosswalk corridor is
-  // carved out of these boxes, so the crossings are the only way across
-  // (see core/roads.js).
+  // mechanics work on the lanes). The car lanes themselves are fenced by the
+  // invisible walls in resolveGarageCollisions above (pit/pump lane boxes),
+  // crossed only over their raised bridges (see core/roads.js).
   for (const b of playerRoadBoxes(state)) {
     pushOutOfRect(player.position, settings.player.radius, b);
   }
@@ -357,7 +357,10 @@ function updatePlayer(state, dt) {
  * (see clampFallbackToWalls). The LEFT wall opens the same way at the gas-station
  * gate (gasStation.gateZ) — but only once the station exists (the first Expand
  * Station purchase opens pump lot 0); before that the wall is fully solid,
- * exactly like the delivery gate before the market is unlocked.
+ * exactly like the delivery gate before the market is unlocked. Out at the
+ * station the world still ends: an invisible wall at the pump row's far edge
+ * (gasStation.leftLimitX) caps x on the left, and the z clamps below keep
+ * applying, so the walkable station is the band between the wall planes.
  *
  * Each openable wall is treated as a two-sided SLAB (inner face at ±half, outer
  * face a wallThickness beyond): off-gate, a mover is held off whichever face it
@@ -381,6 +384,12 @@ function clampToBounds(state, pos) {
   const atGasGate =
     state.gasStation.pumps[0].roomUnlocked && Math.abs(pos.z - settings.gasStation.gateZ) <= W.gateHalf;
   pos.x = Math.min(rightLim, pos.x);
+  // The gas station's outer edge is ALWAYS solid: an invisible wall at the far
+  // side of the pump row (settings.gasStation.leftLimitX, derived from the pump
+  // positions) so walking out through the gas gate never leaves the game area.
+  // Applied unconditionally — inside the building the inner-face clamp below is
+  // far tighter, so this only ever bites out at the station.
+  pos.x = Math.max(settings.gasStation.leftLimitX + r, pos.x);
   if (!atGasGate) {
     if (pos.x > -W.halfX - t / 2) pos.x = Math.max(-limX, pos.x); // inside: held off the inner face
     else pos.x = Math.min(-W.halfX - t - r, pos.x); // outside: held off the outer face

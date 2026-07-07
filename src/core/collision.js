@@ -12,7 +12,7 @@
  * never drift; the boxes are the same shelves/freezers/checkout/garage props it inflates.
  */
 import settings from '../config/settings.js';
-import { pitLaneBoxes } from './roads.js';
+import { pitLaneBoxes, pumpLaneBoxes } from './roads.js';
 
 /**
  * Resolve a circle (centre `pos` {x,z}, radius `r`) against one axis-aligned
@@ -158,10 +158,11 @@ export function buildObstacleList(state, settings, opts = {}) {
     }
   }
 
-  // Gas pumps: one solid box per equipped pump's prop, plus a hired pump's break
-  // chair, mirroring the garage props. allPits (the state-free A* bake) includes
-  // every pump; excludePumpIndex lets an attendant ignore its OWN pump's props
-  // (pump + chair), like a mechanic ignores its own pit's.
+  // Gas pumps: one solid box per equipped pump's prop + its car-lane walls
+  // (core/roads.pumpLaneBoxes), plus a hired pump's break chair, mirroring the
+  // garage props. allPits (the state-free A* bake) includes every pump;
+  // excludePumpIndex lets an attendant ignore its OWN pump's props
+  // (pump + lane walls + chair), like a mechanic ignores its own pit's.
   if (gas) {
     const G = settings.gasStation;
     for (let i = 0; i < G.positions.length; i++) {
@@ -175,6 +176,9 @@ export function buildObstacleList(state, settings, opts = {}) {
           halfX: G.pumpCollisionHalf.x,
           halfZ: G.pumpCollisionHalf.z,
         });
+        // The pump lane's invisible edge walls, split around its bridge
+        // corridor — the raised bridge is the only way across, like a pit's.
+        for (const b of pumpLaneBoxes(i)) boxes.push(b);
       }
       if (allPits || pump.hasAttendant) {
         const c = B.pumpChairPositions[i];

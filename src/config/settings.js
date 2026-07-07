@@ -682,7 +682,11 @@ export const settings = {
   // on their own striped roads (same road/dash tunables as settings.world.road).
   // The player reaches the station through a gate in the LEFT wall at gateZ.
   gasStation: {
-    radius: 1.7, // how close the player must stand to manually tap-fill an unmanned pump
+    // How close the player must stand to manually tap-fill an unmanned pump.
+    // The lane walls (settings.pitLane, shared with the pits) hold the player at
+    // least halfWidth + player.radius ≈ 1.8 from the lane centre, so this must
+    // exceed that — 2.4 mirrors settings.pit.radius, raised for the same reason.
+    radius: 2.4,
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out), mirrors pit
     // Decorative pump-spot rectangle painted on the road at each pump (like pitSpot).
     spotWidth: 2.4,
@@ -740,52 +744,26 @@ export const settings = {
     },
   },
 
-  // Per-lane pedestrian crosswalks over the vehicle roads + player-side road
-  // blocking (see core/roads.js + scene/Bridges.js). Roads are solid to the
-  // PLAYER only — NPCs keep their own navigation (mechanics/attendants WORK on
-  // the lanes and the market NPCs' A* grid never reaches a road). Each pit's
-  // EXIT lane and each pump's lane gets one SMALL crosswalk exactly one lane
-  // wide at the z below; its corridor (deckWidth in z) is carved out of that
-  // lane's collision, so the crossing is the one walkable line through it.
-  // Decks sit FLUSH with the walkable ground — painted zebra stripes, no
-  // elevation, cars simply drive over the paint. Roads the player never needs
-  // to cross get none: the entry band (behind the back wall, unreachable) and
-  // the delivery road (solid only past the walkable dock) have no crossing.
-  //
-  // Two at-grade exemptions keep the game playable: the delivery DOCK (front
-  // wall out to the truck's stop — the restock box lives there) and the gas
-  // FORECOURT (pumpZ ± gasForecourtHalfDepth — pumps, work spots, chairs and
-  // unlock markers all stand on that asphalt). STARTING VALUES, tune by eye.
-  bridges: {
-    deckWidth: 3.0, // crossing depth (z); also the collision corridor carved through the lane
-    stripeWidth: 0.55, // one zebra stripe's size along x
-    stripeSpacing: 1.1, // stripe repeat distance across the lane
-    stripeColor: 0xdadde0, // painted-marking off-white, like the lane dashes
-    // The crossing lines' z, one per road group (each lane's crosswalk sits on it).
-    garageExitZ: -15, // pit crosswalks, over each exit lane: connect the delivery dock/west side to the east front exterior
-    gasZ: -6.5, // pump crosswalks, over each lane's south sliver, inside the player's reachable z-range
-    gasForecourtHalfDepth: 7.5, // walkable service band around the pump row (z = pumpZ ± this)
-  },
-
-  // Per-pit INTERIOR car-lane fencing + the raised pedestrian bridge over each
-  // lane (geometry in core/roads.js pitLaneBoxes / laneBridgeCrossings /
-  // laneBridgeElevationAt; the wall boxes ride with the other per-pit props in
-  // core/collision.js buildObstacleList; meshes in scene/Bridges.js). Once a
-  // pit is EQUIPPED (cars start driving its lane), the lane's full interior
-  // depth is walled off to walking movers by an invisible strip — its long
-  // faces are the walls along both lane edges, filled solid so the bridge gap
-  // can't be used to wander up the lane at grade — split only at the bridge
-  // corridor: the raised bridge just past the pit's hire marker (on the far
-  // side from the pit) is the ONE way across. Cars are NOT movers: they tween
-  // straight through underneath, completely unaffected. The bridge is simple
-  // primitive geometry (ramp up, flat deck, ramp down along x) in the grey
-  // road/floor palette; the player model is lifted by laneBridgeElevationAt
-  // while inside the corridor (visual only — core positions stay 2D).
-  // STARTING VALUES, tune by eye.
+  // Per-lane car-lane fencing + the raised pedestrian bridge over each lane,
+  // for BOTH lane kinds: each pit's interior lane and each gas pump's road
+  // (geometry in core/roads.js pitLaneBoxes / pumpLaneBoxes /
+  // laneBridgeCrossings / laneBridgeElevationAt; the wall boxes ride with the
+  // other per-pit/per-pump props in core/collision.js buildObstacleList;
+  // meshes in scene/Bridges.js). Once a pit/pump is EQUIPPED (cars start
+  // driving its lane), the lane's full depth is walled off to walking movers
+  // by an invisible strip — its long faces are the walls along both lane
+  // edges, filled solid so the bridge gap can't be used to wander up the lane
+  // at grade — split only at the bridge corridor: the raised bridge just past
+  // the pit's/pump's hire marker (on the far side from it) is the ONE way
+  // across. Cars are NOT movers: they tween straight through underneath,
+  // completely unaffected. The bridge is simple primitive geometry (ramp up,
+  // flat deck, ramp down along x) in the grey road/floor palette; the player
+  // model is lifted by laneBridgeElevationAt while inside the corridor
+  // (visual only — core positions stay 2D). STARTING VALUES, tune by eye.
   pitLane: {
-    halfWidth: 1.2, // lane half-extent in x — the invisible walls' faces; just covers the car spot (spotWidth / 2)
+    halfWidth: 1.2, // lane half-extent in x — the invisible walls' faces; just covers the car/pump spot (spotWidth / 2)
     bridge: {
-      zOffset: -2.4, // deck centre z relative to the pit's HIRE MARKER (negative = past it, away from the pit)
+      zOffset: -2.4, // deck centre z relative to the lane's HIRE MARKER (negative = past it, away from the pit/pump)
       width: 2.0, // deck depth (z); also the gap carved through the lane walls
       height: 2.0, // deck walking surface y — clears a car's roof
       thickness: 0.2,
@@ -893,6 +871,18 @@ settings.breaks.pumpChairPositions = settings.gasStation.positions.map((p) => ({
   x: p.x + settings.breaks.pumpChairOffset.x,
   z: p.z + settings.breaks.pumpChairOffset.z,
 }));
+
+// The gas station's far (left) outer edge — an invisible wall so the player can
+// never walk off the west side of the world (core/simulation.clampToBounds holds
+// the player's x at or right of this). Derived from the pump row: the LAST
+// pump's road slab edge, i.e. half a lane-width past the leftmost pump (the same
+// lane width core/roads.js derives from the pump spacing), so it tracks the
+// station if pumps are ever moved or added.
+{
+  const xs = settings.gasStation.positions.map((p) => p.x);
+  const lane = xs.length > 1 ? Math.abs(xs[1] - xs[0]) : 4.5;
+  settings.gasStation.leftLimitX = Math.min(...xs) - lane / 2;
+}
 
 // Half-extents (AABB) of the room's right (fence) wall — the boundary that slides
 // right as pits are unlocked (its x = core ownedRightX(state), so it "appears/moves

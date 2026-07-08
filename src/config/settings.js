@@ -405,6 +405,10 @@ export const settings = {
     // The "Open Gas Station" marker stands just INSIDE the left wall at the
     // future gate's z — the pump row is unreachable until the station exists.
     gasEntryInset: 1.7,
+    // …and its label floats HIGHER than the standard labelHeight: the cashier
+    // marker's label sits ~3 world units away at the register and the two
+    // otherwise overlap on the isometric camera. Tune by eye.
+    gasEntryLabelHeight: 2.8,
     interactRadius: 1.8, // proximity range that pays a marker down, mirrors supermarket.interactRadius
     // Standing in range drains the cost CONTINUOUSLY at cost/unlockDuration per
     // second, so every unlock takes exactly unlockDuration seconds regardless

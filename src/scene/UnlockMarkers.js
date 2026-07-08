@@ -184,7 +184,10 @@ export class UnlockMarkers {
     const key = `${m.kind}:${m.index ?? ''}`;
     const paidSoFar = this.progress.get(key)?.paid ?? 0;
     const label = makeMarkerLabel(`$${formatMoney(Math.max(0, m.cost - paidSoFar))}`, m.hint, m.locked);
-    label.position.set(m.x, M.labelHeight, m.z);
+    // The gas-gate marker's label rides higher so it clears the cashier
+    // marker's label next door (see settings.unlockMarkers.gasEntryLabelHeight).
+    const labelY = m.kind === 'gasExpand' && m.index === 0 ? M.gasEntryLabelHeight : M.labelHeight;
+    label.position.set(m.x, labelY, m.z);
     holder.add(label);
     this.labels.set(key, label);
 
@@ -203,7 +206,14 @@ function makeMarkerLabel(costText, hint, locked) {
   canvas.height = 192;
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 4;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  // depthTest off + late renderOrder: these labels are UI, not scenery — on the
+  // isometric camera a wall/fence/prop between marker and camera would otherwise
+  // slice the sprite along its silhouette (e.g. the rep-locked lot's label half
+  // vanishing behind the front wall).
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false })
+  );
+  sprite.renderOrder = 20;
   sprite.scale.set(3.6, 1.35, 1);
   drawMarkerLabel(canvas, costText, hint, locked);
   tex.needsUpdate = true;
@@ -231,8 +241,19 @@ function drawMarkerLabel(canvas, costText, hint, locked) {
   ctx.textBaseline = 'middle';
   ctx.fillText(locked ? `🔒 ${costText}` : costText, w / 2, h * 0.35);
 
+  // The hint can be a long sentence ("Finish the garage & market first"):
+  // shrink its font by the overflow ratio so it always fits on one line,
+  // floored at a still-readable size (a too-long hint at the floor just clips
+  // a little rather than vanishing into an unreadable smear).
   ctx.fillStyle = '#ffffff';
-  ctx.font = '700 44px Arial, sans-serif';
+  let hintSize = 44;
+  ctx.font = `700 ${hintSize}px Arial, sans-serif`;
+  const maxWidth = w - 40;
+  const hintWidth = ctx.measureText(hint).width;
+  if (hintWidth > maxWidth) {
+    hintSize = Math.max(28, Math.floor(hintSize * (maxWidth / hintWidth)));
+    ctx.font = `700 ${hintSize}px Arial, sans-serif`;
+  }
   ctx.fillText(hint, w / 2, h * 0.78);
 }
 

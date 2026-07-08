@@ -391,10 +391,21 @@ export const settings = {
     rotation: Math.PI,
   },
 
-  // Save/load (src/platform/storage.js). No offline-earnings catch-up — a
-  // reload just restores the state as it was at the last save.
+  // Save/load (src/platform/storage.js). A reload restores the state as it was
+  // at the last save, then a one-time offline-earnings estimate (below) is
+  // shown draining into the cash counter (see estimateOfflineEarnings + scene/Hud.js).
   persistence: {
     autoSaveInterval: 5, // seconds between auto-saves, on top of after-purchase saves
+  },
+
+  // Offline earnings: a one-shot estimate of $ earned since the last save,
+  // computed on load (core/offlineEarnings.js) and handed to the Hud as a
+  // small counter that visibly drains into the main cash number.
+  offline: {
+    maxHours: 24, // cap how much elapsed time counts, so a long-idle save doesn't grant a huge lump sum
+    minSeconds: 60, // ignore anything shorter — avoids a trivial popup on a quick refresh/reload
+    efficiency: 0.6, // fudge factor below the theoretical max rate — breaks/empty queues aren't modeled
+    drainDuration: 3, // seconds the Hud's counter takes to drain into the main balance
   },
 
   // Physical unlock markers: every "create a location / hire a worker" purchase

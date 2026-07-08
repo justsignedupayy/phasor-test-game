@@ -619,8 +619,10 @@ export function buyUnlockMarker(state, kind, index) {
 // Sections: Automation, Supermarket (train/deliveries, once open),
 // Workers (one block per equipped pit) and Attendants (per hired pump).
 
-/** Reference car for showing Fixing Time as a concrete tick count (3 parts). */
-const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
+/** Reference car for showing Fixing Time as a concrete tick count (3 parts);
+ * also reused by core/offlineEarnings.js so its per-pit rate estimate matches
+ * what this menu displays. */
+export const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 
 export function getMenuModel(state) {
   return {

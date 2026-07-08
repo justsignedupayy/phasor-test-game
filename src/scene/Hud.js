@@ -1,4 +1,5 @@
 import { formatMoney } from '../core/format.js';
+import settings from '../config/settings.js';
 
 /**
  * Hud.js — minimal DOM overlay. For this slice: a large live cash counter.
@@ -38,12 +39,35 @@ export class Hud {
     this.el = el;
     this._cash = null;
 
+    // Offline-earnings line (scene/main.js startOfflineDrain): a smaller line
+    // under the main cash number that drains down to 0 over settings.offline
+    // .drainDuration seconds, adding that same delta into state.cash as it goes.
+    this.offlineEl = null;
+    this._offlineRemaining = 0;
+    this._offlineTotal = 0;
+
     document.body.appendChild(wrap);
     this.wrap = wrap;
 
     this.#buildDebugButtons();
 
     this.update(0);
+  }
+
+  /** Start draining `amount` into the main cash number over settings.offline.drainDuration seconds. */
+  startOfflineDrain(amount) {
+    this._offlineRemaining = amount;
+    this._offlineTotal = amount;
+
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      font: '700 clamp(13px, 3.2vw, 18px) Arial, sans-serif',
+      color: '#8fd3ff',
+      textShadow: '0 2px 0 rgba(0,0,0,0.5)',
+      whiteSpace: 'nowrap',
+    });
+    this.wrap.appendChild(el);
+    this.offlineEl = el;
   }
 
   // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe save).
@@ -93,7 +117,22 @@ export class Hud {
     return btn;
   }
 
-  update(cash) {
+  update(cash, dt = 0) {
+    if (this._offlineRemaining > 0) {
+      const rate = this._offlineTotal / settings.offline.drainDuration; // $/sec
+      const delta = Math.min(this._offlineRemaining, rate * dt);
+      this._offlineRemaining -= delta;
+      this.state.cash += delta;
+      cash = this.state.cash;
+
+      if (this._offlineRemaining <= 0) {
+        this.offlineEl.remove();
+        this.offlineEl = null;
+      } else {
+        this.offlineEl.textContent = `Earned while offline: $${formatMoney(this._offlineRemaining)}`;
+      }
+    }
+
     if (cash !== this._cash) {
       this._cash = cash;
       this.el.textContent = `$${formatMoney(cash)}`;

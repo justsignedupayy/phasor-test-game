@@ -21,7 +21,8 @@ import { GroundField } from './scene/GroundField.js';
 import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
-import { loadGame, saveGame } from './platform/storage.js';
+import { loadGame, saveGame, getSavedAt } from './platform/storage.js';
+import { estimateOfflineEarnings } from './core/offlineEarnings.js';
 import { ownedRightX } from './core/upgrades.js';
 import { roomWallBox } from './core/collision.js';
 import { rebuildGrid } from './core/pathfinding.js';
@@ -42,9 +43,13 @@ import { PoofEffects, RevealPoofs } from './scene/Poof.js';
 
 const container = document.getElementById('app');
 
-// Core state (Three-free) and render layer. Resume a save if one exists (no
-// offline-earnings catch-up — it's restored exactly as it was last saved).
-const state = loadGame() ?? createInitialState();
+// Core state (Three-free) and render layer. Resume a save if one exists; if it
+// is one (not a fresh state) and carries a savedAt, estimate what was earned
+// while away — handed to the Hud below once it exists (Hud owns draining it in).
+const loadedState = loadGame();
+const state = loadedState ?? createInitialState();
+const savedAt = loadedState ? getSavedAt() : null;
+const offlineEarnings = savedAt ? estimateOfflineEarnings(state, Date.now() - savedAt) : 0;
 seedIdCounter(state); // keep newly spawned ids past whatever the save already used
 // The A* grid is built at module load WITHOUT the room's moving fence wall (it's
 // state-dependent); fold it in for the starting/loaded ownedRightX, exactly as
@@ -54,6 +59,7 @@ rebuildGrid([roomWallBox(ownedRightX(state))]);
 const sceneManager = new SceneManager(container);
 const input = new Input();
 const hud = new Hud(state);
+if (offlineEarnings > 0) hud.startOfflineDrain(offlineEarnings);
 const menu = new UpgradeMenu(state);
 
 new GroundField(sceneManager);
@@ -284,7 +290,7 @@ async function main() {
     poofs.update(dt); // …and animates the live bursts
     breakMenu.update();
     truckMenu.update();
-    hud.update(state.cash);
+    hud.update(state.cash, dt);
     menu.update(state);
 
     sceneManager.follow(state.player.position.x, state.player.position.z, dt);

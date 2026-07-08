@@ -87,10 +87,17 @@ const _attachScale = new THREE.Vector3();
  * baked 0.01 — a raw local offset would be shrunk 100×, so we divide the offset by
  * that same world scale (the inverse of how the prop's own scale is compensated
  * above). Rotation is scale-invariant, so it's applied as-is. Both default to no
- * transform. Returns the parent it attached to.
+ * transform.
+ *
+ * `preferred` ('r' | 'l', default 'r') picks which hand bone to try first — e.g.
+ * the wrench uses 'l' so it doesn't collide with a box/bag already on the right
+ * hand. Falls back to the other hand, then the model root. Returns the parent
+ * it attached to.
  */
-export function attachToHand(model, prop, offset, rotation) {
-  const hand = model.getObjectByName('handr') || model.getObjectByName('handl');
+export function attachToHand(model, prop, offset, rotation, preferred = 'r') {
+  const first = preferred === 'l' ? 'handl' : 'handr';
+  const second = preferred === 'l' ? 'handr' : 'handl';
+  const hand = model.getObjectByName(first) || model.getObjectByName(second);
   const parent = hand ?? model;
   if (!hand) {
     console.warn('[characterAnim] no hand bone (handr/handl) found — attaching prop to the model root instead.');

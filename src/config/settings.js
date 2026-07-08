@@ -168,6 +168,15 @@ export const settings = {
     // same person. Distinct from workerTint/cashierTint/marketWorkerTint so a
     // customer is never mistaken for staff at a glance.
     customerTints: [0xc9956a, 0x6a8fc9, 0xc96a8a, 0x8ac96a, 0xc9b06a, 0x9a6ac9],
+    // The wrench prop held during the 'repair' clip (player + pit mechanics),
+    // attached to the hand bone via characterAnim.attachToHand. STARTING
+    // VALUES — tune by eye once gripped in the bone's local space (glTF bone
+    // axes rarely line up with how the wrench mesh's own axes were authored).
+    wrenchOffset: {
+      scale: 0.4,
+      offset: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+    },
   },
 
   // Reaction emotes (AngerBubble / AlertBounce sprites, see scene/Character.js
@@ -681,6 +690,9 @@ export const settings = {
     // One pump prop per equipped gas-station pump (loaded once, cloned per pump
     // — see scene/GasStationView.js), placed by settings.gasStation.pumpOffset.
     gasPump: 'gas_pump.glb',
+    // Held in the hand bone during the 'repair' clip (player + pit mechanics
+    // only — see Character.js / Mechanic.js and settings.character.wrenchOffset).
+    wrench: 'wrench.glb',
   },
 
   // The pits: shared geometry plus a world position per pit. radius = how close

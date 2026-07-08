@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { laneBridgeElevationAt } from '../core/roads.js';
-import { buildActionMap, crossfadeTo, groundModel, lerpAngle, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, updateMixer } from './characterAnim.js';
+import { cloneStorageModel } from './StorageModels.js';
 
 /**
  * Character — the player, rendered as the shared rigged glTF model (see
@@ -85,6 +86,13 @@ export class Character {
     });
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
+
+    // The wrench held while repairing, attached to the hand bone so it tracks
+    // the repair clip; only shown while that state is active (see update()).
+    this.wrench = cloneStorageModel('wrench');
+    this.wrench.scale.setScalar(cfg.wrenchOffset.scale);
+    this.wrench.visible = false;
+    attachToHand(this.model, this.wrench, cfg.wrenchOffset.offset, cfg.wrenchOffset.rotation, 'l');
 
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);
@@ -200,6 +208,7 @@ export class Character {
       next = player.moving ? 'walk' : 'idle';
     }
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
+    this.wrench.visible = this.state === 'repair';
 
     this.#updateAngerBubble(dt);
     updateMixer(this.mixer, dt, 'Character');

@@ -52,6 +52,13 @@ export class Mechanic {
     this.box.visible = false;
     attachToHand(this.model, this.box, settings.storage.boxHandOffset, settings.storage.boxHandRotation);
 
+    // The wrench held while repairing (pit mechanics only — pump attendants use
+    // the 'gaspump' clip and never reach the 'repair' state, see update() below).
+    this.wrench = cloneStorageModel('wrench');
+    this.wrench.scale.setScalar(cfg.wrenchOffset.scale);
+    this.wrench.visible = false;
+    attachToHand(this.model, this.wrench, cfg.wrenchOffset.offset, cfg.wrenchOffset.rotation, 'l');
+
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);
     this.state = 'idle';
@@ -119,6 +126,7 @@ export class Mechanic {
     else if (mechanic.moving) next = 'walk';
     else next = carPresent ? this.workClip : 'idle';
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
+    this.wrench.visible = this.state === 'repair';
 
     const workAction = this.actions[this.workClip];
     if (workAction) workAction.timeScale = hurrying ? HURRY_TIME_SCALE : 1;

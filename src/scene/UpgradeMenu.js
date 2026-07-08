@@ -49,26 +49,96 @@ export class UpgradeMenu {
     this.#buildPanel();
   }
 
+  // Design direction 1c "Tablet handle / tab" — a small tab hanging from the
+  // top edge, physically read as the handle of the panel it opens. Pixel
+  // values below are load-bearing (see the design handoff), not eyeballed.
   #buildButton() {
+    const fontLink = document.createElement('link');
+    fontLink.rel = 'stylesheet';
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600&display=swap';
+    document.head.appendChild(fontLink);
+
     const btn = document.createElement('button');
-    btn.textContent = '📱 Upgrades';
     Object.assign(btn.style, {
       position: 'fixed',
-      left: '14px',
-      top: '14px',
-      padding: '10px 14px',
-      borderRadius: '10px',
+      top: 'env(safe-area-inset-top, 0px)',
+      left: '22px',
       border: 'none',
-      background: '#ffd23f',
-      color: '#1a1400',
-      fontWeight: '800',
-      fontSize: '14px',
-      fontFamily: 'Arial, sans-serif',
+      padding: '0',
+      background: 'transparent',
       cursor: 'pointer',
       zIndex: '17',
-      boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+      WebkitTapHighlightColor: 'transparent',
     });
+
+    const tab = document.createElement('span');
+    Object.assign(tab.style, {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '9px',
+      padding: '12px 16px 10px 13px',
+      borderRadius: '0 0 16px 16px',
+      background: 'linear-gradient(180deg, #3c4551 0%, #333c47 100%)',
+      border: '1px solid #4d5865',
+      borderTop: 'none',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 16px rgba(0,0,0,0.5)',
+      transition: 'transform 140ms ease-out',
+      transform: 'translateY(0) scale(1)',
+    });
+
+    const iconTile = document.createElement('span');
+    Object.assign(iconTile.style, {
+      position: 'relative',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: '0',
+      width: '24px',
+      height: '24px',
+      borderRadius: '7px',
+      background: 'radial-gradient(120% 120% at 50% 25%, #22303a 0%, #182129 100%)',
+      border: '1px solid rgba(58,208,106,0.45)',
+      boxShadow: '0 0 10px rgba(58,208,106,0.45)',
+    });
+
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.style.filter = 'drop-shadow(0 0 3px rgba(58,208,106,0.75))';
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', 'M12 20 V6 M12 6 L6 12 M12 6 L18 12');
+    path.setAttribute('stroke', '#3ad06a');
+    path.setAttribute('stroke-width', '2.6');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    iconTile.appendChild(svg);
+
+    const label = document.createElement('span');
+    label.textContent = 'Upgrades';
+    Object.assign(label.style, {
+      fontFamily: "'Barlow Semi Condensed', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+      fontWeight: '600',
+      fontSize: '14px',
+      letterSpacing: '0.02em',
+      color: '#eaf1f7',
+      textShadow: '0 1px 1px rgba(0,0,0,0.5)',
+    });
+
+    tab.append(iconTile, label);
+    btn.appendChild(tab);
+
+    const press = () => { tab.style.transform = 'translateY(1px) scale(0.97)'; };
+    const release = () => { tab.style.transform = 'translateY(0) scale(1)'; };
+    btn.addEventListener('pointerdown', press);
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerleave', release);
     btn.addEventListener('click', () => this.toggle());
+
     document.body.appendChild(btn);
     this.button = btn;
   }
@@ -188,8 +258,9 @@ export class UpgradeMenu {
       alignItems: 'center',
       justifyContent: 'center',
     });
-    const appGlyph = document.createElement('div');
-    Object.assign(appGlyph.style, { width: '12px', height: '15px', border: '1.8px solid #9fb0c0', borderRadius: '3px' });
+    const appGlyph = document.createElement('span');
+    appGlyph.textContent = '📱';
+    appGlyph.style.fontSize = '18px';
     appIcon.appendChild(appGlyph);
     const title = document.createElement('span');
     title.textContent = 'Upgrades';
@@ -849,10 +920,17 @@ function buildStatusBar() {
 
 // One shared stylesheet for what inline styles can't do: press feedback on the
 // enabled buy buttons and a dark scrollbar for the screen's content area.
+// Also kicks off the Nunito web-font load here (not in index.html) so a slow
+// or blocked fonts CDN can never delay the game's first paint — until/unless
+// it arrives, the FONT stack just falls back to the system sans.
 let menuStylesInjected = false;
 function injectMenuStylesheet() {
   if (menuStylesInjected) return;
   menuStylesInjected = true;
+  const font = document.createElement('link');
+  font.rel = 'stylesheet';
+  font.href = 'https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap';
+  document.head.appendChild(font);
   const style = document.createElement('style');
   style.textContent = `
     .um-cost:not(:disabled):active { transform: translateY(2px); filter: brightness(0.95); }

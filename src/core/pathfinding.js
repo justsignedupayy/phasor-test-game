@@ -39,7 +39,7 @@ export function buildGrid(s, extraBoxes = []) {
   const r = NPC_RADIUS;
 
   // Obstacle rectangles { x, z, halfX, halfZ } from the shared geometry builder — the
-  // SAME list (market shelves/freezers/checkout + every pit's shelf/tire/chair) the
+  // SAME list (market shelves/freezers/checkout + every pit's shelf/tire) the
   // player/mechanic push-out uses, so the grid and that safety net can never drift.
   // allPits: the grid is state-free, so it bakes in every pit's props (harmless —
   // market NPCs never reach the bay row). The moving fence wall arrives as extraBoxes.

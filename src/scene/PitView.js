@@ -28,11 +28,6 @@ export class PitView {
     this.highlightT = 0;
     this.stationScale = 0; // animated 0..1
 
-    // Break spot: where this pit's worker walks to rest, once hired (leans
-    // against the wall — see Mechanic.js's onBreak handling).
-    const B = settings.breaks;
-    this.chairPos = { ...B.chairPositions[index] }; // = pos + chairOffset; the shared source (see settings)
-
     this.boxes = []; // decorative shelf-box clones (a full grid; always shown when equipped)
     this._labelText = ''; // last storage-label text drawn (skip redraw if unchanged)
 
@@ -170,8 +165,9 @@ export class PitView {
         carPresent: !!pit.car && pit.car.settleRemaining <= 0,
         hurrying: pit.hurryTimer > 0,
         onBreak: pit.break.onBreak,
-        chairFacing: B.chairFacing,
-        seatOffset: B.leanOffset,
+        breakState: pit.break, // the head label's "x/y" break-progress counter
+        restFacing: B.breakSpotFacing,
+        leanOffset: B.leanOffset,
       });
     }
 

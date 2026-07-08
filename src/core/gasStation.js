@@ -14,8 +14,8 @@
  * pump's queue is full. Otherwise cars queue behind gasStation.doorZ, drive in,
  * settle, get filled, pay out, and leave — the exact spawn/queue/settle/complete
  * cycle pits run, minus the pit-only tire system. Attendants take breaks exactly
- * like mechanics: a chair beside each pump (settings.breaks.pumpChairPositions),
- * a job per filled car.
+ * like mechanics: a wall-lean break spot beside each pump
+ * (settings.breaks.pumpBreakSpots), a job per filled car.
  */
 import settings from '../config/settings.js';
 import { spawnGasCar } from './Car.js';
@@ -74,12 +74,12 @@ function updatePump(state, pump, dt) {
   if (!pump.attendant) pump.attendant = createAttendant(pump.index); // lazily on first tick after hire
 
   // Advance the break clock, then the attendant's movement FSM (its break-walk
-  // to the chair beside the pump) — same ordering as a pit's updatePit.
+  // to the spot beside the pump) — same ordering as a pit's updatePit.
   tickBreak(pump.break, dt);
   updateAttendant(state, pump, dt);
 
-  // On break: the attendant sits at its chair and does no auto-fill. Cars still
-  // queue/pull into the pump as usual (they just wait), identical to a pit.
+  // On break: the attendant leans at its break spot and does no auto-fill. Cars
+  // still queue/pull into the pump as usual (they just wait), identical to a pit.
   if (pump.break.onBreak) return;
 
   const car = pump.car;
@@ -122,8 +122,9 @@ function createAttendant(pumpIndex) {
 
 /**
  * Advance one pump attendant each tick, mirroring updateMechanic minus its
- * restock leg (pumps have no tires): on break it walks to its own chair beside
- * the pump and sits; otherwise it holds (returns to) the work spot, facing the car.
+ * restock leg (pumps have no tires): on break it walks to its own break spot
+ * beside the pump and leans there; otherwise it holds (returns to) the work
+ * spot, facing the car.
  */
 function updateAttendant(state, pump, dt) {
   const a = pump.attendant;
@@ -133,13 +134,13 @@ function updateAttendant(state, pump, dt) {
   const workFacing = Math.atan2(pos.x - work.x, pos.z - work.z) + settings.attendant.facingOffset;
   const speed = settings.breaks.mechanicWalkSpeed;
 
-  // On break: walk to this pump's chair and sit (no fill meanwhile).
+  // On break: walk to this pump's break spot and lean (no fill meanwhile).
   if (pump.break.onBreak) {
-    const chair = settings.breaks.pumpChairPositions[pump.index];
-    const arrived = moveAttendant(state, pump, a, chair, speed, dt);
+    const spot = settings.breaks.pumpBreakSpots[pump.index];
+    const arrived = moveAttendant(state, pump, a, spot, speed, dt);
     a.moving = !arrived;
     a.state = 'onBreak';
-    if (arrived) a.rotation = settings.breaks.chairFacing;
+    if (arrived) a.rotation = settings.breaks.breakSpotFacing;
     return;
   }
 

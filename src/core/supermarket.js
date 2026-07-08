@@ -262,7 +262,7 @@ function clampFallbackToWalls(pos, r, target) {
  * this can't stall the FSM. Static obstacles are handled by A*, not here.
  *
  * As a final net it also pushes every in-transit agent out of any garage prop
- * (shelves/tires/chairs) it overlaps — a safety backstop to the A* grid, which
+ * (shelves/tires) it overlaps — a safety backstop to the A* grid, which
  * already routes them clear. Market NPCs stay in the left lobby, well clear of the
  * pit row, so in practice this never fires; it just guarantees no clipping if a
  * future NPC navigates the garage proper.
@@ -664,18 +664,19 @@ function updateWorker(state, dt) {
   }
 
   // On break: the worker has finished its last task (it only reaches this idle
-  // decision with no phase in progress), so it now walks to its chair and sits.
-  // Customers/queue keep building meanwhile — exactly like an idle worker with
-  // no job, just seated. tickBreak (above) ends the break automatically; an ad
-  // can end it early (endBreak). It then drops straight back into normal work.
+  // decision with no phase in progress), so it now walks to its break spot and
+  // leans against the wall. Customers/queue keep building meanwhile — exactly
+  // like an idle worker with no job, just resting. tickBreak (above) ends the
+  // break automatically; an ad can end it early (endBreak). It then drops
+  // straight back into normal work.
   if (w.break.onBreak) {
     const B = settings.breaks;
-    const arrived = waypointNpc(state, w, B.marketChairPosition, speed, dt);
+    const arrived = waypointNpc(state, w, B.marketBreakSpot, speed, dt);
     w.moving = !arrived;
     w.state = 'onBreak';
     w.carrying = false;
     w._gatheredItem = false;
-    if (arrived) w.rotation = B.marketChairFacing; // settle into the seat's facing
+    if (arrived) w.rotation = B.marketBreakSpotFacing; // settle into the spot's facing
     return;
   }
 

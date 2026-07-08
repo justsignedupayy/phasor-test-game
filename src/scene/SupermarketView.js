@@ -143,7 +143,7 @@ export class SupermarketView {
   }
 
   /** True if the market worker's model was hit AND the worker is on break. */
-  raycastChair(raycaster, state) {
+  raycastRestingWorker(raycaster, state) {
     const w = state.supermarket.worker;
     if (!this.worker || !w || !w.break.onBreak) return false;
     return raycaster.intersectObject(this.worker.model, true).length > 0;

@@ -4,8 +4,8 @@ import { saveGame } from '../platform/storage.js';
 
 /**
  * BreakMenu — a small DOM panel (not a full-screen overlay) opened by tapping a
- * seated worker's chair (see main.js + CarYard.raycastChair /
- * SupermarketView.raycastChair). Shows which worker is on break, a live
+ * resting worker (see main.js + CarYard.raycastRestingWorker /
+ * SupermarketView.raycastRestingWorker). Shows which worker is on break, a live
  * countdown, and a "Watch Ad to Wake Up" button. The ad is the ONLY way to end
  * a break early: on its success callback the worker stands up immediately
  * (endBreak resets the counter). Styled to match the Advertising panel.

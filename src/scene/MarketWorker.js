@@ -4,6 +4,7 @@ import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
+import { BreakLabel } from './BreakLabel.js';
 
 /**
  * MarketWorker — the supermarket's worker NPC (state.supermarket.workerLevel
@@ -58,6 +59,12 @@ export class MarketWorker {
     this.zzz = new ZzzEffect();
     this.zzz.root.position.set(0, cfg.headHeight, 0);
     this.root.add(this.zzz.root);
+
+    // "x/y" break-progress counter floating above the head (hidden on break —
+    // the Zzz effect takes its place there), like the mechanics'.
+    this.breakLabel = new BreakLabel();
+    this.breakLabel.sprite.position.set(0, cfg.headHeight + 0.35, 0);
+    this.root.add(this.breakLabel.sprite);
   }
 
   /** @param {object} worker core's state.supermarket.worker */
@@ -65,13 +72,14 @@ export class MarketWorker {
     this.root.position.x = worker.position.x;
     this.root.position.z = worker.position.z;
     this.root.position.y = 0;
+    this.breakLabel.update(worker.break);
 
     // Once on break, nudge the body onto its break spot (the same lean offset the
     // mechanics use) so it leans upright against the wall. Pure render offset —
     // core's worker.position is unchanged.
     if (worker.state === 'onBreak' && !worker.moving) {
       const B = settings.breaks;
-      const d = leanOffsetDelta(B.marketChairFacing, B.leanOffset);
+      const d = leanOffsetDelta(B.marketBreakSpotFacing, B.leanOffset);
       this.root.position.x += d.x;
       this.root.position.z += d.z;
       this.root.position.y = d.y;

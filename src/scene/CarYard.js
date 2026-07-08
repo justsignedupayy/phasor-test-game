@@ -63,7 +63,7 @@ export class CarYard {
    * while on break (so main.js can open the break panel), or -1. A worker not
    * on break isn't tappable.
    */
-  raycastChair(raycaster, state) {
+  raycastRestingWorker(raycaster, state) {
     for (let i = 0; i < this.pitViews.length; i++) {
       const view = this.pitViews[i];
       if (!view.mechanic || !state.pits[i].break.onBreak) continue;

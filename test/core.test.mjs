@@ -31,15 +31,12 @@ import {
   supermarketCost,
   marketWorkerHireCost,
   marketWorkerTrainCost,
-  buyBreakRoom,
-  buyMarketBreakRoom,
   buyTruckFrequency,
   truckFrequencyCost,
   buyGasExpand,
   buyGasEquipment,
   hireAttendant,
   buyAttendantSpeed,
-  buyGasBreakRoom,
   gasExpandCost,
   gasEquipmentCost,
   attendantSpeed,
@@ -748,9 +745,13 @@ check('a box only delivers to the pit it was taken from', () => {
   assert.equal(s.pits[1].tiresRemaining, 2, 'wrong pit not refilled');
 });
 
-check('auto-restock upgrade: one-time purchase, sets the flag, gated on cash', () => {
+check('auto-restock upgrade: one-time purchase, gated on cash AND the cashier hire', () => {
   const s = createInitialState();
-  assert.equal(buyAutoRestock(s), false); // can't afford yet
+  s.cash = autoRestockCost(s);
+  assert.equal(buyAutoRestock(s), false, 'locked until the cashier is hired, even with the cash');
+  s.hasCashier = true;
+  s.cash = 0;
+  assert.equal(buyAutoRestock(s), false, "can't afford yet");
   s.cash = autoRestockCost(s);
   assert.equal(buyAutoRestock(s), true);
   assert.equal(s.autoRestock, true);
@@ -760,6 +761,7 @@ check('auto-restock upgrade: one-time purchase, sets the flag, gated on cash', (
 check("with auto-restock owned, a pit's mechanic fetches a box and refills its own tires", () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true; // auto-restock is cashier-gated
   hireMechanic(s, 0);
   buyAutoRestock(s);
   s.pits[0].tiresRemaining = 0; // run the pit dry
@@ -1052,23 +1054,31 @@ check('buySupermarket: one-time, deducts cost, gated on cash', () => {
   assert.equal(buySupermarket(s), false, 'one-time purchase');
 });
 
-check('hireMarketWorker requires the supermarket to be open first, then spawns a worker', () => {
+check('hireMarketWorker requires the supermarket open AND the cashier hired, then spawns a worker', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true;
   assert.equal(hireMarketWorker(s), false, 'market not open yet');
   buySupermarket(s);
+  s.hasCashier = false;
+  assert.equal(hireMarketWorker(s), false, 'locked until the cashier is hired');
+  s.hasCashier = true;
   assert.equal(hireMarketWorker(s), true);
   assert.equal(s.supermarket.workerLevel, 1);
   assert.ok(s.supermarket.worker);
   assert.equal(hireMarketWorker(s), false, 'one-time hire');
 });
 
-check('trainMarketWorker requires a level-1 worker first', () => {
+check('trainMarketWorker requires a level-1 worker first (and the cashier)', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true;
   assert.equal(trainMarketWorker(s), false, 'no worker yet');
   buySupermarket(s);
   hireMarketWorker(s);
+  s.hasCashier = false;
+  assert.equal(trainMarketWorker(s), false, 'locked until the cashier is hired');
+  s.hasCashier = true;
   assert.equal(trainMarketWorker(s), true);
   assert.equal(s.supermarket.workerLevel, 2);
   assert.equal(trainMarketWorker(s), false, 'one-time train');
@@ -1077,6 +1087,7 @@ check('trainMarketWorker requires a level-1 worker first', () => {
 check("a level-1 worker auto-packages a waiting customer's order with no manual taps", () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true; // market upgrades are cashier-gated
   buySupermarket(s);
   hireMarketWorker(s);
   s.supermarket.spawnTimer = -1e9; // isolate this customer from auto-spawning
@@ -1090,6 +1101,7 @@ check("a level-1 worker auto-packages a waiting customer's order with no manual 
 check('a level-2 worker auto-restocks the emptiest shelf when no one needs packaging', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true; // market upgrades are cashier-gated
   buySupermarket(s);
   hireMarketWorker(s);
   trainMarketWorker(s);
@@ -1105,6 +1117,7 @@ check('a level-2 worker auto-restocks the emptiest shelf when no one needs packa
 check('a level-1 worker does NOT restock — that still needs the player until trained', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true; // market upgrades are cashier-gated
   buySupermarket(s);
   hireMarketWorker(s);
   s.supermarket.spawnTimer = -1e9;
@@ -1255,8 +1268,14 @@ check('callTruckEarly is a no-op while a truck is already in flight', () => {
 
 check('buyTruckFrequency steps the level with geometric cost, gated and capped', () => {
   const s = createInitialState();
+  s.hasCashier = true;
   assert.equal(buyTruckFrequency(s), false, 'market not open yet');
   s.supermarket.unlocked = true;
+  s.hasCashier = false;
+  s.cash = 1e9;
+  assert.equal(buyTruckFrequency(s), false, 'locked until the cashier is hired');
+  s.hasCashier = true;
+  s.cash = 0;
 
   const maxLevel = settings.supermarket.truck.deliveryTimes.length - 1;
   let prevCost = 0;
@@ -1275,6 +1294,7 @@ check('buyTruckFrequency steps the level with geometric cost, gated and capped',
 check('a level-2 worker waits while the box is empty, then restocks after a delivery', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true; // market upgrades are cashier-gated
   buySupermarket(s);
   hireMarketWorker(s);
   trainMarketWorker(s);
@@ -1307,7 +1327,6 @@ check('createBreakState: fresh counter, not on break', () => {
   assert.equal(b.jobCount, 0);
   assert.equal(b.onBreak, false);
   assert.equal(b.breakTimer, 0);
-  assert.equal(b.breakDurationUpgraded, false);
 });
 
 check('incrementJobCount trips a break at the threshold and zeroes the counter', () => {
@@ -1345,13 +1364,6 @@ check('endBreak clears the break and resets the counter (the rewarded-ad path)',
   assert.equal(b.onBreak, false);
   assert.equal(b.breakTimer, 0);
   assert.equal(b.jobCount, 0);
-});
-
-check('breakDuration halves once the break room is upgraded', () => {
-  const b = createBreakState('carMechanic');
-  assert.equal(breakDuration(b), settings.breakDurations.base);
-  b.breakDurationUpgraded = true;
-  assert.equal(breakDuration(b), settings.breakDurations.upgraded);
 });
 
 check('a mechanic goes on break after breakThreshold repairs and stops auto-repairing', () => {
@@ -1398,9 +1410,10 @@ check('a manual-tap completion with no mechanic never accrues a break', () => {
   assert.equal(s.pits[0].break.onBreak, false);
 });
 
-check('the market worker accrues a break per checkout and eventually sits', () => {
+check('the market worker accrues a break per checkout and eventually rests', () => {
   const s = createInitialState();
   s.cash = 1e9;
+  s.hasCashier = true; // market upgrades are cashier-gated
   buySupermarket(s);
   hireMarketWorker(s);
   trainMarketWorker(s); // level 2: serves + restocks hands-free
@@ -1412,27 +1425,6 @@ check('the market worker accrues a break per checkout and eventually sits', () =
     guard += 1;
   }
   assert.equal(s.supermarket.worker.break.onBreak, true, 'market worker eventually takes a break');
-});
-
-check('buyBreakRoom needs a hired mechanic and is one-time per worker', () => {
-  const s = createInitialState();
-  s.cash = 1e9;
-  assert.equal(buyBreakRoom(s, 0), false, 'no mechanic yet');
-  hireMechanic(s, 0);
-  assert.equal(buyBreakRoom(s, 0), true);
-  assert.equal(s.pits[0].break.breakDurationUpgraded, true);
-  assert.equal(buyBreakRoom(s, 0), false, 'one-time');
-});
-
-check('buyMarketBreakRoom needs a hired market worker and is one-time', () => {
-  const s = createInitialState();
-  s.cash = 1e9;
-  assert.equal(buyMarketBreakRoom(s), false, 'no worker yet');
-  buySupermarket(s);
-  hireMarketWorker(s);
-  assert.equal(buyMarketBreakRoom(s), true);
-  assert.equal(s.supermarket.worker.break.breakDurationUpgraded, true);
-  assert.equal(buyMarketBreakRoom(s), false, 'one-time');
 });
 
 // --- gas station -------------------------------------------------------------
@@ -1868,7 +1860,7 @@ check('out at the gas station, the far edge is an invisible wall — the player 
   );
 });
 
-check('an attendant goes on break after breakThreshold fills, sits at its pump chair, then resumes', () => {
+check('an attendant goes on break after breakThreshold fills, rests at its pump-side break spot, then resumes', () => {
   const s = createInitialState();
   openGasPump(s);
   s.permanentReputation = 0; // rusty cars → pump 0
@@ -1884,12 +1876,12 @@ check('an attendant goes on break after breakThreshold fills, sits at its pump c
   assert.equal(pump.break.onBreak, true, 'attendant eventually takes a break');
   assert.equal(pump.break.jobCount, 0);
 
-  // The attendant walks to (and holds) ITS OWN chair beside the pump.
-  const chair = settings.breaks.pumpChairPositions[0];
+  // The attendant walks to (and holds) ITS OWN break spot beside the pump.
+  const spot = settings.breaks.pumpBreakSpots[0];
   for (let i = 0; i < 200; i++) tickGasStation(s, 0.05); // plenty to finish the walk
   assert.ok(
-    Math.hypot(pump.attendant.position.x - chair.x, pump.attendant.position.z - chair.z) < 0.1,
-    'attendant idles at its pump-side chair'
+    Math.hypot(pump.attendant.position.x - spot.x, pump.attendant.position.z - spot.z) < 0.1,
+    'attendant rests at its pump-side break spot'
   );
   assert.equal(pump.attendant.state, 'onBreak');
 
@@ -1919,17 +1911,6 @@ check('a manual tap-fill with no attendant never accrues a break', () => {
   while (s.gasStation.pumps[0].car === car) tapFill(s, 0);
   assert.equal(s.gasStation.pumps[0].break.jobCount, 0, 'no attendant → no break counter movement');
   assert.equal(s.gasStation.pumps[0].break.onBreak, false);
-});
-
-check('buyGasBreakRoom needs a hired attendant and is one-time per attendant', () => {
-  const s = createInitialState();
-  s.cash = 1e9;
-  assert.equal(buyGasBreakRoom(s, 0), false, 'no attendant yet');
-  openGasPump(s);
-  hireAttendant(s, 0);
-  assert.equal(buyGasBreakRoom(s, 0), true);
-  assert.equal(s.gasStation.pumps[0].break.breakDurationUpgraded, true);
-  assert.equal(buyGasBreakRoom(s, 0), false, 'one-time');
 });
 
 // --- physical unlock markers ------------------------------------------------
@@ -1995,11 +1976,15 @@ check('markers advance with progression: expand → equipment → hire, unlock �
   m = markersByKind(s);
   assert.ok(!m.has('openMarket'));
   assert.ok(m.has('hireMarketWorker'), 'worker hire marker appears once the market opens');
-  hireMarketWorker(s);
-  assert.ok(!markersByKind(s).has('hireMarketWorker'));
+  assert.equal(m.get('hireMarketWorker').locked, true, 'but locked until the cashier is hired');
+  assert.equal(hireMarketWorker(s), false, 'the gate holds behind the locked marker');
 
   buyCashier(s);
-  assert.ok(!markersByKind(s).has('hireCashier'));
+  m = markersByKind(s);
+  assert.ok(!m.has('hireCashier'));
+  assert.equal(m.get('hireMarketWorker').locked, false, 'cashier hired → worker hire unlocks');
+  hireMarketWorker(s);
+  assert.ok(!markersByKind(s).has('hireMarketWorker'));
 });
 
 check('gas markers: station first (at the gate), then per-lot expand/equip/hire on the pumps', () => {
@@ -2037,8 +2022,9 @@ check('buyUnlockMarker routes to the same gated purchases (rep + prereq + cash g
   assert.equal(buyUnlockMarker(s, 'pitEquipment', 1), true);
   assert.equal(buyUnlockMarker(s, 'hireMechanic', 1), true);
   assert.equal(buyUnlockMarker(s, 'openMarket'), true);
-  assert.equal(buyUnlockMarker(s, 'hireMarketWorker'), true);
+  assert.equal(buyUnlockMarker(s, 'hireMarketWorker'), false, 'cashier gate holds at the marker');
   assert.equal(buyUnlockMarker(s, 'hireCashier'), true);
+  assert.equal(buyUnlockMarker(s, 'hireMarketWorker'), true);
   assert.equal(s.pits[1].equipped && s.pits[1].hasMechanic, true);
   assert.equal(s.supermarket.workerLevel, 1);
   assert.equal(s.hasCashier, true);

@@ -34,19 +34,28 @@ export class Character {
     this.state = 'idle';
     this.actions.idle?.play(); // starts at full weight; no fade-in from nothing
 
-    this.emoteTimer = 0; // counts down a yell/repair blip
-    this.emoteState = null; // 'yell' | 'repair' while the blip is active
+    this.emoteTimer = 0; // counts down a yell/repair/gaspump blip
+    this.emoteState = null; // 'yell' | 'repair' | 'gaspump' while the blip is active
   }
 
   /** Quick yell emote (used by the remote hurry tap). */
   yell() {
-    this.emoteState = 'yell';
-    this.emoteTimer = EMOTE_TIME;
+    this.#emote('yell');
   }
 
-  /** Quick repair emote (used by the manual repair tap). */
+  /** Quick repair emote (used by the manual pit repair tap). */
   repair() {
-    this.emoteState = 'repair';
+    this.#emote('repair');
+  }
+
+  /** Quick gas-fill emote (the manual pump fill tap) — the same 'gaspump'
+   * clip the attendants play, instead of the pit repair animation. */
+  pumpGas() {
+    this.#emote('gaspump');
+  }
+
+  #emote(clip) {
+    this.emoteState = clip;
     this.emoteTimer = EMOTE_TIME;
   }
 

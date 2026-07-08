@@ -41,7 +41,7 @@ function createPit(index) {
     // tick after hire; the scene (Mechanic.js) renders it. null until hired.
     mechanic: null,
     // This pit mechanic's break clock (see core/breaks.js): a finished repair
-    // counts a job; after enough the worker sits at its chair for a while.
+    // counts a job; after enough the worker leans at its break spot for a while.
     break: createBreakState('carMechanic'),
   };
 }
@@ -70,8 +70,8 @@ function createPump(index) {
     collectedThisTick: 0, // one-tick render signal, mirrors pit.collectedThisTick
     attendant: null,
     // This attendant's break clock (see core/breaks.js): a filled car counts a
-    // job; after enough the attendant sits at its chair beside the pump — the
-    // exact mirror of a pit mechanic's pit.break.
+    // job; after enough the attendant leans at its break spot beside the pump —
+    // the exact mirror of a pit mechanic's pit.break.
     break: createBreakState('gasAttendant'),
   };
 }

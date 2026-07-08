@@ -37,6 +37,7 @@ import { TruckMenu } from './scene/TruckMenu.js';
 import { UnlockMarkers } from './scene/UnlockMarkers.js';
 import { SlidingDoors } from './scene/SlidingDoors.js';
 import { Bridges } from './scene/Bridges.js';
+import { PoofEffects, RevealPoofs } from './scene/Poof.js';
 import { worldToScreen, showEmotePopup } from './scene/popup.js';
 
 const container = document.getElementById('app');
@@ -58,6 +59,10 @@ const menu = new UpgradeMenu(state);
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
 const bridges = new Bridges(sceneManager);
+// Cartoon poof-cloud bursts wherever something new reveals (see scene/Poof.js);
+// RevealPoofs watches the state flags the views already gate visibility on.
+const poofs = new PoofEffects(sceneManager);
+const revealPoofs = new RevealPoofs(poofs);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
 
@@ -97,7 +102,7 @@ async function main() {
   const gasStationView = new GasStationView(sceneManager, gltf);
   // Pump pay uses the same waiting-bills view as pit pay, pointed at the pumps.
   const pumpMoney = new PitMoney(sceneManager, settings.gasStation.positions, (s) => s.gasStation.pumps);
-  const breakMenu = new BreakMenu(state); // opened by tapping a seated worker's chair
+  const breakMenu = new BreakMenu(state); // opened by tapping a resting (on-break) worker
   const truckMenu = new TruckMenu(state); // opened by tapping an empty restock box
   // World-space create/hire purchases: ground circles that auto-buy on
   // proximity (step-1 physical unlocks; see core/upgrades.getUnlockMarkers).
@@ -119,20 +124,21 @@ async function main() {
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, sceneManager.camera);
 
-    // A seated worker's chair opens the break panel (works from anywhere, like a
-    // remote hurry tap). Checked before the worker/car raycasts so the chair wins.
-    const chairPit = carYard.raycastChair(raycaster, state);
-    if (chairPit >= 0) {
-      breakMenu.open(state.pits[chairPit].break, `Worker ${String.fromCharCode(65 + chairPit)}`);
+    // A resting (on-break) worker opens the break panel (works from anywhere,
+    // like a remote hurry tap). Checked before the worker/car raycasts so the
+    // resting worker wins.
+    const restingPit = carYard.raycastRestingWorker(raycaster, state);
+    if (restingPit >= 0) {
+      breakMenu.open(state.pits[restingPit].break, `Worker ${String.fromCharCode(65 + restingPit)}`);
       return;
     }
-    if (supermarketView.raycastChair(raycaster, state)) {
+    if (supermarketView.raycastRestingWorker(raycaster, state)) {
       breakMenu.open(state.supermarket.worker.break, 'Market Worker');
       return;
     }
-    const chairPump = gasStationView.raycastChair(raycaster, state);
-    if (chairPump >= 0) {
-      breakMenu.open(state.gasStation.pumps[chairPump].break, `Attendant ${chairPump + 1}`);
+    const restingPump = gasStationView.raycastRestingWorker(raycaster, state);
+    if (restingPump >= 0) {
+      breakMenu.open(state.gasStation.pumps[restingPump].break, `Attendant ${restingPump + 1}`);
       return;
     }
 
@@ -173,7 +179,7 @@ async function main() {
       });
     } else if (pump.playerPresent && pump.car && !pump.car.fixed) {
       tapFill(state, gi);
-      character.repair();
+      character.pumpGas();
       gasStationView.onTap(gi);
     }
   });
@@ -288,6 +294,8 @@ async function main() {
     pitMoney.update(dt, state, state.player.position);
     pumpMoney.update(dt, state, state.player.position);
     unlockMarkers.update(dt, state, state.player.position);
+    revealPoofs.update(state); // fires poofs on this frame's reveal edges…
+    poofs.update(dt); // …and animates the live bursts
     breakMenu.update();
     truckMenu.update();
     hud.update(state.cash, state.repBoostRemaining);

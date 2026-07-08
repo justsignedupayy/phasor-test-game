@@ -15,7 +15,6 @@
 import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
 import { createMarketWorker, truckDeliveryTime } from './supermarket.js';
-import { breakDuration } from './breaks.js';
 import { roomWallBox } from './collision.js';
 import { rebuildGrid } from './pathfinding.js';
 
@@ -132,11 +131,6 @@ export function attendantSpeedCost(state, pump) {
 /** Flat, one-time cost of the garage-wide cashier hire. */
 export function cashierCost(state) {
   return U.cashier.baseCost;
-}
-
-/** Flat, one-time cost of a single worker's "Upgrade Break Room" (per worker). */
-export function breakRoomCost(state) {
-  return U.breakRoom.baseCost;
 }
 
 /** Flat, one-time cost of the garage-wide mechanic auto-restock upgrade. */
@@ -317,21 +311,6 @@ export function buyAttendantSpeed(state, pumpIndex) {
 }
 
 /**
- * Upgrade a pump attendant's break room (one-time, per worker): halves that
- * attendant's break duration and swaps its chair for a couch — buyBreakRoom's
- * mirror, same flat cost.
- */
-export function buyGasBreakRoom(state, pumpIndex) {
-  const pump = state.gasStation.pumps[pumpIndex];
-  if (!pump || !pump.hasAttendant || pump.break.breakDurationUpgraded) return false;
-  const cost = breakRoomCost(state);
-  if (state.cash < cost) return false;
-  state.cash -= cost;
-  pump.break.breakDurationUpgraded = true;
-  return true;
-}
-
-/**
  * Hire the garage-wide cashier (one-time). Future payouts skip the per-pit
  * waiting pile and land straight in cash; any money already waiting at pits is
  * swept in on hire so nothing is left stranded.
@@ -352,39 +331,23 @@ export function buyCashier(state) {
 }
 
 /**
- * Upgrade a pit mechanic's break room (one-time, per worker): halves that
- * worker's break duration and swaps its chair for a couch. Requires the pit to
- * have a hired mechanic. See core/breaks.js (breakDurationUpgraded).
+ * True while a cashier-gated purchase is still locked. Every market upgrade
+ * EXCEPT the cashier hire itself (worker hire/train, auto-restock, Faster
+ * Deliveries) requires the cashier first — hiring it is the market track's
+ * mandatory first step.
  */
-export function buyBreakRoom(state, pitIndex) {
-  const pit = state.pits[pitIndex];
-  if (!pit || !pit.hasMechanic || pit.break.breakDurationUpgraded) return false;
-  const cost = breakRoomCost(state);
-  if (state.cash < cost) return false;
-  state.cash -= cost;
-  pit.break.breakDurationUpgraded = true;
-  return true;
-}
-
-/** Upgrade the market worker's break room (one-time): halves its break duration. */
-export function buyMarketBreakRoom(state) {
-  const w = state.supermarket.worker;
-  if (!w || w.break.breakDurationUpgraded) return false;
-  const cost = breakRoomCost(state);
-  if (state.cash < cost) return false;
-  state.cash -= cost;
-  w.break.breakDurationUpgraded = true;
-  return true;
+function cashierMissing(state) {
+  return !state.hasCashier;
 }
 
 /**
  * Buy the garage-wide mechanic auto-restock upgrade (one-time). From then on each
  * pit's hired mechanic fetches a box from its own shelf and refills its tire stack
  * itself when it runs dry (see simulation.updateMechanic), so tires never have to be
- * hand-carried.
+ * hand-carried. Cashier-gated like the other automation/market upgrades.
  */
 export function buyAutoRestock(state) {
-  if (state.autoRestock) return false;
+  if (state.autoRestock || cashierMissing(state)) return false;
   const cost = autoRestockCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -402,9 +365,9 @@ export function buySupermarket(state) {
   return true;
 }
 
-/** Hire the market worker (level 0 -> 1): it takes over packaging. */
+/** Hire the market worker (level 0 -> 1): it takes over packaging. Cashier-gated. */
 export function hireMarketWorker(state) {
-  if (!state.supermarket.unlocked || state.supermarket.workerLevel !== 0) return false;
+  if (!state.supermarket.unlocked || state.supermarket.workerLevel !== 0 || cashierMissing(state)) return false;
   const cost = marketWorkerHireCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -413,9 +376,9 @@ export function hireMarketWorker(state) {
   return true;
 }
 
-/** Train the market worker (level 1 -> 2): it also takes over restocking. */
+/** Train the market worker (level 1 -> 2): it also takes over restocking. Cashier-gated. */
 export function trainMarketWorker(state) {
-  if (state.supermarket.workerLevel !== 1) return false;
+  if (state.supermarket.workerLevel !== 1 || cashierMissing(state)) return false;
   const cost = marketWorkerTrainCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -423,10 +386,10 @@ export function trainMarketWorker(state) {
   return true;
 }
 
-/** Buy the next "Faster Deliveries" level: speeds up the restock truck (global). */
+/** Buy the next "Faster Deliveries" level: speeds up the restock truck (global). Cashier-gated. */
 export function buyTruckFrequency(state) {
   const S = state.supermarket;
-  if (!S.unlocked || S.truckUpgradeLevel >= TRUCK_MAX_LEVEL) return false;
+  if (!S.unlocked || S.truckUpgradeLevel >= TRUCK_MAX_LEVEL || cashierMissing(state)) return false;
   const cost = truckFrequencyCost(state);
   if (state.cash < cost) return false;
   state.cash -= cost;
@@ -556,7 +519,15 @@ export function getUnlockMarkers(state) {
   if (!S.unlocked) {
     markers.push({ kind: 'openMarket', x: spot.x, z: spot.z, cost: supermarketCost(state), locked: false, hint: 'Open the supermarket' });
   } else if (S.workerLevel === 0) {
-    markers.push({ kind: 'hireMarketWorker', x: spot.x, z: spot.z, cost: marketWorkerHireCost(state), locked: false, hint: 'Hire the market worker' });
+    const locked = cashierMissing(state); // the hire is cashier-gated, like every other market upgrade
+    markers.push({
+      kind: 'hireMarketWorker',
+      x: spot.x,
+      z: spot.z,
+      cost: marketWorkerHireCost(state),
+      locked,
+      hint: locked ? 'Hire a cashier first' : 'Hire the market worker',
+    });
   }
   if (!state.hasCashier) {
     const c = settings.supermarket.cashRegisterPosition;
@@ -596,7 +567,7 @@ export function buyUnlockMarker(state, kind, index) {
 //
 // The menu carries ONLY tuning upgrades for things that already exist — every
 // create/hire purchase lives at its physical marker (getUnlockMarkers above).
-// Sections: Automation, Supermarket (train/breaks/deliveries, once open),
+// Sections: Automation, Supermarket (train/deliveries, once open),
 // Workers (one block per equipped pit) and Attendants (per hired pump).
 
 /** Reference car for showing Fixing Time as a concrete tick count (3 parts). */
@@ -623,9 +594,6 @@ function attendantBlock(state, pump) {
   // has nothing to tune (rows stay empty and the block is filtered out).
   if (pump.hasAttendant) {
     rows.push(attendantSpeedRow(state, pump));
-    // A hired attendant takes breaks, so its break room can be upgraded — the
-    // same shared row the pit mechanics and market worker use.
-    rows.push(breakRoomRow(state, pump.break, 'gasBreakRoom', pump.index));
   }
   return { index: pump.index, title: `Attendant ${pump.index + 1}`, rows };
 }
@@ -654,6 +622,11 @@ function attendantSpeedRow(state, pump) {
   };
 }
 
+/** A cashier-gated upgrade's placeholder row: visibly locked until the hire. */
+function cashierLockedRow(kind, label, pitIndex) {
+  return { kind, pitIndex, label, effect: 'Hire a cashier first', cost: 'LOCKED', disabled: true };
+}
+
 /** Automation section: the one-time upgrade that lets each pit's mechanic auto-restock. */
 function autoRestockRow(state) {
   if (state.autoRestock) {
@@ -665,6 +638,7 @@ function autoRestockRow(state) {
       disabled: true,
     };
   }
+  if (cashierMissing(state)) return cashierLockedRow('autoRestock', 'Mechanic Auto-Restock');
   const cost = autoRestockCost(state);
   return {
     kind: 'autoRestock',
@@ -676,7 +650,7 @@ function autoRestockRow(state) {
 }
 
 /** Supermarket section: tuning only, once the market has been opened at its
- * floor marker — the worker's training level, its break room, and the truck.
+ * floor marker — the worker's training level and the truck.
  * (The unlock and the initial worker hire are physical markers; at workerLevel
  * 0 the only row is the truck.) */
 function supermarketRows(state) {
@@ -685,14 +659,18 @@ function supermarketRows(state) {
 
   const rows = [];
   if (S.workerLevel === 1) {
-    const cost = marketWorkerTrainCost(state);
-    rows.push({
-      kind: 'trainMarketWorker',
-      label: 'Train Market Worker',
-      effect: 'Worker also restocks, hands-free',
-      cost: `$${formatMoney(cost)}`,
-      disabled: state.cash < cost,
-    });
+    if (cashierMissing(state)) {
+      rows.push(cashierLockedRow('trainMarketWorker', 'Train Market Worker'));
+    } else {
+      const cost = marketWorkerTrainCost(state);
+      rows.push({
+        kind: 'trainMarketWorker',
+        label: 'Train Market Worker',
+        effect: 'Worker also restocks, hands-free',
+        cost: `$${formatMoney(cost)}`,
+        disabled: state.cash < cost,
+      });
+    }
   } else if (S.workerLevel >= 2) {
     rows.push({
       kind: 'trainMarketWorker',
@@ -703,10 +681,6 @@ function supermarketRows(state) {
     });
   }
   // workerLevel 0: the worker is hired at its shop-floor marker — no row yet.
-
-  // Once a market worker is hired (level >= 1) it takes breaks, so its break
-  // room can be upgraded — the market counterpart of each pit worker's row.
-  if (S.worker) rows.push(breakRoomRow(state, S.worker.break, 'marketBreakRoom', undefined));
 
   // The restock truck: idle until a delivery is ORDERED here (or at the
   // empty-box panel), plus the global delivery-time upgrade. Both always shown
@@ -759,6 +733,9 @@ function truckFrequencyRow(state) {
   const times = settings.supermarket.truck.deliveryTimes;
   const lvl = state.supermarket.truckUpgradeLevel;
   const cur = times[Math.min(lvl, TRUCK_MAX_LEVEL)];
+  if (lvl < TRUCK_MAX_LEVEL && cashierMissing(state)) {
+    return cashierLockedRow('truckFrequency', 'Faster Deliveries');
+  }
   if (lvl >= TRUCK_MAX_LEVEL) {
     return {
       kind: 'truckFrequency',
@@ -785,40 +762,14 @@ function workerBlock(state, pit) {
   const rows = [];
 
   // The mechanic itself is hired at its pit-side marker; until then this pit
-  // has nothing to tune (rows stay empty and the block is filtered out) — all
-  // three rows tune the hired worker, so none exist before the hire.
+  // has nothing to tune (rows stay empty and the block is filtered out) — both
+  // rows tune the hired worker, so none exist before the hire.
   if (pit.hasMechanic) {
     rows.push(workerSpeedRow(state, pit));
     rows.push(fixingTimeRow(state, pit));
-    // A hired worker takes breaks, so it can have its break room upgraded.
-    rows.push(breakRoomRow(state, pit.break, 'breakRoom', pit.index));
   }
 
   return { index: pit.index, title: `Worker ${L}`, rows };
-}
-
-/** Seconds, no decimals, for a break-duration readout. */
-const fmtSecs = (s) => `${Math.round(s)}s`;
-
-/**
- * A per-worker "Upgrade Break Room" row (one-time): halves the break duration.
- * Shared by the pit mechanics (kind 'breakRoom', with a pitIndex) and the market
- * worker (kind 'marketBreakRoom', no pitIndex). `b` is that worker's break state.
- */
-function breakRoomRow(state, b, kind, pitIndex) {
-  const cur = breakDuration(b);
-  if (b.breakDurationUpgraded) {
-    return { kind, pitIndex, label: 'Break Room', effect: `Break: ${fmtSecs(cur)}`, cost: 'MAX', disabled: true };
-  }
-  const cost = breakRoomCost(state);
-  return {
-    kind,
-    pitIndex,
-    label: 'Upgrade Break Room',
-    effect: `Break: ${fmtSecs(cur)} → ${fmtSecs(settings.breakDurations.upgraded)}`,
-    cost: `$${formatMoney(cost)}`,
-    disabled: state.cash < cost,
-  };
 }
 
 function workerSpeedRow(state, pit) {

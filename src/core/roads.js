@@ -13,14 +13,25 @@
  *
  * Every CAR LANE — each equipped pit's interior lane and each equipped pump's
  * full road — is instead fenced by invisible walls along its full depth,
- * crossed only by a small RAISED bridge near that pit's/pump's hire marker
+ * crossed only by a RAISED bridge deck near that pit's/pump's hire marker
  * (settings.pitLane, shared by both kinds; see pitLaneBoxes / pumpLaneBoxes /
- * laneBridgeCrossings / laneBridgeElevationAt). Cars are NOT movers: they
- * tween straight through underneath, completely unaffected. Outside the lane
- * strips, the gas station's asphalt is ordinary walkable ground — the pumps,
- * attendant work spots, break chairs and unlock markers all stand beside the
- * fenced lanes, and manual tap-fill works from the lane's edge (wall halfWidth
- * + player radius stays within gasStation.radius, exactly like a pit).
+ * laneBridgeCrossings / laneBridgeElevationAt). Each PIT gets its own small
+ * bridge (ramp up, deck, ramp down). The PUMP row instead gets a single
+ * elevated SPINE: one flat walkway at constant bridge height running the whole
+ * row along the crossing corridor (never dipping between pumps), crossed onto
+ * and off via a short perpendicular SPUR at each pump — a steep stair-like
+ * descent off the spine's pump side down to that pump's ground strip (see
+ * pumpSpineLayout). The spine's and every spur's railings are SOLID, so the
+ * spur mouths are the only ways on or off; both outer spine ends are closed
+ * (cap boxes — nothing lies past the LAST pump, and the garage end is entered
+ * via pump 0's spur). The structure grows a piece per equipped pump, and a
+ * piece's open grow-end carries a TEMPORARY cap until the neighbouring piece
+ * exists (see pumpLaneBoxes' neighbour flags). Cars are NOT movers: they tween
+ * straight through underneath, completely unaffected. Outside the lane strips,
+ * the gas station's asphalt is ordinary walkable ground — the pumps, attendant
+ * work spots, break spots and unlock markers all stand beside the fenced
+ * lanes, and manual tap-fill works from the lane's edge (wall halfWidth +
+ * player radius stays within gasStation.radius, exactly like a pit).
  */
 import settings from '../config/settings.js';
 
@@ -82,19 +93,51 @@ function laneBridgeZ(p) {
   return p.z + settings.unlockMarkers.hireOffset.z + settings.pitLane.bridge.zOffset;
 }
 
-/** The per-lane bridge crossings, STATIC: { kind, index, x, z } deck centres —
- * one per pit lane and one per pump lane (both rows share the same hireOffset,
- * so both bridges sit just past their hire marker). Each deck spans its lane
- * in x (pitLane.halfWidth each side, ramps beyond). */
+/** The per-PIT bridge crossings, STATIC: { kind, index, x, z } deck centres,
+ * one per pit lane, each deck spanning its lane in x (pitLane.halfWidth each
+ * side, ramps beyond). The pump row's crossing is the spine instead — see
+ * pumpSpineLayout (same corridor z, from the shared hireOffset + zOffset). */
 export function laneBridgeCrossings() {
-  const pits = settings.pit.positions.map((p, index) => ({ kind: 'pit', index, x: p.x, z: laneBridgeZ(p) }));
-  const pumps = settings.gasStation.positions.map((p, index) => ({
-    kind: 'pump',
-    index,
-    x: p.x,
-    z: laneBridgeZ(p),
+  return settings.pit.positions.map((p, index) => ({ kind: 'pit', index, x: p.x, z: laneBridgeZ(p) }));
+}
+
+let spineLayoutCache = null;
+
+/**
+ * The pump spine walkway's STATIC geometry (cached — settings never change at
+ * runtime). One straight elevated deck along the row's shared crossing
+ * corridor (every pump sits at the same z, so laneBridgeZ is one line):
+ *   z          the spine's centre z (= the corridor the lane walls are gapped at)
+ *   junctions  per-pump spur centre x (pump.x + spine.spurOffsetX — the open
+ *              ground on the pump's garage side); spur j descends from the
+ *              spine's pump (+z) side down to pump j's ground strip
+ *   pieces     one deck stretch per pump, abutting exactly so the visible spine
+ *              is seamless: { index, xMin, xMax, spurs }. Piece i covers its own
+ *              lane crossing plus the NEXT pump's junction, and `spurs` lists
+ *              the junction indexes it carries — piece i brings spur i+1 (the
+ *              descent needed once lane i is fenced), and piece 0 also brings
+ *              spur 0 (the walkway's entry). The LAST piece carries none: its
+ *              far end is the row's closed boundary end. xMax of piece 0 runs
+ *              endPad past spur 0's junction (the spine's capped +x end); xMin
+ *              of the last piece is its lane's far edge (the capped -x end).
+ */
+export function pumpSpineLayout() {
+  if (spineLayoutCache) return spineLayoutCache;
+  const G = settings.gasStation.positions;
+  const L = settings.pitLane;
+  const S = L.spine;
+  const z = laneBridgeZ(G[0]);
+  const junctions = G.map((p) => p.x + S.spurOffsetX);
+  const last = G.length - 1;
+  const past = S.spurWidth / 2 + S.endPad; // a piece boundary sits just past a junction
+  const pieces = G.map((p, i) => ({
+    index: i,
+    xMax: i === 0 ? junctions[0] + past : junctions[i] - past,
+    xMin: i === last ? p.x - L.halfWidth : junctions[i + 1] - past,
+    spurs: i === 0 ? (last === 0 ? [0] : [0, 1]) : i < last ? [i + 1] : [],
   }));
-  return [...pits, ...pumps];
+  spineLayoutCache = { z, junctions, pieces };
+  return spineLayoutCache;
 }
 
 /** A lane's invisible edge walls: one strip along z ∈ [z0, z1] at lane centre
@@ -124,8 +167,26 @@ function laneWallBoxes(x, z0, z1, bridgeZ) {
  */
 export function pitLaneBoxes(i) {
   const W = settings.world;
+  const L = settings.pitLane;
+  const B = L.bridge;
   const p = settings.pit.positions[i];
-  return laneWallBoxes(p.x, -W.halfZ, W.halfZ, laneBridgeZ(p));
+  const bridgeZ = laneBridgeZ(p);
+  const boxes = laneWallBoxes(p.x, -W.halfZ, W.halfZ, bridgeZ);
+
+  // The bridge's end-ramp railings are solid down both slope edges (matching
+  // the rail meshes in scene/Bridges.#addRamp and mirroring the pump spurs'
+  // rails), so a ramp is entered only through its mouth (the ground-level far
+  // end) or from the deck — never sideways at partial height. Each rail abuts
+  // the lane walls' carved corridor corner exactly, closing the barrier from
+  // wall to ramp tip.
+  const railInset = B.width / 2 - 0.05;
+  for (const side of [-1, 1]) {
+    const rampCentreX = p.x + side * (L.halfWidth + B.rampLength / 2);
+    for (const s of [-1, 1]) {
+      boxes.push({ x: rampCentreX, z: bridgeZ + s * railInset, halfX: B.rampLength / 2, halfZ: 0.05 });
+    }
+  }
+  return boxes;
 }
 
 /**
@@ -134,30 +195,89 @@ export function pitLaneBoxes(i) {
  * road extent both ways — GasStationView.#buildPump). Emitted by
  * buildObstacleList once the pump is equipped, on the same reasoning.
  */
-export function pumpLaneBoxes(i) {
+export function pumpLaneBoxes(i, neighbours = {}) {
+  const { prevEquipped = true, nextEquipped = true } = neighbours;
   const W = settings.world;
+  const L = settings.pitLane;
+  const B = L.bridge;
+  const S = L.spine;
   const p = settings.gasStation.positions[i];
-  return laneWallBoxes(p.x, -(W.halfZ + W.road.extent), W.halfZ + W.road.extent, laneBridgeZ(p));
+  const last = i === settings.gasStation.positions.length - 1;
+  const spine = pumpSpineLayout();
+  const piece = spine.pieces[i];
+  const boxes = laneWallBoxes(p.x, -(W.halfZ + W.road.extent), W.halfZ + W.road.extent, spine.z);
+
+  // The spine's railings are SOLID along this piece's whole length (matching
+  // the rail meshes in scene/Bridges: inset 0.05 from the corridor edge, 0.1
+  // thick): they keep the player on the deck AND keep the ground-level player
+  // from wandering into the strip under it. The far (-z) rail is unbroken; the
+  // pump-side (+z) rail is gapped only at this piece's spur junctions — the
+  // sole ways on/off the spine.
+  const railInset = B.width / 2 - 0.05;
+  const rail = (x0, x1, z) => {
+    if (x1 - x0 > 0.01) boxes.push({ x: (x0 + x1) / 2, z, halfX: (x1 - x0) / 2, halfZ: 0.05 });
+  };
+  rail(piece.xMin, piece.xMax, spine.z - railInset);
+  let a = piece.xMin;
+  for (const jx of piece.spurs.map((j) => spine.junctions[j]).sort((q, w) => q - w)) {
+    rail(a, jx - S.spurWidth / 2, spine.z + railInset);
+    a = jx + S.spurWidth / 2;
+  }
+  rail(a, piece.xMax, spine.z + railInset);
+
+  // Each spur's railings are solid down both slope edges, so a spur is entered
+  // only through its mouth (the ground-level +z end) or from the spine.
+  for (const j of piece.spurs) {
+    const jx = spine.junctions[j];
+    const zc = spine.z + B.width / 2 + S.spurLength / 2;
+    for (const s of [-1, 1]) {
+      boxes.push({ x: jx + s * (S.spurWidth / 2 - 0.05), z: zc, halfX: 0.05, halfZ: S.spurLength / 2 });
+    }
+  }
+
+  // End caps seal a deck end's full corridor width so the player neither walks
+  // off a bridge-height cliff nor enters the elevated strip at grade. The
+  // spine's two OUTER ends are always capped (past the LAST pump nothing lies
+  // beyond the row; the +x garage end is entered via spur 0, not head-on). A
+  // piece's INNER end is capped only while the neighbouring piece is missing —
+  // a temporary frontier rail that vanishes when the spine grows across it.
+  const cap = (x) => boxes.push({ x, z: spine.z, halfX: 0.15, halfZ: B.width / 2 });
+  if (i === 0 || !prevEquipped) cap(piece.xMax + 0.15);
+  if (last || !nextEquipped) cap(piece.xMin - 0.15);
+  return boxes;
 }
 
 /**
- * Visual deck height for the player at (x, z): bridge.height on a deck,
- * tapering linearly down each end ramp, 0 elsewhere. Gated on the crossing's
- * pit/pump being equipped, so walls, meshes and elevation appear together —
- * before that the lane is open ground and the player walks it at grade.
- * Purely visual: core positions stay 2D and the crossing itself is the carved
- * wall gap.
+ * Visual deck height for the player at (x, z). Pit bridges: bridge.height on
+ * a deck, tapering linearly down each end ramp. Pump spine: bridge.height
+ * anywhere on an equipped piece's flat deck (the spine never changes height
+ * along its length), tapering down a spur's descent toward its mouth.
+ * 0 elsewhere. Gated per pit/pump equip, so walls, meshes and elevation
+ * appear together — before that the lane is open ground and the player walks
+ * it at grade. Purely visual: core positions stay 2D and the crossings
+ * themselves are the carved wall gaps.
  */
 export function laneBridgeElevationAt(state, x, z) {
   const L = settings.pitLane;
   const B = L.bridge;
   for (const c of laneBridgeCrossings()) {
-    const equipped = c.kind === 'pit' ? state.pits[c.index].equipped : state.gasStation.pumps[c.index].equipped;
-    if (!equipped) continue;
+    if (!state.pits[c.index].equipped) continue;
     if (Math.abs(z - c.z) > B.width / 2) continue;
     const dx = Math.abs(x - c.x);
-    const t = dx <= L.halfWidth ? 1 : 1 - (dx - L.halfWidth) / B.rampLength;
-    if (t > 0) return Math.min(1, t) * B.height;
+    if (dx <= L.halfWidth) return B.height;
+    const t = 1 - (dx - L.halfWidth) / B.rampLength;
+    if (t > 0) return t * B.height;
+  }
+  const S = L.spine;
+  const spine = pumpSpineLayout();
+  for (const piece of spine.pieces) {
+    if (!state.gasStation.pumps[piece.index].equipped) continue;
+    if (Math.abs(z - spine.z) <= B.width / 2 && x >= piece.xMin && x <= piece.xMax) return B.height;
+    for (const j of piece.spurs) {
+      if (Math.abs(x - spine.junctions[j]) > S.spurWidth / 2) continue;
+      const dz = z - (spine.z + B.width / 2);
+      if (dz > 0 && dz < S.spurLength) return B.height * (1 - dz / S.spurLength);
+    }
   }
   return 0;
 }

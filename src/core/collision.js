@@ -55,18 +55,17 @@ export function pushOutOfRect(pos, r, b) {
  * before:
  *   market   (default true)  supermarket shelves/freezers (collision halves by model
  *                            type, nudged by its per-type offset) + the checkout
- *   garage   (default true)  pit shelves + tire stacks + break chairs + each
- *                            equipped pit's invisible car-lane walls (see
- *                            core/roads.pitLaneBoxes)
+ *   garage   (default true)  pit shelves + tire stacks + each equipped pit's
+ *                            invisible car-lane walls (see core/roads.pitLaneBoxes)
  *   allPits  (default false) garage props for EVERY pit, state-free (the A* grid bakes
  *                            them all in once — harmless, market NPCs never reach the
  *                            bay row). When false, only the props that actually exist
- *                            in-world right now: an equipped pit's shelf, a tire stack
- *                            with stock (it stops blocking when the pit runs dry,
- *                            matching the scene), and a hired pit's break chair.
+ *                            in-world right now: an equipped pit's shelf, and a tire
+ *                            stack with stock (it stops blocking when the pit runs
+ *                            dry, matching the scene).
  *   excludePitIndex          skip one pit's garage props — the mechanic ignores its OWN
  *                            pit so the per-frame push never shoves it off its work spot
- *                            (right beside its tire stack) or out of its own chair.
+ *                            (right beside its tire stack).
  *   walls    (default [])    extra wall boxes ({ x, z, halfX, halfZ }) to PREPEND — the
  *                            room's right (fence) wall (= roomWallBox(ownedRightX)) for
  *                            the player, the moving fence wall for the grid.
@@ -87,7 +86,6 @@ export function buildObstacleList(state, settings, opts = {}) {
   } = opts;
   const M = settings.supermarket;
   const S = settings.storage;
-  const B = settings.breaks;
   const boxes = [];
 
   for (const w of walls) boxes.push(w);
@@ -151,18 +149,14 @@ export function buildObstacleList(state, settings, opts = {}) {
         // corridor — the raised bridge is the only way across the lane.
         for (const b of pitLaneBoxes(i)) boxes.push(b);
       }
-      if (allPits || pit.hasMechanic) {
-        const c = B.chairPositions[i];
-        boxes.push({ x: c.x, z: c.z, halfX: B.chairCollisionHalf.x, halfZ: B.chairCollisionHalf.z });
-      }
     }
   }
 
   // Gas pumps: one solid box per equipped pump's prop + its car-lane walls
-  // (core/roads.pumpLaneBoxes), plus a hired pump's break chair, mirroring the
-  // garage props. allPits (the state-free A* bake) includes every pump;
-  // excludePumpIndex lets an attendant ignore its OWN pump's props
-  // (pump + lane walls + chair), like a mechanic ignores its own pit's.
+  // (core/roads.pumpLaneBoxes), mirroring the garage props. allPits (the
+  // state-free A* bake) includes every pump; excludePumpIndex lets an
+  // attendant ignore its OWN pump's props (pump + lane walls), like a
+  // mechanic ignores its own pit's.
   if (gas) {
     const G = settings.gasStation;
     for (let i = 0; i < G.positions.length; i++) {
@@ -176,13 +170,18 @@ export function buildObstacleList(state, settings, opts = {}) {
           halfX: G.pumpCollisionHalf.x,
           halfZ: G.pumpCollisionHalf.z,
         });
-        // The pump lane's invisible edge walls, split around its bridge
-        // corridor — the raised bridge is the only way across, like a pit's.
-        for (const b of pumpLaneBoxes(i)) boxes.push(b);
-      }
-      if (allPits || pump.hasAttendant) {
-        const c = B.pumpChairPositions[i];
-        boxes.push({ x: c.x, z: c.z, halfX: B.chairCollisionHalf.x, halfZ: B.chairCollisionHalf.z });
+        // The pump lane's invisible edge walls (split around the spine
+        // corridor — the elevated spine is the only way across, like a pit's
+        // bridge) + this spine piece's solid railings, spur railings and end
+        // caps. The neighbour flags gate the piece's temporary frontier caps:
+        // a grow-end stays sealed until the adjacent piece exists (the
+        // state-free A* bake treats the spine as fully built, no frontiers).
+        const pumps = state ? state.gasStation.pumps : null;
+        for (const b of pumpLaneBoxes(i, {
+          prevEquipped: allPits || (i > 0 && pumps[i - 1].equipped),
+          nextEquipped: allPits || (i + 1 < G.positions.length && pumps[i + 1].equipped),
+        }))
+          boxes.push(b);
       }
     }
   }

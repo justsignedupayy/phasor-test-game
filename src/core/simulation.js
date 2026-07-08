@@ -70,8 +70,8 @@ function updatePit(state, pit, dt) {
   tickBreak(pit.break, dt); // advance a running break; may auto-end it this frame
   updateMechanic(state, pit, dt);
 
-  // On break: the worker sits at its chair and does no auto-repair. Cars still
-  // queue/pull into the pit as usual (they just wait), identical to an idle pit.
+  // On break: the worker leans at its break spot and does no auto-repair. Cars
+  // still queue/pull into the pit as usual (they just wait), identical to an idle pit.
   if (pit.break.onBreak) return;
 
   const car = pit.car;
@@ -118,8 +118,9 @@ function createMechanic(pitIndex) {
  * owned and the pit has run dry (tiresRemaining 0), the mechanic walks to ITS OWN
  * shelf, picks up a box, carries it back to the pit, and refills the tire stack.
  * A pending restock leg finishes first; a break wins over starting a new one (it
- * walks to its chair and sits). Without the upgrade it just holds its work spot — the
- * pit stays dry until the player restocks (unchanged behaviour).
+ * walks to its break spot and leans against the wall). Without the upgrade it just
+ * holds its work spot — the pit stays dry until the player restocks (unchanged
+ * behaviour).
  */
 function updateMechanic(state, pit, dt) {
   const m = pit.mechanic;
@@ -156,14 +157,14 @@ function updateMechanic(state, pit, dt) {
     return;
   }
 
-  // On break: walk to this pit's chair and sit (no restock/repair meanwhile).
+  // On break: walk to this pit's break spot and lean (no restock/repair meanwhile).
   if (pit.break.onBreak) {
-    const chair = settings.breaks.chairPositions[pit.index];
-    const arrived = moveMechanic(state, pit, m, chair, speed, dt);
+    const spot = settings.breaks.breakSpots[pit.index];
+    const arrived = moveMechanic(state, pit, m, spot, speed, dt);
     m.moving = !arrived;
     m.state = 'onBreak';
     m.carrying = false;
-    if (arrived) m.rotation = settings.breaks.chairFacing;
+    if (arrived) m.rotation = settings.breaks.breakSpotFacing;
     return;
   }
 
@@ -185,7 +186,7 @@ function updateMechanic(state, pit, dt) {
 /**
  * Straight-line step toward `target` at `speed`, then push the mechanic out of every
  * garage prop except its OWN pit's (so it can stand on its own shelf / work spot /
- * chair) — the same push-out the player gets. Returns true once it reaches the target.
+ * break spot) — the same push-out the player gets. Returns true once it reaches the target.
  */
 function moveMechanic(state, pit, m, target, speed, dt) {
   const dx = target.x - m.position.x;
@@ -333,7 +334,7 @@ function updatePlayer(state, dt) {
   // (shelves/freezers/checkout). The player never targets an obstacle centre, so
   // nothing is exempted for it.
   resolveSupermarketCollisions(state, player.position, settings.player.radius);
-  // ...and out of every garage prop (per-pit shelves, tire stacks, break chairs)
+  // ...and out of every garage prop (per-pit shelves, tire stacks)
   // plus the room's right (fence) wall at ownedRightX — the one expanding wall the
   // clampToBounds above leaves open in the front lane (z <= BAY_ZONE_Z).
   resolveGarageCollisions(state, player.position, settings.player.radius, {

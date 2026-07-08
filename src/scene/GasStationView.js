@@ -17,8 +17,7 @@ import { formatMoney } from '../core/format.js';
  *                colors) and a pump-spot rectangle — shown once that pump's lot
  *                is opened (roomUnlocked), like Garage.js's per-pit sections.
  *   furniture    the gas_pump.glb prop (appear-animated like a pit's station),
- *                the tap-affordance highlight ring, the pump number label, and
- *                the attendant's break seat (chair, couch once upgraded) —
+ *                the tap-affordance highlight ring and the pump number label —
  *                PitView's job, minus the pit-only storage props.
  *   car flow     each pump's waiting queue, the car at the pump, and fixed cars
  *                driving off — CarYard's reconcile-into-tweens logic 1:1
@@ -153,9 +152,6 @@ export class GasStationView {
       attendant: null,
       propScale: 0,
       highlightT: 0,
-      // Break spot beside the pump — where the attendant walks to rest, once
-      // hired (leans against the wall — see Mechanic.js's onBreak handling).
-      chairPos: { ...settings.breaks.pumpChairPositions[index] },
     };
   }
 
@@ -167,9 +163,9 @@ export class GasStationView {
   /**
    * Raycast the resting attendants; returns the pump index whose attendant was
    * hit while on break (so main.js can open the break panel), or -1 —
-   * CarYard's raycastChair, mirrored. An attendant not on break isn't tappable.
+   * CarYard's raycastRestingWorker, mirrored. An attendant not on break isn't tappable.
    */
-  raycastChair(raycaster, state) {
+  raycastRestingWorker(raycaster, state) {
     for (let i = 0; i < this.pumpViews.length; i++) {
       const view = this.pumpViews[i];
       if (!view.attendant || !state.gasStation.pumps[i].break.onBreak) continue;
@@ -240,8 +236,9 @@ export class GasStationView {
         carPresent: !!pump.car && pump.car.settleRemaining <= 0,
         hurrying: pump.hurryTimer > 0,
         onBreak: pump.break.onBreak,
-        chairFacing: B.chairFacing,
-        seatOffset: B.leanOffset,
+        breakState: pump.break, // the head label's "x/y" break-progress counter
+        restFacing: B.breakSpotFacing,
+        leanOffset: B.leanOffset,
       });
     }
 

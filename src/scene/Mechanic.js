@@ -4,6 +4,7 @@ import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
+import { BreakLabel } from './BreakLabel.js';
 
 /**
  * Mechanic — a worker NPC: the same rigged glTF model as the player (see
@@ -12,8 +13,8 @@ import { ZzzEffect } from './ZzzEffect.js';
  * geometry/clips. Tinted (workerTint) so it reads as distinct from the player.
  *
  * Render-only: core/simulation.js owns the mechanic's position + FSM (repair-idle,
- * break-walk to its chair, and the auto-restock box trip), exactly like the market
- * worker (state.supermarket.worker). This class just mirrors that core state each
+ * break-walk to its wall-lean spot, and the auto-restock box trip), exactly like the
+ * market worker (state.supermarket.worker). This class just mirrors that core state each
  * frame — same split as MarketWorker.js. When carrying a restock box it plays the
  * carry clip and shows a Bag/box prop in its hand bone, like the market worker.
  */
@@ -58,6 +59,12 @@ export class Mechanic {
     this.zzz = new ZzzEffect();
     this.zzz.root.position.set(0, cfg.headHeight, 0);
     this.root.add(this.zzz.root);
+
+    // "x/y" break-progress counter floating above the head (hidden on break —
+    // the Zzz effect takes its place there).
+    this.breakLabel = new BreakLabel();
+    this.breakLabel.sprite.position.set(0, cfg.headHeight + 0.35, 0);
+    this.root.add(this.breakLabel.sprite);
   }
 
   /**
@@ -66,14 +73,17 @@ export class Mechanic {
    * @param {boolean} flags.carPresent a car is in the pit to work on
    * @param {boolean} flags.hurrying   a remote-hurry boost is active
    * @param {boolean} flags.onBreak    core break flag for this pit's worker
-   * @param {number} flags.chairFacing the Y-facing the resting worker holds
-   * @param {object} flags.seatOffset  the break-spot lean offset
+   * @param {object} flags.breakState  core break counter (pit.break / pump.break) for the head label
+   * @param {number} flags.restFacing  the Y-facing the resting worker holds
+   * @param {object} flags.leanOffset  the break-spot lean offset
    */
-  update(dt, { mechanic, carPresent, hurrying, onBreak, chairFacing, seatOffset }) {
+  update(dt, { mechanic, carPresent, hurrying, onBreak, breakState, restFacing, leanOffset }) {
     if (!mechanic) {
+      this.breakLabel.update(null);
       updateMixer(this.mixer, dt, 'Mechanic');
       return;
     }
+    this.breakLabel.update(breakState);
 
     this.root.position.x = mechanic.position.x;
     this.root.position.z = mechanic.position.z;
@@ -83,7 +93,7 @@ export class Mechanic {
     // market worker uses) so it leans upright against the wall. Pure render
     // offset — core's mechanic.position is unchanged.
     if (onBreak && !mechanic.moving) {
-      const d = leanOffsetDelta(chairFacing, seatOffset);
+      const d = leanOffsetDelta(restFacing, leanOffset);
       this.root.position.x += d.x;
       this.root.position.z += d.z;
       this.root.position.y = d.y;

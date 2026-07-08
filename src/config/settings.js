@@ -256,12 +256,6 @@ export const settings = {
     cashier: {
       baseCost: 1500,
     },
-    // One-time, PER-WORKER "Upgrade Break Room": halves that worker's break
-    // duration (breakDurations.base -> .upgraded). Bought separately for each
-    // pit mechanic and the market worker.
-    breakRoom: {
-      baseCost: 600,
-    },
     // Global "Faster Deliveries": 3 levels, each steps the ORDERED restock
     // truck's delivery time down one entry in settings.supermarket.truck
     // .deliveryTimes (300→240→180→120s from order to arrival); the FINAL level
@@ -615,11 +609,6 @@ export const settings = {
     shelfEnd: 'shelf_end.glb',
     freezer: 'freezers_standing.glb',
     bag: 'Bag.glb',
-    // Break-room seats: every worker gets a Chair by default; the per-worker
-    // "Upgrade Break Room" purchase swaps it for the couch (see settings.breaks
-    // + core/breaks.js). Loaded once, cloned per worker like the other props.
-    chair: 'Chair.glb',
-    couch: 'couch_small.glb',
     // The supermarket restock-delivery truck (loaded once, single reused
     // instance — see scene/TruckView.js). Drives in, drops off stock, drives out.
     truck: 'Truck.glb',
@@ -744,22 +733,31 @@ export const settings = {
     },
   },
 
-  // Per-lane car-lane fencing + the raised pedestrian bridge over each lane,
-  // for BOTH lane kinds: each pit's interior lane and each gas pump's road
-  // (geometry in core/roads.js pitLaneBoxes / pumpLaneBoxes /
+  // Per-lane car-lane fencing + the raised pedestrian crossings over the
+  // lanes, for BOTH lane kinds: each pit's interior lane and each gas pump's
+  // road (geometry in core/roads.js pitLaneBoxes / pumpLaneBoxes /
   // laneBridgeCrossings / laneBridgeElevationAt; the wall boxes ride with the
   // other per-pit/per-pump props in core/collision.js buildObstacleList;
   // meshes in scene/Bridges.js). Once a pit/pump is EQUIPPED (cars start
   // driving its lane), the lane's full depth is walled off to walking movers
   // by an invisible strip — its long faces are the walls along both lane
   // edges, filled solid so the bridge gap can't be used to wander up the lane
-  // at grade — split only at the bridge corridor: the raised bridge just past
+  // at grade — split only at the bridge corridor: the raised deck just past
   // the pit's/pump's hire marker (on the far side from it) is the ONE way
   // across. Cars are NOT movers: they tween straight through underneath,
-  // completely unaffected. The bridge is simple primitive geometry (ramp up,
-  // flat deck, ramp down along x) in the grey road/floor palette; the player
-  // model is lifted by laneBridgeElevationAt while inside the corridor
-  // (visual only — core positions stay 2D). STARTING VALUES, tune by eye.
+  // completely unaffected. Each PIT gets its own small bridge (ramp up, flat
+  // deck, ramp down along x); the PUMP row instead gets ONE elevated SPINE:
+  // a single flat walkway at constant bridge height running the row's full
+  // length along the crossing corridor (no up/down along its length), with a
+  // short perpendicular SPUR at each pump — a steep stair-like descent off the
+  // spine's pump side, down to that pump's ground (see `spine` below and
+  // core/roads.pumpSpineLayout). The spine's outer ends are closed (rail +
+  // cap box — past the LAST pump nothing lies beyond the row, and the garage
+  // end is entered via pump 0's spur, not head-on); railings on the spine and
+  // every spur are SOLID, so the only ways on/off are the spur mouths. Simple
+  // primitive geometry in the grey road/floor palette; the player model is
+  // lifted by laneBridgeElevationAt while on the structure (visual only —
+  // core positions stay 2D). STARTING VALUES, tune by eye.
   pitLane: {
     halfWidth: 1.2, // lane half-extent in x — the invisible walls' faces; just covers the car/pump spot (spotWidth / 2)
     bridge: {
@@ -767,10 +765,22 @@ export const settings = {
       width: 2.0, // deck depth (z); also the gap carved through the lane walls
       height: 2.0, // deck walking surface y — clears a car's roof
       thickness: 0.2,
-      rampLength: 1.5, // horizontal run of each end ramp — short, so the tips stay clear of the mechanics' chair/shelf walks (x ≈ pit.x + 2.9)
+      rampLength: 1.5, // horizontal run of each PIT bridge end ramp — short, so the tips stay clear of the mechanics' break-spot/shelf walks (x ≈ pit.x + 2.9)
       railHeight: 0.6,
       deckColor: 0x9aa0a8,
       railColor: 0x646a73,
+    },
+    // The pump row's spine walkway (shares the bridge's width/height/thickness/
+    // rail/colour values above; the spine runs at the same corridor z the lane
+    // walls are gapped at). Spur placement threads the fixed spots in each
+    // pump's ground strip: the hire marker (pump.x+2.1), the attendant's break
+    // spot (pump.x+3.4, z+2.5) and the pump prop (x+2, z+5.1) — the mouth must
+    // leave a player-radius(0.6)-wide path past the break spot.
+    spine: {
+      spurOffsetX: 4.8, // spur centre x relative to its pump — the garage (+x) side of its lane, past the break spot, short of the next lane
+      spurWidth: 1.8, // spur deck width (x); also the gap in the spine's pump-side railing
+      spurLength: 1.2, // horizontal run (z) of a spur's descent — short and steep (stair-like), so the mouth clears the break-spot walk
+      endPad: 0.3, // the spine deck continues this far past an end junction before its closing rail
     },
   },
 
@@ -794,37 +804,30 @@ export const settings = {
     gasAttendant: 500, // one job = one filled car
   },
 
-  // How long (real seconds) a break lasts. The per-worker "Upgrade Break Room"
-  // purchase swaps `base` for `upgraded`.
+  // How long (real seconds) a break lasts.
   breakDurations: {
     base: 300, // 5 min
-    upgraded: 150, // 2.5 min
   },
 
-  // Break-room layout + per-model fixups (tune by eye once visible, like the
-  // storage/supermarket scales). Each worker walks to its own seat and sits
-  // for breakDurations seconds; the only early wake-up is a rewarded ad.
+  // Break-spot layout: each worker walks to its own wall-side spot and leans
+  // against the wall for breakDurations seconds; the only early wake-up is a
+  // rewarded ad. No furniture — the spots are bare floor by a wall.
   breaks: {
-    // Mechanic seat: offset from the pit centre, placed to the right of that
-    // pit's shelf (shelf is at settings.storage.shelfOffset from the pit).
-    chairOffset: { x: 5.2, z: -13.0 },
-    chairFacing: 0, // radians the seated mechanic (and its chair) faces
-    // Attendant seat: offset from the pump centre — right next to the pump,
-    // past the attendant's work spot (attendant.offsetX ≈ 2.1) and clear of the
-    // car spot (spotWidth/2 = 1.2). Same chair model/facing as a mechanic's.
-    pumpChairOffset: { x: 3.4, z: -1.5 },
-    // Market worker seat: a fixed spot just left of the restock door, inside the room.
-    marketChairPosition: { x: -47, z: -3 },
-    marketChairFacing: 1.5,
+    // Mechanic break spot: offset from the pit centre, to the right of that
+    // pit's shelf (shelf is at settings.storage.shelfOffset from the pit),
+    // against the front wall.
+    breakSpotOffset: { x: 5.2, z: -13.0 },
+    breakSpotFacing: 0, // radians the resting mechanic faces at its spot
+    // Attendant break spot: offset from the pump centre — right next to the
+    // pump, past the attendant's work spot (attendant.offsetX ≈ 2.1) and clear
+    // of the car spot (spotWidth/2 = 1.2). Same facing as a mechanic's.
+    pumpBreakSpotOffset: { x: 3.4, z: -1.5 },
+    // Market worker break spot: a fixed spot just left of the restock door, inside the room.
+    marketBreakSpot: { x: -47, z: -3 },
+    marketBreakSpotFacing: 1.5,
     // The stationary mechanic isn't core-driven, so the scene walks it to/from
-    // its chair at this pace (world units/sec) when a break starts/ends.
+    // its break spot at this pace (world units/sec) when a break starts/ends.
     mechanicWalkSpeed: 3,
-    // Collision half-extent (AABB) for a pit break spot, blocking ALL movers
-    // (see core/collision.js + pathfinding.js). MEASURED from Chair.glb (≈ 0.76 ×
-    // 0.83) — STARTING VALUE, tune by eye. There's no seat mesh anymore (the
-    // worker leans against the wall instead), but the spot still keeps other
-    // movers clear of it.
-    chairCollisionHalf: { x: 0.38, z: 0.41 },
     // Once on break, nudge the worker's body relative to its break spot so it
     // leans upright against the wall instead of standing in open space. Applied
     // in the spot's OWN frame (rotated by its facing): `forward` = toward the
@@ -854,22 +857,21 @@ export const settings = {
   },
 };
 
-// World position of every pit's break chair, index-aligned with settings.pit.positions
-// (chairPositions[i] is pit i's seat). Derived from pit.positions + breaks.chairOffset
-// so the two never drift — the single source of chair placement, read by both the
-// scene (PitView) and the collision/pathfinding layers (see core/collision.js).
-settings.breaks.chairPositions = settings.pit.positions.map((p) => ({
-  x: p.x + settings.breaks.chairOffset.x,
-  z: p.z + settings.breaks.chairOffset.z,
+// World position of every pit's break spot, index-aligned with settings.pit.positions
+// (breakSpots[i] is where pit i's worker rests). Derived from pit.positions +
+// breaks.breakSpotOffset so the two never drift — the single source of break-spot
+// placement, read by core/simulation.js's break-walk and the render lean.
+settings.breaks.breakSpots = settings.pit.positions.map((p) => ({
+  x: p.x + settings.breaks.breakSpotOffset.x,
+  z: p.z + settings.breaks.breakSpotOffset.z,
 }));
 
-// World position of every pump's break chair, index-aligned with
-// settings.gasStation.positions — the attendants' mirror of chairPositions
-// above, derived the same way so placement never drifts. Read by the scene
-// (GasStationView) and the collision layer (core/collision.js).
-settings.breaks.pumpChairPositions = settings.gasStation.positions.map((p) => ({
-  x: p.x + settings.breaks.pumpChairOffset.x,
-  z: p.z + settings.breaks.pumpChairOffset.z,
+// World position of every pump's break spot, index-aligned with
+// settings.gasStation.positions — the attendants' mirror of breakSpots above,
+// derived the same way so placement never drifts (core/gasStation.js).
+settings.breaks.pumpBreakSpots = settings.gasStation.positions.map((p) => ({
+  x: p.x + settings.breaks.pumpBreakSpotOffset.x,
+  z: p.z + settings.breaks.pumpBreakSpotOffset.z,
 }));
 
 // The gas station's far (left) outer edge — an invisible wall so the player can

@@ -3,8 +3,9 @@
  *
  * Every worker (each pit mechanic + the market worker) tracks its own job
  * counter. After enough completed jobs it goes on break: it finishes its
- * current task, walks to its chair, and sits for breakDuration() seconds, then
- * resumes automatically. The only early wake-up is a rewarded ad (endBreak).
+ * current task, walks to its wall-side break spot, and leans there for
+ * breakDuration() seconds, then resumes automatically. The only early wake-up
+ * is a rewarded ad (endBreak).
  *
  * The break state is a small plain object stored ON the worker's entity (a pit
  * for a mechanic, state.supermarket.worker for the market worker), so it rides
@@ -15,7 +16,7 @@
  *   incrementJobCount(b)      +1 job; trips the break once the threshold is hit
  *   tickBreak(b, dt)          advance a running break; auto-ends it when elapsed
  *   endBreak(b)               clear the break (timer expiry or an ad reward)
- *   breakDuration(b)          seconds this break lasts (halved once upgraded)
+ *   breakDuration(b)          seconds this break lasts
  *   breakRemaining(b)         seconds left on a running break (0 when not on one)
  */
 import settings from '../config/settings.js';
@@ -27,7 +28,6 @@ export function createBreakState(kind) {
     jobCount: 0,
     onBreak: false,
     breakTimer: 0, // seconds elapsed on the current break
-    breakDurationUpgraded: false, // the per-worker "Upgrade Break Room" purchase
   };
 }
 
@@ -36,9 +36,9 @@ export function breakThreshold(b) {
   return settings.breakThresholds[b.kind];
 }
 
-/** How long this worker's break lasts (halved once the break room is upgraded). */
+/** How long this worker's break lasts. */
 export function breakDuration(b) {
-  return b.breakDurationUpgraded ? settings.breakDurations.upgraded : settings.breakDurations.base;
+  return settings.breakDurations.base;
 }
 
 /** Seconds left on a running break (0 when not on one). */

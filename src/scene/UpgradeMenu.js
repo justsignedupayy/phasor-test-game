@@ -4,11 +4,8 @@ import {
   buyFixingTime,
   buyAutoRestock,
   trainMarketWorker,
-  buyBreakRoom,
-  buyMarketBreakRoom,
   buyTruckFrequency,
   buyAttendantSpeed,
-  buyGasBreakRoom,
 } from '../core/upgrades.js';
 import settings from '../config/settings.js';
 import { orderTruck } from '../core/supermarket.js';
@@ -505,12 +502,6 @@ export class UpgradeMenu {
       case 'trainMarketWorker':
         ok = trainMarketWorker(this.state);
         break;
-      case 'breakRoom':
-        ok = buyBreakRoom(this.state, pitIndex);
-        break;
-      case 'marketBreakRoom':
-        ok = buyMarketBreakRoom(this.state);
-        break;
       case 'truckFrequency':
         ok = buyTruckFrequency(this.state);
         break;
@@ -519,9 +510,6 @@ export class UpgradeMenu {
         break;
       case 'attendantSpeed':
         ok = buyAttendantSpeed(this.state, pitIndex);
-        break;
-      case 'gasBreakRoom':
-        ok = buyGasBreakRoom(this.state, pitIndex);
         break;
     }
     if (ok) {

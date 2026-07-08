@@ -266,6 +266,25 @@ export const settings = {
       baseCost: 450,
       costGrowth: 1.6,
     },
+    // Per-worker-TYPE "Shorter Breaks": each level HALVES the break duration
+    // (breakDurations.base 300s → 150s → 75s at maxLevel 2 — see
+    // core/breaks.breakDurationAtLevel). ONE purchase covers every worker of
+    // that type (all pit mechanics / the market worker / all pump attendants),
+    // so each type is priced above its per-worker upgrades; the attendant tier
+    // carries the usual endgame markup. Geometric cost like the rest.
+    breakDuration: {
+      maxLevel: 2,
+      carMechanic: { baseCost: 1000, costGrowth: 1.8 },
+      marketWorker: { baseCost: 800, costGrowth: 1.8 },
+      gasAttendant: { baseCost: 5000, costGrowth: 1.8 },
+    },
+    // One-time "Player Speed" purchase (the tablet's Player tab): permanently
+    // multiplies settings.player.speed (see simulation.updatePlayer via
+    // upgrades.playerSpeedMultiplier). Flat cost — bought once, no growth.
+    playerSpeed: {
+      baseCost: 2000,
+      multiplier: 1.3,
+    },
     // Gas-station upgrades, mirroring the pit set 1:1 (two-stage pump unlock +
     // per-pump attendant hire/speed — see core/upgrades.js). Priced well above
     // the pit equivalents: the station only unlocks once the garage + market are

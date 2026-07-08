@@ -594,7 +594,7 @@ function updateWorker(state, dt) {
   const M = settings.supermarket;
 
   if (w.hurryTimer > 0) w.hurryTimer = Math.max(0, w.hurryTimer - dt);
-  tickBreak(w.break, dt); // advance a running break; may auto-end it this frame
+  tickBreak(w.break, dt, state); // advance a running break; may auto-end it this frame
   const speed = M.workerMoveSpeed * (w.hurryTimer > 0 ? settings.hurry.multiplier : 1);
 
   if (w.phase === 'toShelf') {

@@ -8,7 +8,7 @@
  */
 import settings from '../config/settings.js';
 import { spawnCar } from './Car.js';
-import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z } from './upgrades.js';
+import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z, playerSpeedMultiplier } from './upgrades.js';
 import { updateReputationTimer } from './reputation.js';
 import { resolveSupermarketCollisions, resolveGarageCollisions, pushOutOfRect } from './collision.js';
 import { playerRoadBoxes } from './roads.js';
@@ -67,7 +67,7 @@ function updatePit(state, pit, dt) {
 
   // Advance the break clock, then the mechanic's movement FSM (its break-walk and,
   // with auto-restock owned, its box-fetch trip). Both run regardless of a car.
-  tickBreak(pit.break, dt); // advance a running break; may auto-end it this frame
+  tickBreak(pit.break, dt, state); // advance a running break; may auto-end it this frame
   updateMechanic(state, pit, dt);
 
   // On break: the worker leans at its break spot and does no auto-repair. Cars
@@ -320,8 +320,9 @@ function updatePlayer(state, dt) {
     const dirX = input.x / mag;
     const dirZ = input.z / mag;
 
-    player.position.x += dirX * settings.player.speed * m * dt;
-    player.position.z += dirZ * settings.player.speed * m * dt;
+    const speed = settings.player.speed * playerSpeedMultiplier(state);
+    player.position.x += dirX * speed * m * dt;
+    player.position.z += dirZ * speed * m * dt;
     clampToBounds(state, player.position);
 
     player.rotation = Math.atan2(dirX, dirZ);

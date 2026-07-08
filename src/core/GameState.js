@@ -144,6 +144,16 @@ export class GameState {
     // hand-carry boxes (see simulation.updateMechanic). Replaces the old conveyor.
     this.autoRestock = false;
 
+    // "Shorter Breaks" upgrade levels, one per worker TYPE (0..maxLevel; each
+    // level halves settings.breakDurations.base for every worker of that type —
+    // see core/breaks.breakDuration + upgrades.buyBreakDuration).
+    this.breakLevels = { carMechanic: 0, marketWorker: 0, gasAttendant: 0 };
+
+    // One-time "Player Speed" purchase: while owned the player moves at
+    // settings.player.speed × settings.upgrades.playerSpeed.multiplier
+    // (see upgrades.buyPlayerSpeed / playerSpeedMultiplier).
+    this.playerSpeedBought = false;
+
     // Reputation: chance an incoming car is a higher-paying "better" car (see
     // core/reputation.js). permanentReputation rises via Buy Advertising;
     // repBoostRemaining counts down a temporary rewarded-ad multiplier.

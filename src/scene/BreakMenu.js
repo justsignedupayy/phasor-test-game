@@ -132,7 +132,7 @@ export class BreakMenu {
 
   #refresh() {
     this.statusLine.textContent = 'On break';
-    this.timerLine.textContent = mmss(breakRemaining(this.break));
+    this.timerLine.textContent = mmss(breakRemaining(this.break, this.state));
   }
 }
 

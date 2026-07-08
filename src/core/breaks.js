@@ -14,10 +14,14 @@
  *
  *   createBreakState(kind)    fresh counter for a 'carMechanic' | 'marketWorker'
  *   incrementJobCount(b)      +1 job; trips the break once the threshold is hit
- *   tickBreak(b, dt)          advance a running break; auto-ends it when elapsed
+ *   tickBreak(b, dt, state)   advance a running break; auto-ends it when elapsed
  *   endBreak(b)               clear the break (timer expiry or an ad reward)
- *   breakDuration(b)          seconds this break lasts
- *   breakRemaining(b)         seconds left on a running break (0 when not on one)
+ *   breakDuration(b, state)   seconds this break lasts (shortened by upgrades)
+ *   breakRemaining(b, state)  seconds left on a running break (0 when not on one)
+ *
+ * `state` is optional everywhere it appears: it supplies the owned per-worker-
+ * type "Shorter Breaks" level (state.breakLevels, bought in upgrades.js —
+ * each level halves the duration); without it the base duration applies.
  */
 import settings from '../config/settings.js';
 
@@ -36,14 +40,19 @@ export function breakThreshold(b) {
   return settings.breakThresholds[b.kind];
 }
 
-/** How long this worker's break lasts. */
-export function breakDuration(b) {
-  return settings.breakDurations.base;
+/** Break length (seconds) at a given "Shorter Breaks" level — each level halves it. */
+export function breakDurationAtLevel(level) {
+  return settings.breakDurations.base / 2 ** level;
+}
+
+/** How long this worker's break lasts, honouring the owned upgrade level. */
+export function breakDuration(b, state) {
+  return breakDurationAtLevel(state?.breakLevels?.[b.kind] ?? 0);
 }
 
 /** Seconds left on a running break (0 when not on one). */
-export function breakRemaining(b) {
-  return b.onBreak ? Math.max(0, breakDuration(b) - b.breakTimer) : 0;
+export function breakRemaining(b, state) {
+  return b.onBreak ? Math.max(0, breakDuration(b, state) - b.breakTimer) : 0;
 }
 
 /**
@@ -61,10 +70,10 @@ export function incrementJobCount(b) {
 }
 
 /** Advance a running break; auto-ends it once the full duration has elapsed. */
-export function tickBreak(b, dt) {
+export function tickBreak(b, dt, state) {
   if (!b.onBreak) return;
   b.breakTimer += dt;
-  if (b.breakTimer >= breakDuration(b)) endBreak(b);
+  if (b.breakTimer >= breakDuration(b, state)) endBreak(b);
 }
 
 /** End the break now (timer expiry or a rewarded-ad wake-up). Counter resets to 0. */

@@ -15,6 +15,7 @@
 import settings from '../config/settings.js';
 import { formatMoney } from './format.js';
 import { createMarketWorker, truckDeliveryTime } from './supermarket.js';
+import { breakDurationAtLevel } from './breaks.js';
 import { roomWallBox } from './collision.js';
 import { rebuildGrid } from './pathfinding.js';
 
@@ -126,6 +127,26 @@ export function attendantHireCost(state, pumpIndex) {
 
 export function attendantSpeedCost(state, pump) {
   return geoCost(U.gas.workerSpeed, pump.workerSpeedLevel);
+}
+
+/** This worker type's owned "Shorter Breaks" level (state.breakLevels). */
+export function breakLevel(state, kind) {
+  return state.breakLevels[kind];
+}
+
+/** Cost of the next "Shorter Breaks" level for one worker type (geometric). */
+export function breakDurationCost(state, kind) {
+  return geoCost(U.breakDuration[kind], breakLevel(state, kind));
+}
+
+/** The player's current movement multiplier (1 until Player Speed is bought). */
+export function playerSpeedMultiplier(state) {
+  return state.playerSpeedBought ? U.playerSpeed.multiplier : 1;
+}
+
+/** Flat, one-time cost of the Player Speed purchase. */
+export function playerSpeedCost(state) {
+  return U.playerSpeed.baseCost;
 }
 
 /** Flat, one-time cost of the garage-wide cashier hire. */
@@ -386,6 +407,32 @@ export function trainMarketWorker(state) {
   return true;
 }
 
+/**
+ * Buy the next "Shorter Breaks" level for one worker TYPE ('carMechanic' |
+ * 'marketWorker' | 'gasAttendant'). Each level HALVES that type's break
+ * duration for EVERY worker of the type (see core/breaks.breakDuration); a
+ * break already in progress just finds its shorter deadline on the next tick.
+ */
+export function buyBreakDuration(state, kind) {
+  const cfg = U.breakDuration[kind];
+  if (!cfg || breakLevel(state, kind) >= U.breakDuration.maxLevel) return false;
+  const cost = breakDurationCost(state, kind);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.breakLevels[kind] += 1;
+  return true;
+}
+
+/** Buy Player Speed (one-time): the player permanently moves ×multiplier faster. */
+export function buyPlayerSpeed(state) {
+  if (state.playerSpeedBought) return false;
+  const cost = playerSpeedCost(state);
+  if (state.cash < cost) return false;
+  state.cash -= cost;
+  state.playerSpeedBought = true;
+  return true;
+}
+
 /** Buy the next "Faster Deliveries" level: speeds up the restock truck (global). Cashier-gated. */
 export function buyTruckFrequency(state) {
   const S = state.supermarket;
@@ -576,7 +623,17 @@ const REF_BASE_TICKS = settings.repair.ticksPerPart * 3;
 export function getMenuModel(state) {
   return {
     automation: [autoRestockRow(state)],
+    // "Shorter Breaks" is per worker TYPE, so it lives beside (not inside) the
+    // per-worker blocks — one row per category tab, hidden until that type's
+    // first worker exists (no worker → no breaks to shorten).
+    garageBreaks: state.pits.some((p) => p.hasMechanic)
+      ? [breakDurationRow(state, 'carMechanic', 'mechanicBreak', 'Shorter Breaks — Mechanics')]
+      : [],
+    gasBreaks: state.gasStation.pumps.some((p) => p.hasAttendant)
+      ? [breakDurationRow(state, 'gasAttendant', 'attendantBreak', 'Shorter Breaks — Attendants')]
+      : [],
     supermarket: supermarketRows(state),
+    player: [playerSpeedRow(state)],
     workers: state.pits
       .filter((p) => p.equipped)
       .map((p) => workerBlock(state, p))
@@ -585,6 +642,51 @@ export function getMenuModel(state) {
       .filter((p) => p.equipped)
       .map((p) => attendantBlock(state, p))
       .filter((b) => b.rows.length > 0),
+  };
+}
+
+/** The Player tab's single row: the one-time Player Speed purchase. */
+function playerSpeedRow(state) {
+  const speed = settings.player.speed;
+  const boosted = speed * U.playerSpeed.multiplier;
+  if (state.playerSpeedBought) {
+    return {
+      kind: 'playerSpeed',
+      label: 'Player Speed',
+      effect: `Move speed ${fmtRate(boosted)} (×${U.playerSpeed.multiplier})`,
+      cost: 'OWNED',
+      disabled: true,
+    };
+  }
+  const cost = playerSpeedCost(state);
+  return {
+    kind: 'playerSpeed',
+    label: 'Player Speed',
+    effect: `Move speed ${fmtRate(speed)} → ${fmtRate(boosted)} (×${U.playerSpeed.multiplier})`,
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
+  };
+}
+
+/**
+ * One worker type's "Shorter Breaks" row. `workerKind` keys state.breakLevels /
+ * the settings cfg; `rowKind` is the menu's unique row/purchase id (the three
+ * rows live on different tabs but share this builder).
+ */
+function breakDurationRow(state, workerKind, rowKind, label) {
+  const lvl = breakLevel(state, workerKind);
+  const cur = Math.round(breakDurationAtLevel(lvl));
+  if (lvl >= U.breakDuration.maxLevel) {
+    return { kind: rowKind, label, effect: `Breaks last ${cur}s`, cost: 'MAX', disabled: true };
+  }
+  const next = Math.round(breakDurationAtLevel(lvl + 1));
+  const cost = breakDurationCost(state, workerKind);
+  return {
+    kind: rowKind,
+    label,
+    effect: `Breaks ${cur}s → ${next}s`,
+    cost: `$${formatMoney(cost)}`,
+    disabled: state.cash < cost,
   };
 }
 
@@ -681,6 +783,12 @@ function supermarketRows(state) {
     });
   }
   // workerLevel 0: the worker is hired at its shop-floor marker — no row yet.
+
+  // The market worker's "Shorter Breaks" (per-type, but this type has exactly
+  // one worker) rides the same card once that worker exists.
+  if (S.workerLevel >= 1) {
+    rows.push(breakDurationRow(state, 'marketWorker', 'marketBreak', 'Shorter Breaks — Market Worker'));
+  }
 
   // The restock truck: idle until a delivery is ORDERED here (or at the
   // empty-box panel), plus the global delivery-time upgrade. Both always shown

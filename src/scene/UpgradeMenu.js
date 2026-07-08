@@ -6,6 +6,8 @@ import {
   trainMarketWorker,
   buyTruckFrequency,
   buyAttendantSpeed,
+  buyBreakDuration,
+  buyPlayerSpeed,
 } from '../core/upgrades.js';
 import settings from '../config/settings.js';
 import { orderTruck } from '../core/supermarket.js';
@@ -19,11 +21,12 @@ import { saveGame } from '../platform/storage.js';
  * workers, open the market/station) live at physical world markers instead —
  * see core/upgrades.getUnlockMarkers + scene/UnlockMarkers.js.
  *
- * The panel is dressed as a TABLET, its upgrades split across four category
- * tabs (left to right): Garage (auto-restock + per-pit worker tuning), Market
- * (train/breaks/truck), Gas Station (per-pump attendant tuning) and
- * Advertising (permanent rep purchase + rewarded-ad boost). Only the active
- * tab's rows exist in the DOM at a time.
+ * The panel is dressed as a TABLET, its upgrades split across five category
+ * tabs (left to right): Garage (auto-restock + breaks + per-pit worker tuning),
+ * Market (train/breaks/truck), Gas Station (breaks + per-pump attendant
+ * tuning), Player (the one-time speed purchase) and Advertising (permanent rep
+ * purchase + rewarded-ad boost). Only the active tab's rows exist in the DOM
+ * at a time.
  *
  * Hidden until open(); the structure can change while open (pits get
  * equipped/hired at their markers, tabs switch) so update() rebuilds the DOM
@@ -36,7 +39,7 @@ export class UpgradeMenu {
     this.isOpen = false;
     this.rowEls = new Map(); // rowKey -> { effect, button }
     this.sig = '';
-    this.activeTab = 'garage'; // 'garage' | 'market' | 'gas' | 'ads'
+    this.activeTab = 'garage'; // 'garage' | 'market' | 'gas' | 'player' | 'ads'
 
     this.#buildButton();
     this.#buildPanel();
@@ -179,6 +182,7 @@ export class UpgradeMenu {
       ['garage', 'Garage'],
       ['market', 'Market'],
       ['gas', 'Gas Station'],
+      ['player', 'Player'],
       ['ads', 'Advertising'],
     ];
     const bar = document.createElement('div');
@@ -264,6 +268,10 @@ export class UpgradeMenu {
     if (this.activeTab === 'garage') {
       this.content.appendChild(this.#sectionHeader('Automation'));
       this.content.appendChild(this.#card(null, model.automation));
+      if (model.garageBreaks.length > 0) {
+        this.content.appendChild(this.#sectionHeader('Breaks'));
+        this.content.appendChild(this.#card(null, model.garageBreaks));
+      }
       if (model.workers.length > 0) {
         this.content.appendChild(this.#sectionHeader('Workers'));
         const grid = this.#cardGrid();
@@ -279,6 +287,10 @@ export class UpgradeMenu {
       }
     } else if (this.activeTab === 'gas') {
       if (model.attendants.length > 0) {
+        if (model.gasBreaks.length > 0) {
+          this.content.appendChild(this.#sectionHeader('Breaks'));
+          this.content.appendChild(this.#card(null, model.gasBreaks));
+        }
         this.content.appendChild(this.#sectionHeader('Attendants'));
         const grid = this.#cardGrid();
         for (const attendant of model.attendants) grid.appendChild(this.#card(attendant.title, attendant.rows));
@@ -286,6 +298,9 @@ export class UpgradeMenu {
       } else {
         this.content.appendChild(this.#placeholder('Open the gas station and hire attendants to unlock these upgrades.'));
       }
+    } else if (this.activeTab === 'player') {
+      this.content.appendChild(this.#sectionHeader('Player'));
+      this.content.appendChild(this.#card(null, model.player));
     } else {
       this.content.appendChild(this.#sectionHeader('Advertising'));
       this.content.appendChild(this.#buildAdvertising());
@@ -442,7 +457,10 @@ export class UpgradeMenu {
 
   #refresh(model) {
     for (const row of model.automation) this.#refreshRow(row);
+    for (const row of model.garageBreaks) this.#refreshRow(row);
+    for (const row of model.gasBreaks) this.#refreshRow(row);
     for (const row of model.supermarket) this.#refreshRow(row);
+    for (const row of model.player) this.#refreshRow(row);
     for (const worker of model.workers) for (const row of worker.rows) this.#refreshRow(row);
     for (const attendant of model.attendants) for (const row of attendant.rows) this.#refreshRow(row);
     this.#refreshAdvertising();
@@ -511,6 +529,18 @@ export class UpgradeMenu {
       case 'attendantSpeed':
         ok = buyAttendantSpeed(this.state, pitIndex);
         break;
+      case 'mechanicBreak':
+        ok = buyBreakDuration(this.state, 'carMechanic');
+        break;
+      case 'marketBreak':
+        ok = buyBreakDuration(this.state, 'marketWorker');
+        break;
+      case 'attendantBreak':
+        ok = buyBreakDuration(this.state, 'gasAttendant');
+        break;
+      case 'playerSpeed':
+        ok = buyPlayerSpeed(this.state);
+        break;
     }
     if (ok) {
       this.update(this.state);
@@ -544,8 +574,11 @@ function mmss(seconds) {
 // active tab switches — either way the DOM is rebuilt for the visible category.
 function structureSignature(model, activeTab) {
   const automation = model.automation.map(rowKey).join(',');
+  const garageBreaks = model.garageBreaks.map(rowKey).join(',');
+  const gasBreaks = model.gasBreaks.map(rowKey).join(',');
   const supermarket = model.supermarket.map(rowKey).join(',');
+  const player = model.player.map(rowKey).join(',');
   const workers = model.workers.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
   const attendants = model.attendants.map((w) => `${w.index}:${w.rows.map((r) => r.kind).join('')}`).join('|');
-  return `${activeTab}|A[${automation}]S[${supermarket}]W[${workers}]P[${attendants}]`;
+  return `${activeTab}|A[${automation}]B[${garageBreaks}]G[${gasBreaks}]S[${supermarket}]PL[${player}]W[${workers}]P[${attendants}]`;
 }

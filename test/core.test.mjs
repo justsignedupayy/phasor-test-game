@@ -44,6 +44,11 @@ import {
   getUnlockMarkers,
   buyUnlockMarker,
   hireCost,
+  buyBreakDuration,
+  breakDurationCost,
+  buyPlayerSpeed,
+  playerSpeedCost,
+  playerSpeedMultiplier,
 } from '../src/core/upgrades.js';
 import {
   createBreakState,
@@ -51,6 +56,7 @@ import {
   tickBreak,
   endBreak,
   breakDuration,
+  breakDurationAtLevel,
   breakRemaining,
 } from '../src/core/breaks.js';
 import {
@@ -2029,6 +2035,87 @@ check('buyUnlockMarker routes to the same gated purchases (rep + prereq + cash g
   assert.equal(s.supermarket.workerLevel, 1);
   assert.equal(s.hasCashier, true);
   assert.equal(buyUnlockMarker(s, 'bogusKind'), false, 'unknown kinds are a safe no-op');
+});
+
+// --- "Shorter Breaks" upgrade -------------------------------------------------
+console.log('\ncore shorter-breaks upgrade');
+
+check('initial state: every worker type at break level 0, base duration applies', () => {
+  const s = createInitialState();
+  assert.deepEqual(s.breakLevels, { carMechanic: 0, marketWorker: 0, gasAttendant: 0 });
+  const b = createBreakState('carMechanic');
+  assert.equal(breakDuration(b, s), settings.breakDurations.base);
+  assert.equal(breakDuration(b), settings.breakDurations.base, 'stateless call falls back to base');
+});
+
+check('each level halves the duration (300 → 150 → 75)', () => {
+  const base = settings.breakDurations.base;
+  assert.equal(breakDurationAtLevel(0), base);
+  assert.equal(breakDurationAtLevel(1), base / 2);
+  assert.equal(breakDurationAtLevel(2), base / 4);
+});
+
+check('buyBreakDuration: per-type level, geometric cost, capped at maxLevel', () => {
+  const s = createInitialState();
+  const cfg = settings.upgrades.breakDuration;
+  assert.equal(buyBreakDuration(s, 'carMechanic'), false, 'no cash');
+
+  s.cash = 1e9;
+  const c0 = breakDurationCost(s, 'carMechanic');
+  assert.equal(c0, cfg.carMechanic.baseCost);
+  assert.equal(buyBreakDuration(s, 'carMechanic'), true);
+  assert.equal(s.breakLevels.carMechanic, 1);
+  assert.equal(s.breakLevels.marketWorker, 0, 'other types untouched');
+  const c1 = breakDurationCost(s, 'carMechanic');
+  assert.equal(c1, Math.round(c0 * cfg.carMechanic.costGrowth));
+
+  assert.equal(buyBreakDuration(s, 'carMechanic'), true);
+  assert.equal(buyBreakDuration(s, 'carMechanic'), false, 'capped at maxLevel');
+  assert.equal(s.breakLevels.carMechanic, cfg.maxLevel);
+  assert.equal(buyBreakDuration(s, 'bogusKind'), false, 'unknown kinds are a safe no-op');
+});
+
+check('an upgraded type\'s break actually ends at the halved duration', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyBreakDuration(s, 'gasAttendant'); // level 1: 150s
+  const b = s.gasStation.pumps[0].break;
+  b.onBreak = true;
+  const half = settings.breakDurations.base / 2;
+  tickBreak(b, half - 0.01, s);
+  assert.equal(b.onBreak, true);
+  assert.ok(Math.abs(breakRemaining(b, s) - 0.01) < 1e-9);
+  tickBreak(b, 0.02, s); // crosses the halved duration
+  assert.equal(b.onBreak, false);
+});
+
+// --- player speed upgrade -------------------------------------------------
+console.log('\ncore player speed upgrade');
+
+check('buyPlayerSpeed: one-time flat purchase, gated on cash', () => {
+  const s = createInitialState();
+  assert.equal(s.playerSpeedBought, false);
+  assert.equal(playerSpeedMultiplier(s), 1);
+  assert.equal(buyPlayerSpeed(s), false, 'no cash yet');
+
+  s.cash = playerSpeedCost(s);
+  assert.equal(buyPlayerSpeed(s), true);
+  assert.equal(s.cash, 0);
+  assert.equal(s.playerSpeedBought, true);
+  assert.equal(playerSpeedMultiplier(s), settings.upgrades.playerSpeed.multiplier);
+  assert.equal(buyPlayerSpeed(s), false, 'one-time purchase');
+});
+
+check('with Player Speed owned, movement covers speed × multiplier per second', () => {
+  const s = createInitialState();
+  s.cash = playerSpeedCost(s);
+  buyPlayerSpeed(s);
+  const z0 = s.player.position.z;
+  s.input.z = 1;
+  const dt = 0.05; // small step so the move never reaches a wall or prop (like the diagonal test)
+  tick(s, dt);
+  const expected = settings.player.speed * settings.upgrades.playerSpeed.multiplier * dt;
+  assert.ok(Math.abs(s.player.position.z - z0 - expected) < 1e-6);
 });
 
 console.log(`\n${passed} passed`);

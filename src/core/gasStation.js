@@ -75,7 +75,7 @@ function updatePump(state, pump, dt) {
 
   // Advance the break clock, then the attendant's movement FSM (its break-walk
   // to the spot beside the pump) — same ordering as a pit's updatePit.
-  tickBreak(pump.break, dt);
+  tickBreak(pump.break, dt, state);
   updateAttendant(state, pump, dt);
 
   // On break: the attendant leans at its break spot and does no auto-fill. Cars

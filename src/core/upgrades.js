@@ -559,18 +559,20 @@ export function getUnlockMarkers(state) {
     }
   }
 
-  // Market: unlock, then the worker hire, both on the shop floor's centre spot
-  // (they can never coexist). The cashier's marker stands at its future register.
+  // Market: the unlock on the shop floor's centre spot, the worker hire at its
+  // own hireWorkerMarkerSpot (the worker itself still spawns/idles at
+  // workerIdleSpot). The cashier's marker stands at its future register.
   const S = state.supermarket;
   const spot = settings.supermarket.workerIdleSpot;
   if (!S.unlocked) {
     markers.push({ kind: 'openMarket', x: spot.x, z: spot.z, cost: supermarketCost(state), locked: false, hint: 'Open the supermarket' });
   } else if (S.workerLevel === 0) {
     const locked = cashierMissing(state); // the hire is cashier-gated, like every other market upgrade
+    const hireSpot = settings.supermarket.hireWorkerMarkerSpot;
     markers.push({
       kind: 'hireMarketWorker',
-      x: spot.x,
-      z: spot.z,
+      x: hireSpot.x,
+      z: hireSpot.z,
       cost: marketWorkerHireCost(state),
       locked,
       hint: locked ? 'Hire a cashier first' : 'Hire the market worker',

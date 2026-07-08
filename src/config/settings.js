@@ -409,9 +409,12 @@ export const settings = {
     // Standing in range drains the cost CONTINUOUSLY at cost/unlockDuration per
     // second, so every unlock takes exactly unlockDuration seconds regardless
     // of price (see scene/UnlockMarkers.js) — a $180 hire drains $36/s, a $6000
-    // gas lot $1200/s. Leaving the circle before it completes refunds whatever
-    // has drained so far: no partial unlock, no lost cash. The flying bills are
-    // cosmetic pacing on top of the continuous drain.
+    // gas lot $1200/s. The drain only begins after startDelay seconds in the
+    // circle — required again on every re-entry. Cash already drained is KEPT
+    // (not refunded) when the player leaves; the label shows the remaining
+    // balance and a later visit resumes from it. The flying bills are cosmetic
+    // pacing on top of the continuous drain.
+    startDelay: 1, // seconds standing in a marker before the drain starts (each entry)
     unlockDuration: 5, // seconds of standing in a marker to complete ANY unlock
     billInterval: 0.08, // seconds between cosmetic bill flights while draining
     billFlyDuration: 0.15, // seconds for one bill's flight from player to marker
@@ -605,6 +608,11 @@ export const settings = {
     // standing on the checkout centre. Added to checkoutPosition in core/supermarket.js.
     workerCheckoutOffset: { x: 1.5, z: 0 },
     workerIdleSpot: { x: -38, z: -2 },
+    // The "Hire the market worker" unlock marker's OWN spot (it used to share
+    // workerIdleSpot): open floor east of centre, clear of the customer entry
+    // lane (x -38), exit lane (x -44), the shelf row (z -9) and the checkout
+    // queue (z 7.6). The worker still SPAWNS/idles at workerIdleSpot. Tune by eye.
+    hireWorkerMarkerSpot: { x: -35, z: 2 },
     // queueAnchor (slot 0, nearest the checkout) sits right beside the counter, at
     // the same z; queueStep runs along x toward the entry door (there's only ~2.5
     // units of floor between the checkout and the left wall, not enough room for the

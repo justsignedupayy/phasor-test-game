@@ -15,14 +15,17 @@ import { spawnFlyingBills } from './MoneyFly.js';
  * flight in reverse) are spawned on a fixed billInterval cadence purely as the
  * visual for that flow — the drain itself is per-frame and continuous.
  *
- * The drain is real cash (the HUD ticks down live, not a cosmetic delay) but
- * the purchase is all-or-nothing: leave the circle before the duration
- * completes and everything drained so far is refunded on the spot — no partial
- * unlock, no lost cash. A cash-starved drain simply stalls (it only takes what
- * the player has) and resumes, stretching past unlockDuration until the full
- * cost has flowed. Only then does the purchase complete: buyUnlockMarker fires
- * (same gates as ever), refunding the drained total first so its own atomic
- * cash check + deduction nets to exactly one full-cost charge overall.
+ * The drain is real cash (the HUD ticks down live, not a cosmetic delay) and
+ * only begins after startDelay seconds in the circle — required afresh on
+ * EVERY entry, so a walk-through costs nothing. Once money has flowed, leaving
+ * keeps it paid: the label shows the remaining balance and a later visit
+ * resumes the drain from it (after the delay again). Leaving during the delay
+ * before any cash was ever taken cancels outright. A cash-starved drain simply
+ * stalls (it only takes what the player has) and resumes, stretching past
+ * unlockDuration until the full cost has flowed. Only then does the purchase
+ * complete: buyUnlockMarker fires (same gates as ever), refunding the drained
+ * total first so its own atomic cash check + deduction nets to exactly one
+ * full-cost charge overall.
  *
  * Render-only otherwise: reads core state through the marker view model, only
  * ever mutates cash/state via the same core/upgrades.buyUnlockMarker every
@@ -65,40 +68,53 @@ export class UnlockMarkers {
 
       if (inRange) {
         if (!p) {
-          p = { paid: 0, sendTimer: 0, flights: [] };
+          p = { paid: 0, sendTimer: 0, flights: [], started: false, delayTimer: 0 };
           this.progress.set(key, p);
         }
-        // Fixed-duration drain: rate = cost / unlockDuration, so any unlock
-        // completes after exactly unlockDuration seconds in the circle. Capped
-        // by cash on hand — a broke drain stalls and resumes, never overdraws.
-        const amount = Math.min((m.cost / M.unlockDuration) * dt, m.cost - p.paid, state.cash);
-        if (amount > 0) {
-          state.cash -= amount;
-          p.paid += amount;
-          this.#refreshLabel(key, Math.max(0, m.cost - p.paid), m);
-          // Cosmetic bill flights pace the continuous drain, one per interval.
-          p.sendTimer -= dt;
-          if (p.sendTimer <= 0) {
-            p.sendTimer = M.billInterval;
-            p.flights.push(
-              spawnFlyingBills(
-                this.sm,
-                1,
-                { x: playerPos.x, y: 1.0, z: playerPos.z },
-                { x: m.x, z: m.z },
-                { duration: M.billFlyDuration }
-              )
-            );
-          }
+        // Every entry (first visit or resume) waits startDelay before any cash
+        // moves — a walk-through never nicks the wallet.
+        if (!p.started) {
+          p.delayTimer += dt;
+          if (p.delayTimer >= M.startDelay) p.started = true;
         }
-        if (p.paid >= m.cost - 1e-9) this.#finalize(state, m, key);
+        if (p.started) {
+          // Fixed-duration drain: rate = cost / unlockDuration, so any unlock
+          // completes after exactly unlockDuration seconds in the circle. Capped
+          // by cash on hand — a broke drain stalls and resumes, never overdraws.
+          const amount = Math.min((m.cost / M.unlockDuration) * dt, m.cost - p.paid, state.cash);
+          if (amount > 0) {
+            state.cash -= amount;
+            p.paid += amount;
+            this.#refreshLabel(key, Math.max(0, m.cost - p.paid), m);
+            // Cosmetic bill flights pace the continuous drain, one per interval.
+            p.sendTimer -= dt;
+            if (p.sendTimer <= 0) {
+              p.sendTimer = M.billInterval;
+              p.flights.push(
+                spawnFlyingBills(
+                  this.sm,
+                  1,
+                  { x: playerPos.x, y: 1.0, z: playerPos.z },
+                  { x: m.x, z: m.z },
+                  { duration: M.billFlyDuration }
+                )
+              );
+            }
+          }
+          if (p.paid >= m.cost - 1e-9) this.#finalize(state, m, key);
+        }
       } else if (p) {
-        // Left the circle (or the marker re-locked) before the drain finished:
-        // refund everything drained so far — no partial unlock, no lost cash.
-        state.cash += p.paid;
-        this.orphanFlights.push(...p.flights); // airborne bills finish their flight
-        this.progress.delete(key);
-        this.#refreshLabel(key, m.cost, m);
+        if (p.paid > 0) {
+          // Left mid-drain (or the marker re-locked): the cash already drained
+          // stays paid — the label keeps showing the remaining balance, and
+          // re-entering waits the full startDelay again before resuming.
+          p.started = false;
+          p.delayTimer = 0;
+        } else {
+          // Left before any cash was ever taken: cancel outright.
+          this.progress.delete(key);
+          this.#refreshLabel(key, m.cost, m);
+        }
       }
 
       p = this.progress.get(key); // finalize/refund above may have removed it

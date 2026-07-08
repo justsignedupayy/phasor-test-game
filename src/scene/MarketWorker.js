@@ -4,6 +4,7 @@ import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
+import { AlertBounce } from './AlertBounce.js';
 import { BreakLabel } from './BreakLabel.js';
 
 /**
@@ -60,6 +61,11 @@ export class MarketWorker {
     this.zzz.root.position.set(0, cfg.headHeight, 0);
     this.root.add(this.zzz.root);
 
+    // Red exclamation-mark bounce shown on a remote hurry tap (see main.js).
+    this.alertBounce = new AlertBounce(settings.emote.spriteScale);
+    this.alertBounce.root.position.set(0, cfg.headHeight + settings.emote.heightAboveHead, 0);
+    this.root.add(this.alertBounce.root);
+
     // "x/y" break-progress counter floating above the head (hidden on break —
     // the Zzz effect takes its place there), like the mechanics'.
     this.breakLabel = new BreakLabel();
@@ -85,6 +91,7 @@ export class MarketWorker {
       this.root.position.y = d.y;
     }
     this.zzz.update(dt, worker.state === 'onBreak' && !worker.moving);
+    this.alertBounce.update(dt);
 
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, worker.rotation, t);

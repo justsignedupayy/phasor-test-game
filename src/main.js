@@ -39,7 +39,6 @@ import { SlidingDoors } from './scene/SlidingDoors.js';
 import { Bridges } from './scene/Bridges.js';
 import { Tunnels } from './scene/Tunnels.js';
 import { PoofEffects, RevealPoofs } from './scene/Poof.js';
-import { worldToScreen, showEmotePopup } from './scene/popup.js';
 
 const container = document.getElementById('app');
 
@@ -69,18 +68,6 @@ const poofs = new PoofEffects(sceneManager);
 const revealPoofs = new RevealPoofs(poofs);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
-
-/** Reaction pair for a remote hurry tap: an annoyed boss + an alarmed worker. */
-function showHurryEmotes(workerPos) {
-  const dom = sceneManager.renderer.domElement;
-  const y = settings.character.headHeight + settings.emote.heightAboveHead;
-
-  const boss = worldToScreen({ x: state.player.position.x, y, z: state.player.position.z }, sceneManager.camera, dom);
-  showEmotePopup('💢', boss.x, boss.y, settings.emote.fontSize);
-
-  const worker = worldToScreen({ x: workerPos.x, y, z: workerPos.z }, sceneManager.camera, dom);
-  showEmotePopup('❗', worker.x, worker.y, settings.emote.fontSize);
-}
 
 main();
 
@@ -157,10 +144,8 @@ async function main() {
       const pit = state.pits[i];
       if (pit.hasMechanic && hurry(state, i)) {
         character.yell();
-        showHurryEmotes({
-          x: settings.pit.positions[i].x + settings.mechanic.offsetX,
-          z: settings.pit.positions[i].z + settings.mechanic.offsetZ,
-        });
+        character.showAngerBubble();
+        carYard.pitViews[i].mechanic.alertBounce.trigger();
       } else if (pit.playerPresent && pit.car && !pit.car.fixed) {
         tapRepair(state, i);
         character.repair();
@@ -177,10 +162,8 @@ async function main() {
 
     if (pump.hasAttendant && hurryPump(state, gi)) {
       character.yell();
-      showHurryEmotes({
-        x: settings.gasStation.positions[gi].x + settings.attendant.offsetX,
-        z: settings.gasStation.positions[gi].z + settings.attendant.offsetZ,
-      });
+      character.showAngerBubble();
+      gasStationView.pumpViews[gi].attendant.alertBounce.trigger();
     } else if (pump.playerPresent && pump.car && !pump.car.fixed) {
       tapFill(state, gi);
       character.pumpGas();
@@ -205,10 +188,8 @@ async function main() {
     if (hit.kind === 'worker' && !market.worker.break.onBreak) {
       hurryMarketWorker(state);
       character.yell();
-      showHurryEmotes({
-        x: supermarketView.worker.root.position.x,
-        z: supermarketView.worker.root.position.z,
-      });
+      character.showAngerBubble();
+      supermarketView.worker.alertBounce.trigger();
     } else if (hit.kind === 'shelf') {
       const cfg = M.shelves[hit.index];
       if (!near(cfg)) return;

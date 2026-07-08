@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 /**
- * popup.js — one-shot floating DOM elements (cash text, reaction emotes) at a
- * screen point. Pure DOM; animate then remove themselves.
+ * popup.js — floating DOM cash text at a screen point. One-shot: animates
+ * then removes itself.
  */
 
 /** Project a world point to fixed-position screen coords (for popup placement). */
@@ -40,34 +40,4 @@ export function showCashPopup(text, x, y) {
   });
 
   setTimeout(() => el.remove(), 1000);
-}
-
-/** Quick reaction emote (e.g. '💢', '❗') — a snappy scale pop + fade, no color styling. */
-export function showEmotePopup(symbol, x, y, fontSize = 40) {
-  const el = document.createElement('div');
-  el.textContent = symbol;
-  Object.assign(el.style, {
-    position: 'fixed',
-    left: `${x}px`,
-    top: `${y}px`,
-    transform: 'translate(-50%, -50%) scale(0.5)',
-    font: `${fontSize}px Arial, sans-serif`,
-    pointerEvents: 'none',
-    zIndex: '20',
-    opacity: '1',
-    transition: 'transform 0.15s ease-out',
-  });
-  document.body.appendChild(el);
-
-  // Pop 0.5 -> 1.2 quickly, then settle 1.2 -> 1 while fading out.
-  requestAnimationFrame(() => {
-    el.style.transform = 'translate(-50%, -50%) scale(1.2)';
-  });
-  setTimeout(() => {
-    el.style.transition = 'transform 0.35s ease-out, opacity 0.35s ease-out';
-    el.style.transform = 'translate(-50%, -50%) scale(1)';
-    el.style.opacity = '0';
-  }, 150);
-
-  setTimeout(() => el.remove(), 550);
 }

@@ -15,6 +15,63 @@ import { buildActionMap, crossfadeTo, groundModel, lerpAngle, updateMixer } from
  */
 const EMOTE_TIME = 0.5; // brief blip for yell/repair before returning to idle/walk
 
+// AngerBubble: the boss's one-shot reaction on a remote hurry tap. A comic
+// speech bubble with a grawlix, drawn once to a shared CanvasTexture (same
+// cached-singleton pattern as ZzzEffect's "Z").
+const ANGER_FILL = '#000000';
+const ANGER_STROKE = '#000000';
+const ANGER_BG = '#fff8f5';
+const ANGER_POP_IN = 0.15; // seconds: scale 0.5 -> 1.2
+const ANGER_SETTLE = 0.15; // seconds: scale 1.2 -> 1, jitter settling
+const ANGER_HOLD = 0.3; // seconds held at rest before fading
+const ANGER_FADE = 0.2; // seconds to fade out
+const ANGER_TOTAL = ANGER_POP_IN + ANGER_SETTLE + ANGER_HOLD + ANGER_FADE;
+const ANGER_JITTER = 0.09; // local-space horizontal jitter amplitude, decaying to 0
+
+let angerTexture = null;
+
+function getAngerTexture() {
+  if (angerTexture) return angerTexture;
+  const w = 160, h = 112;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  // Tail pointing down toward the head that "said" it.
+  ctx.fillStyle = ANGER_BG;
+  ctx.strokeStyle = ANGER_STROKE;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(66, 70);
+  ctx.lineTo(94, 70);
+  ctx.lineTo(78, 106);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Rounded body.
+  const r = 20, bx = 6, by = 6, bw = w - 12, bh = 66;
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.arcTo(bx + bw, by, bx + bw, by + bh, r);
+  ctx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+  ctx.arcTo(bx, by + bh, bx, by, r);
+  ctx.arcTo(bx, by, bx + bw, by, r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = ANGER_FILL;
+  ctx.font = '800 34px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('?!@&#!', w / 2, by + bh / 2 + 2);
+
+  angerTexture = new THREE.CanvasTexture(canvas);
+  return angerTexture;
+}
+
 export class Character {
   constructor(gltf) {
     const cfg = settings.character;
@@ -36,6 +93,66 @@ export class Character {
 
     this.emoteTimer = 0; // counts down a yell/repair/gaspump blip
     this.emoteState = null; // 'yell' | 'repair' | 'gaspump' while the blip is active
+
+    this.angerBubble = null; // active one-shot AngerBubble sprite + its own timer, or null
+  }
+
+  /**
+   * One-shot AngerBubble: the boss's reaction to a remote hurry tap. A comic
+   * speech bubble pops in (scale 0.5 -> 1.2 -> 1) with a decaying horizontal
+   * jitter, holds briefly, then fades and removes itself. Parented to this
+   * character's own root so it moves with the player automatically.
+   */
+  showAngerBubble() {
+    if (this.angerBubble) {
+      this.root.remove(this.angerBubble.sprite);
+      this.angerBubble.sprite.material.dispose();
+    }
+    const cfg = settings.character;
+    const material = new THREE.SpriteMaterial({ map: getAngerTexture(), transparent: true, depthWrite: false });
+    const sprite = new THREE.Sprite(material);
+    const scale = settings.emote.spriteScale;
+    sprite.scale.set(scale * 1.4, scale, 1); // texture is wider than tall
+    sprite.position.set(0, cfg.headHeight + settings.emote.heightAboveHead, 0);
+    this.root.add(sprite);
+    this.angerBubble = { sprite, t: 0 };
+  }
+
+  #updateAngerBubble(dt) {
+    const bubble = this.angerBubble;
+    if (!bubble) return;
+    bubble.t += dt;
+    const { sprite, t } = bubble;
+    const scale = settings.emote.spriteScale;
+
+    let s, jitter, opacity = 1;
+    if (t < ANGER_POP_IN) {
+      const p = t / ANGER_POP_IN;
+      s = 0.5 + p * 0.7; // 0.5 -> 1.2
+      jitter = p * ANGER_JITTER;
+    } else if (t < ANGER_POP_IN + ANGER_SETTLE) {
+      const p = (t - ANGER_POP_IN) / ANGER_SETTLE;
+      s = 1.2 - p * 0.2; // 1.2 -> 1
+      jitter = ANGER_JITTER * (1 - p) * Math.cos(p * Math.PI * 2.5);
+    } else if (t < ANGER_POP_IN + ANGER_SETTLE + ANGER_HOLD) {
+      s = 1;
+      jitter = 0;
+    } else {
+      const p = Math.min(1, (t - ANGER_POP_IN - ANGER_SETTLE - ANGER_HOLD) / ANGER_FADE);
+      s = 1;
+      jitter = 0;
+      opacity = 1 - p;
+    }
+
+    sprite.scale.set(scale * 1.4 * s, scale * s, 1);
+    sprite.position.x = jitter;
+    sprite.material.opacity = opacity;
+
+    if (t >= ANGER_TOTAL) {
+      this.root.remove(sprite);
+      sprite.material.dispose();
+      this.angerBubble = null;
+    }
   }
 
   /** Quick yell emote (used by the remote hurry tap). */
@@ -84,6 +201,7 @@ export class Character {
     }
     this.state = crossfadeTo(this.actions, this.state, next, settings.character.crossfadeDuration);
 
+    this.#updateAngerBubble(dt);
     updateMixer(this.mixer, dt, 'Character');
   }
 }

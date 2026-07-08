@@ -170,12 +170,12 @@ export const settings = {
     customerTints: [0xc9956a, 0x6a8fc9, 0xc96a8a, 0x8ac96a, 0xc9b06a, 0x9a6ac9],
   },
 
-  // Reaction emotes ('💢'/'❗') popped above a character's head on a remote
-  // hurry tap (see main.js's showHurryEmotes + scene/popup.js's
-  // showEmotePopup). STARTING VALUES — tune by eye in npm run dev.
+  // Reaction emotes (AngerBubble / AlertBounce sprites, see scene/Character.js
+  // and scene/AlertBounce.js) popped above a character's head on a remote
+  // hurry tap. STARTING VALUES — tune by eye in npm run dev.
   emote: {
     heightAboveHead: 0.6, // world units added on top of character.headHeight
-    fontSize: 26, // px
+    spriteScale: 0.9, // rough world-unit scale of the emote sprites
   },
 
   // Shared transform applied to every car glb when cloned (see CarView.js).

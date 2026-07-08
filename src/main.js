@@ -37,6 +37,7 @@ import { TruckMenu } from './scene/TruckMenu.js';
 import { UnlockMarkers } from './scene/UnlockMarkers.js';
 import { SlidingDoors } from './scene/SlidingDoors.js';
 import { Bridges } from './scene/Bridges.js';
+import { Tunnels } from './scene/Tunnels.js';
 import { PoofEffects, RevealPoofs } from './scene/Poof.js';
 import { worldToScreen, showEmotePopup } from './scene/popup.js';
 
@@ -59,6 +60,9 @@ const menu = new UpgradeMenu(state);
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
 const bridges = new Bridges(sceneManager);
+// Static tunnel-mouth props at the market's customer entry + exit (customers
+// emerge from / vanish into them rather than popping in/out); shown with the market.
+const tunnels = new Tunnels(sceneManager);
 // Cartoon poof-cloud bursts wherever something new reveals (see scene/Poof.js);
 // RevealPoofs watches the state flags the views already gate visibility on.
 const poofs = new PoofEffects(sceneManager);
@@ -287,6 +291,7 @@ async function main() {
     carriedBox.update(state.player, state);
     garage.update(dt, state);
     bridges.update(state);
+    tunnels.update(state);
     slidingDoors.update(dt, state);
     carYard.update(dt, state);
     supermarketView.update(dt, state);
@@ -298,7 +303,7 @@ async function main() {
     poofs.update(dt); // …and animates the live bursts
     breakMenu.update();
     truckMenu.update();
-    hud.update(state.cash, state.repBoostRemaining);
+    hud.update(state.cash);
     menu.update(state);
 
     sceneManager.follow(state.player.position.x, state.player.position.z, dt);

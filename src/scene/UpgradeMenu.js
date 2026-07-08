@@ -11,7 +11,7 @@ import {
 } from '../core/upgrades.js';
 import settings from '../config/settings.js';
 import { orderTruck } from '../core/supermarket.js';
-import { getReputationMenuModel, buyAdvertising, activateRepBoost } from '../core/reputation.js';
+import { getReputationMenuModel, buyAdvertising, watchAdForReputation } from '../core/reputation.js';
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 
@@ -25,8 +25,8 @@ import { saveGame } from '../platform/storage.js';
  * tabs (left to right): Garage (auto-restock + breaks + per-pit worker tuning),
  * Market (train/breaks/truck), Gas Station (breaks + per-pump attendant
  * tuning), Player (the one-time speed purchase) and Advertising (permanent rep
- * purchase + rewarded-ad boost). Only the active tab's rows exist in the DOM
- * at a time.
+ * via Buy Advertising or a cooldown-gated free rewarded ad). Only the active
+ * tab's rows exist in the DOM at a time.
  *
  * Hidden until open(); the structure can change while open (pits get
  * equipped/hired at their markers, tabs switch) so update() rebuilds the DOM
@@ -361,10 +361,10 @@ export class UpgradeMenu {
 
     this.adWatchBtn = this.#adButton();
     this.adWatchBtn.addEventListener('click', () => {
-      if (this.state.repBoostRemaining > 0) return;
+      if (getReputationMenuModel(this.state).watchDisabled) return;
       showRewardedAd(
         () => {
-          activateRepBoost(this.state);
+          watchAdForReputation(this.state);
           this.update(this.state);
           saveGame(this.state);
         },
@@ -470,23 +470,24 @@ export class UpgradeMenu {
     if (!this.adRepLine) return;
     const m = getReputationMenuModel(this.state);
 
-    this.adRepLine.textContent = m.boostActive
-      ? `Reputation: ${m.permanentPct}% (boosted to ${m.effectivePct}%)`
-      : `Reputation: ${m.permanentPct}%`;
-    this.adBoostLine.textContent = m.boostActive ? `Ad boost active — ${mmss(m.boostRemaining)}` : '';
+    this.adRepLine.textContent = `Reputation: ${m.permanentPct}%`;
+    this.adBoostLine.textContent = m.watchOnCooldown
+      ? `Next free ad in ${mmss(m.watchCooldownRemaining)}`
+      : '';
 
     this.adBuyBtn.textContent = m.atCap
       ? 'Reputation MAXED'
       : `Buy Advertising (+${Math.round(settings.reputation.repStep * 100)}%) — ${m.adCostLabel}`;
     setAdButton(this.adBuyBtn, m.adDisabled);
 
-    if (m.boostActive) {
-      this.adWatchBtn.textContent = `Ad active — ${mmss(m.boostRemaining)}`;
+    if (m.atCap) {
+      this.adWatchBtn.textContent = 'Reputation MAXED';
+      setAdButton(this.adWatchBtn, true);
+    } else if (m.watchOnCooldown) {
+      this.adWatchBtn.textContent = `Watch Ad — ${mmss(m.watchCooldownRemaining)}`;
       setAdButton(this.adWatchBtn, true);
     } else {
-      // Derived from settings so the promise always matches what the boost does.
-      const R = settings.reputation;
-      this.adWatchBtn.textContent = `Watch Ad — ${R.boostMultiplier}× chance for ${mmss(R.boostDurationSeconds)}`;
+      this.adWatchBtn.textContent = `Watch Ad (+${m.watchRewardPct}% reputation)`;
       setAdButton(this.adWatchBtn, false);
     }
   }

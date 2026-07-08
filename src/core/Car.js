@@ -7,7 +7,7 @@
  * upgrade later scales how many of those ticks are actually required. Payout
  * scales with the number of parts so value-per-tick stays ~constant.
  *
- * Reputation (state.permanentReputation / repBoostRemaining) biases the roll
+ * Reputation (state.permanentReputation) biases the roll
  * across the five ascending tiers in settings.carTiers: each tier scales
  * baseTicks and payout by its own ticksMult / payoutMult. Higher reputation
  * attracts higher-index (better-paying) cars.

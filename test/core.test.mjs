@@ -62,7 +62,7 @@ import {
 import {
   getEffectiveReputation,
   buyAdvertising,
-  activateRepBoost,
+  watchAdForReputation,
   adCost,
 } from '../src/core/reputation.js';
 import { formatMoney } from '../src/core/format.js';
@@ -467,12 +467,11 @@ check('each lot enforces its own reputation threshold (10/30/50/70%)', () => {
   }
 });
 
-check('a temporary ad boost does NOT clear a reputation gate (permanent rep only)', () => {
+check('a reputation gate is checked against permanent rep only', () => {
   const s = createInitialState();
   s.cash = 1e9;
-  s.permanentReputation = 0.05; // under lot B's 10% gate...
-  s.repBoostRemaining = 1000; // ...even while boosted well past it (0.05 × 4 = 20%)
-  assert.equal(buyExpandRoom(s), false, 'boosted reputation never opens land');
+  s.permanentReputation = 0.05; // under lot B's 10% gate
+  assert.equal(buyExpandRoom(s), false, 'under-threshold reputation never opens land');
 });
 
 // --- per-pit upgrades -----------------------------------------------------
@@ -788,21 +787,18 @@ check('without auto-restock, the mechanic does NOT refill — the pit waits for 
 // --- reputation + advertising ----------------------------------------------
 console.log('\ncore reputation + advertising');
 
-check('initial state: reputation starts at baseReputation, no boost, no ad purchases', () => {
+check('initial state: reputation starts at baseReputation, no ad cooldown, no ad purchases', () => {
   const s = createInitialState();
   assert.equal(s.permanentReputation, settings.reputation.baseReputation);
-  assert.equal(s.repBoostRemaining, 0);
+  assert.equal(s.adCooldownRemaining, 0);
   assert.equal(s.adLevel, 0);
 });
 
-check('getEffectiveReputation: no boost = permanent rate; boosted = ×boostMultiplier, clamped to repCap', () => {
+check('getEffectiveReputation: returns permanent rate, clamped to repCap', () => {
   const s = createInitialState();
   assert.equal(getEffectiveReputation(s), settings.reputation.baseReputation);
 
-  s.repBoostRemaining = settings.reputation.boostDurationSeconds;
-  assert.ok(Math.abs(getEffectiveReputation(s) - settings.reputation.baseReputation * settings.reputation.boostMultiplier) < 1e-9);
-
-  s.permanentReputation = 0.9; // ×2 would exceed repCap (1.0)
+  s.permanentReputation = 1.5; // over repCap (1.0)
   assert.equal(getEffectiveReputation(s), settings.reputation.repCap);
 });
 
@@ -873,25 +869,42 @@ check('buyAdvertising refuses once reputation is already at repCap', () => {
   assert.equal(s.permanentReputation, settings.reputation.repCap);
 });
 
-check('activateRepBoost arms the timer and refuses to stack while one is active', () => {
+check('watchAdForReputation grants a permanent +adRewardStep and arms the cooldown', () => {
   const s = createInitialState();
-  activateRepBoost(s);
-  assert.equal(s.repBoostRemaining, settings.reputation.boostDurationSeconds);
-
-  tick(s, 10);
-  const remaining = s.repBoostRemaining;
-  assert.ok(remaining < settings.reputation.boostDurationSeconds);
-
-  activateRepBoost(s); // no-op: a boost is already running
-  assert.equal(s.repBoostRemaining, remaining);
+  const before = s.permanentReputation;
+  assert.equal(watchAdForReputation(s), true);
+  assert.ok(Math.abs(s.permanentReputation - (before + settings.reputation.adRewardStep)) < 1e-9);
+  assert.equal(s.adCooldownRemaining, settings.reputation.adCooldownSeconds);
 });
 
-check('tick decrements repBoostRemaining toward 0 and never goes negative', () => {
+check('watchAdForReputation refuses while on cooldown (no free rep until it elapses)', () => {
   const s = createInitialState();
-  activateRepBoost(s);
-  const steps = Math.ceil(settings.reputation.boostDurationSeconds) + 5; // run past the full boost
+  watchAdForReputation(s);
+  const rep = s.permanentReputation;
+  assert.equal(watchAdForReputation(s), false); // still cooling down
+  assert.equal(s.permanentReputation, rep);
+
+  tick(s, 10); // partway through the cooldown
+  assert.ok(s.adCooldownRemaining < settings.reputation.adCooldownSeconds);
+  assert.equal(watchAdForReputation(s), false);
+});
+
+check('watchAdForReputation refuses once reputation is already at repCap', () => {
+  const s = createInitialState();
+  s.permanentReputation = settings.reputation.repCap;
+  assert.equal(watchAdForReputation(s), false);
+  assert.equal(s.adCooldownRemaining, 0); // no cooldown consumed on a refusal
+});
+
+check('tick decrements adCooldownRemaining toward 0 and never goes negative', () => {
+  const s = createInitialState();
+  watchAdForReputation(s);
+  const steps = Math.ceil(settings.reputation.adCooldownSeconds) + 5; // run past the full cooldown
   for (let i = 0; i < steps; i++) tick(s, 1);
-  assert.equal(s.repBoostRemaining, 0);
+  assert.equal(s.adCooldownRemaining, 0);
+
+  // cooldown elapsed → another free watch is allowed
+  assert.equal(watchAdForReputation(s), true);
 });
 
 // --- number formatting -------------------------------------------------------

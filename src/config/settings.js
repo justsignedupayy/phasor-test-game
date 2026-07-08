@@ -66,6 +66,32 @@ export const settings = {
     turnLerp: 12, // higher = snappier turning
   },
 
+  // Static tunnel-mouth props at the supermarket's customer entry AND exit
+  // (scene/Tunnels.js, visual only — no collision, no logic), so customers read
+  // as EMERGING from / VANISHING into a tunnel instead of popping in/out in the
+  // open. Each mouth opens toward -z (toward the corridor door); the closed dark
+  // back sits on the +z side, and the spawn/despawn point is set INSIDE the dark
+  // interior (see the derived customerEntry/ExitOutside below) so a customer
+  // appears/disappears hidden. A short brown dirt path links each mouth to its
+  // door. Frame uses the building wall colour (settings.colors.wall). STARTING
+  // VALUES — tune by eye in `npm run dev`.
+  tunnel: {
+    wallThickness: 0.35, // side-wall + roof thickness (and the back wall's depth)
+    yOffset: 0, // base sits on the ground; raise/lower the whole prop here
+    interiorColor: 0x14140f, // near-black back/interior — reads as a dark tunnel recess
+    // Tunnel box, sized for a single walking customer (taller/wider than a body).
+    customer: { width: 3.0, height: 2.8, depth: 3.4 },
+    // Placement (used to derive the spawn/despawn + mouth points in the block at
+    // the bottom of this file): a mouth sits mouthGap beyond the corridor door, and
+    // the spawn/despawn point spawnInset deeper still (inside the dark). Entry and
+    // exit sit equally far out, so the customer walks the full dirt path both in and out.
+    mouthGap: 16, // z distance from a corridor door out to its tunnel mouth (its dirt-path length); shared by entry + exit
+    spawnInset: 1.7, // how far inside the mouth the spawn/despawn point sits (< customer.depth)
+    // Brown dirt path from each tunnel mouth to its door.
+    dirtColor: 0x6b4f34,
+    pathWidth: 2.2, // width (x) of the dirt path strip
+  },
+
   // Supermarket NPC navigation (core/pathfinding.js). A static A* walkability grid
   // is built once from the world bounds + market obstacles at this cell resolution;
   // smaller cells = finer paths but a bigger grid. Obstacles are inflated by the
@@ -324,10 +350,10 @@ export const settings = {
   },
 
   // Reputation: biases the incoming-car roll toward higher tiers (see Car.js
-  // spawnCar + settings.carTiers). Raised permanently via the Upgrades menu's
-  // Buy Advertising action, or multiplied temporarily (×boostMultiplier) by
-  // watching a rewarded ad (the boost refuses to re-arm while one is already
-  // running — no stacking).
+  // spawnCar + settings.carTiers). Raised permanently two ways: the Upgrades
+  // menu's Buy Advertising action (cash), or watching a rewarded ad (free, but
+  // rate-limited by adCooldownSeconds). Both add a permanent step — there is no
+  // temporary multiplier.
   reputation: {
     baseReputation: 0.05, // starting/permanent reputation at game start
     // +5% permanent reputation per Buy Advertising purchase: 19 buys from base to
@@ -339,8 +365,11 @@ export const settings = {
     repCap: 1.0,
     adBaseCost: 120,
     adGrowth: 1.5,
-    boostMultiplier: 4, // rewarded-ad: multiplies effective reputation while active
-    boostDurationSeconds: 3000,
+    // Watch Ad (rewarded): grants a PERMANENT +adRewardStep reputation for free,
+    // then locks the button for adCooldownSeconds (see core/reputation.js
+    // watchAdForReputation / updateReputationTimer + state.adCooldownRemaining).
+    adRewardStep: 0.05, // +5% permanent reputation per rewarded-ad view
+    adCooldownSeconds: 1800, // 30-minute cooldown between Watch Ad uses
   },
 
   // Where the hired cashier NPC stands (see scene/Cashier.js). The cashier's
@@ -478,7 +507,7 @@ export const settings = {
     },
 
     customerSpawnInterval: 5, // seconds between spawns, once unlocked
-    maxCustomerQueue: 5, // cap on customers in the building at once (waiting + being served)
+    maxCustomerQueue: 6, // cap on customers in the building at once (waiting + being served)
     customerMinItems: 1,
     customerMaxItems: 5,
     customerMoveSpeed: 3.0, // world units/second
@@ -578,10 +607,13 @@ export const settings = {
     workerIdleSpot: { x: -38, z: -2 },
     // queueAnchor (slot 0, nearest the checkout) sits right beside the counter, at
     // the same z; queueStep runs along x toward the entry door (there's only ~2.5
-    // units of floor between the checkout and the left wall, not enough room for a
-    // line of 5 if it stepped further back in z instead — see Garage.js's left
+    // units of floor between the checkout and the left wall, not enough room for the
+    // line if it stepped further back in z instead — see Garage.js's left
     // wall at x = -world.halfX). It used to be anchored at the door's x (z-stepped),
     // which stranded the line far from the checkout it was meant to lead into.
+    // queueSlotPosition (core/supermarket.js) derives every slot from these two, so
+    // maxCustomerQueue can change without touching layout: the 6-slot line runs
+    // x -42.1 → -35.1 (up to about the entry door), clear of pit 0's lane.
     queueAnchor: { x: -42.1, z: 7.6 },
     queueStep: { x: 1.4, z: 0 }, // each further-back slot steps this much further east, toward the entry door
 
@@ -920,19 +952,25 @@ settings.pit.pitWallCollisionHalf = {
 // Customer entry/exit door plane: the FAR end of each corridor, a
 // customerCorridorLength beyond the back wall's own (relocated) opening —
 // Garage.js (door frames + corridor walls) and scene/SlidingDoors.js (glass
-// panels) both anchor here, derived so they can never drift apart. The
-// spawn/despawn points sit 1.5 beyond the door, the same margin the old
-// literals kept against the old wall opening (mirrors pit.doorZ).
+// panels) both anchor here, derived so they can never drift apart.
 settings.supermarket.customerDoorZ =
   settings.world.halfZ + settings.world.wallThickness / 2 + settings.supermarket.customerCorridorLength;
-settings.supermarket.customerEntryOutside = {
-  x: settings.supermarket.marketX,
-  z: settings.world.halfZ + settings.supermarket.customerCorridorLength + 1.5,
-};
-settings.supermarket.customerExitOutside = {
-  x: settings.supermarket.marketExitX,
-  z: settings.world.halfZ + settings.supermarket.customerCorridorLength + 1.5,
-};
+
+// The customer tunnels (scene/Tunnels.js) sit BACK from the door: each mouth is
+// tunnel.mouthGap beyond customerDoorZ, and the spawn/despawn point is
+// tunnel.spawnInset deeper still — INSIDE the dark interior — so a customer
+// emerges from / vanishes into the tunnel rather than in the open (the despawn on
+// arrival at customerExitOutside now lands the customer hidden inside the exit
+// tunnel). customerEntry/ExitTunnelMouth are the mouth centres the props anchor
+// to; a dirt path links each mouth back to customerDoorZ.
+{
+  const inset = settings.tunnel.spawnInset;
+  const mouthZ = settings.supermarket.customerDoorZ + settings.tunnel.mouthGap;
+  settings.supermarket.customerEntryOutside = { x: settings.supermarket.marketX, z: mouthZ + inset };
+  settings.supermarket.customerExitOutside = { x: settings.supermarket.marketExitX, z: mouthZ + inset };
+  settings.supermarket.customerEntryTunnelMouth = { x: settings.supermarket.marketX, z: mouthZ };
+  settings.supermarket.customerExitTunnelMouth = { x: settings.supermarket.marketExitX, z: mouthZ };
+}
 
 // The delivery gate's mirror of the customer block above, on the FRONT wall:
 // the door plane at the far end of its corridor, plus the outside turn-point

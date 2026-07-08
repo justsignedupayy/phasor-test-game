@@ -155,10 +155,11 @@ export class GameState {
     this.playerSpeedBought = false;
 
     // Reputation: chance an incoming car is a higher-paying "better" car (see
-    // core/reputation.js). permanentReputation rises via Buy Advertising;
-    // repBoostRemaining counts down a temporary rewarded-ad multiplier.
+    // core/reputation.js). permanentReputation rises via Buy Advertising (cash)
+    // or watching a rewarded ad (free, permanent +adRewardStep); adCooldownRemaining
+    // counts down the Watch Ad button's cooldown (see reputation.watchAdForReputation).
     this.permanentReputation = settings.reputation.baseReputation;
-    this.repBoostRemaining = 0;
+    this.adCooldownRemaining = 0;
     this.adLevel = 0; // Buy Advertising purchase count (drives its geometric cost)
 
     // Parallel pits, lowest index first. Each pit owns its own waiting queue.

@@ -1,16 +1,14 @@
 import { formatMoney } from '../core/format.js';
 
 /**
- * Hud.js — minimal DOM overlay. For this slice: a large live cash counter,
- * plus a small badge under it counting down an active rewarded-ad rep boost.
+ * Hud.js — minimal DOM overlay. For this slice: a large live cash counter.
  */
 export class Hud {
   constructor(state) {
     this.state = state;
-    // Top-center column: the cash counter with the boost badge flowing directly
-    // beneath it. Stacking in a flex column (rather than two fixed elements with
-    // hardcoded `top` values) keeps the badge correctly placed even as the cash
-    // font scales with viewport width.
+    // Top-center column holding the cash counter. A flex column (rather than a
+    // fixed element with a hardcoded `top`) keeps it centred as the cash font
+    // scales with viewport width.
     const wrap = document.createElement('div');
     Object.assign(wrap.style, {
       position: 'fixed',
@@ -40,22 +38,12 @@ export class Hud {
     this.el = el;
     this._cash = null;
 
-    const badge = document.createElement('div');
-    Object.assign(badge.style, {
-      font: '800 15px Arial, sans-serif',
-      color: '#ffd23f',
-      textShadow: '0 2px 0 #3a2a00, 0 0 8px rgba(0,0,0,0.5)',
-      display: 'none',
-    });
-    wrap.appendChild(badge);
-    this.badge = badge;
-
     document.body.appendChild(wrap);
     this.wrap = wrap;
 
     this.#buildDebugButtons();
 
-    this.update(0, 0);
+    this.update(0);
   }
 
   // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe save).
@@ -105,20 +93,10 @@ export class Hud {
     return btn;
   }
 
-  update(cash, repBoostRemaining = 0) {
+  update(cash) {
     if (cash !== this._cash) {
       this._cash = cash;
       this.el.textContent = `$${formatMoney(cash)}`;
-    }
-
-    if (repBoostRemaining > 0) {
-      const s = Math.max(0, Math.ceil(repBoostRemaining));
-      const m = Math.floor(s / 60);
-      const r = s % 60;
-      this.badge.textContent = `AD BOOST ${m}:${String(r).padStart(2, '0')}`;
-      this.badge.style.display = 'block';
-    } else {
-      this.badge.style.display = 'none';
     }
   }
 }

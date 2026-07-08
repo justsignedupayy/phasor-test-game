@@ -28,6 +28,10 @@ import { saveGame } from '../platform/storage.js';
  * via Buy Advertising or a cooldown-gated free rewarded ad). Only the active
  * tab's rows exist in the DOM at a time.
  *
+ * Visuals follow design direction 2A "Soft Neon — Tablet" (see the design
+ * handoff): aluminium rim → dark bezel with front-camera dot → glass screen
+ * with status bar, app bar, tab strip, card grid, home-indicator pill.
+ *
  * Hidden until open(); the structure can change while open (pits get
  * equipped/hired at their markers, tabs switch) so update() rebuilds the DOM
  * when the row signature — which includes the active tab — changes, and only
@@ -37,7 +41,7 @@ export class UpgradeMenu {
   constructor(state) {
     this.state = state;
     this.isOpen = false;
-    this.rowEls = new Map(); // rowKey -> { effect, button }
+    this.rowEls = new Map(); // rowKey -> { wrap, label, effect, button }
     this.sig = '';
     this.activeTab = 'garage'; // 'garage' | 'market' | 'gas' | 'player' | 'ads'
 
@@ -69,13 +73,15 @@ export class UpgradeMenu {
     this.button = btn;
   }
 
-  // The panel is dressed as a TABLET: a wider screen in a slim, even dark
-  // bezel with moderately rounded corners, a front-camera dot at the top (no
-  // phone notch), an app-bar header, the category tab strip, and a
-  // home-indicator bar under the scrolling "screen". Pure CSS/DOM — no 3D.
+  // The tablet chrome, outside in: aluminium rim → bezel (front-camera dot) →
+  // screen (glass sheen, status bar, app bar, tabs, scrolling content, home
+  // indicator). Pure CSS/DOM — no 3D. The rim is the fixed-position root.
   #buildPanel() {
-    const panel = document.createElement('div');
-    Object.assign(panel.style, {
+    injectMenuStylesheet();
+
+    // Outer aluminium rim — brushed-metal border frame around the whole device.
+    const rim = document.createElement('div');
+    Object.assign(rim.style, {
       position: 'fixed',
       right: '10px',
       top: '50%',
@@ -89,95 +95,171 @@ export class UpgradeMenu {
       // content — a sparse category shows empty screen below its rows, a dense
       // one scrolls inside the content area (which flexes to fill the rest).
       height: 'min(840px, 88vh)',
-      background: 'linear-gradient(180deg, #12151d 0%, #0b0d13 100%)',
-      border: '12px solid #23262e',
-      borderRadius: '26px',
-      boxShadow: '0 14px 40px rgba(0,0,0,0.6), inset 0 0 0 2px #05060a',
-      padding: '8px 16px 12px',
+      padding: '3px',
+      borderRadius: '52px',
+      background: 'linear-gradient(150deg,#4a4f57 0%,#23272e 30%,#0f1116 70%,#33383f 100%)',
+      boxShadow: '0 60px 120px -40px rgba(0,0,0,0.9), 0 8px 24px -8px rgba(0,0,0,0.6)',
       zIndex: '16',
-      fontFamily: "-apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
-      color: '#e7ecf2',
+      fontFamily: FONT,
+      color: '#eef2f6',
+      userSelect: 'none',
     });
 
-    // Front camera: a small centred lens dot where the phone's notch used to be.
+    // Bezel — dark inner frame with an inset highlight; hosts the camera dot.
+    const bezel = document.createElement('div');
+    Object.assign(bezel.style, {
+      flex: '1',
+      minHeight: '0',
+      display: 'flex',
+      flexDirection: 'column',
+      padding: '22px',
+      borderRadius: '49px',
+      background: 'linear-gradient(155deg,#1c1f25,#101318 55%,#0a0c10)',
+      boxShadow: 'inset 0 2px 3px rgba(255,255,255,0.08), inset 0 -3px 6px rgba(0,0,0,0.7)',
+      position: 'relative',
+    });
+    rim.appendChild(bezel);
+
+    // Front camera: a small centred lens dot in the top bezel band.
     const camera = document.createElement('div');
     Object.assign(camera.style, {
-      width: '8px',
-      height: '8px',
-      margin: '0 auto 6px',
-      background: '#05060a',
-      border: '2px solid #1c2029',
+      position: 'absolute',
+      top: '11px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      width: '9px',
+      height: '9px',
       borderRadius: '50%',
-      flexShrink: '0',
+      background: 'radial-gradient(circle at 38% 32%,#2f3944,#05070a)',
+      boxShadow: 'inset 0 0 2px rgba(90,150,210,0.5), 0 0 0 2px rgba(255,255,255,0.03)',
     });
-    panel.appendChild(camera);
+    bezel.appendChild(camera);
 
-    // App bar: title + close, like a tablet app's header.
+    // Screen — dark rounded glass hosting everything visible.
+    const screen = document.createElement('div');
+    Object.assign(screen.style, {
+      flex: '1',
+      minHeight: '0',
+      display: 'flex',
+      flexDirection: 'column',
+      borderRadius: '30px',
+      overflow: 'hidden',
+      background: 'radial-gradient(130% 90% at 50% -10%,#1c222c 0%,#141922 55%,#0e121a 100%)',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.04)',
+      position: 'relative',
+    });
+    bezel.appendChild(screen);
+
+    // Diagonal glass sheen — tints the screen background only; the UI sections
+    // below sit at z-index 6, above it (matching the design reference).
+    const sheen = document.createElement('div');
+    Object.assign(sheen.style, {
+      position: 'absolute',
+      inset: '0',
+      pointerEvents: 'none',
+      background: 'linear-gradient(150deg,rgba(255,255,255,0.06) 0%,rgba(255,255,255,0.015) 18%,transparent 42%)',
+      zIndex: '5',
+    });
+    screen.appendChild(sheen);
+
+    screen.appendChild(buildStatusBar());
+
+    // App bar: icon chip + title, and the circular close button.
     const header = document.createElement('div');
     Object.assign(header.style, {
       display: 'flex',
-      justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: '8px',
-      paddingBottom: '7px',
-      borderBottom: '1px solid rgba(255,255,255,0.08)',
+      justifyContent: 'space-between',
+      padding: '12px 24px 14px',
       flexShrink: '0',
+      position: 'relative',
+      zIndex: '6',
     });
-    const title = document.createElement('div');
-    title.textContent = '📱 Upgrades';
-    Object.assign(title.style, { fontWeight: '800', fontSize: '16px', letterSpacing: '0.3px' });
+    const titleGroup = document.createElement('div');
+    Object.assign(titleGroup.style, { display: 'flex', alignItems: 'center', gap: '12px' });
+    const appIcon = document.createElement('div');
+    Object.assign(appIcon.style, {
+      width: '34px',
+      height: '34px',
+      borderRadius: '12px',
+      background: 'linear-gradient(160deg,#2a323d,#1a2029)',
+      boxShadow: '0 4px 10px -3px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+    const appGlyph = document.createElement('div');
+    Object.assign(appGlyph.style, { width: '12px', height: '15px', border: '1.8px solid #9fb0c0', borderRadius: '3px' });
+    appIcon.appendChild(appGlyph);
+    const title = document.createElement('span');
+    title.textContent = 'Upgrades';
+    Object.assign(title.style, { color: '#f4f7fa', fontSize: '21px', fontWeight: '800' });
+    titleGroup.append(appIcon, title);
+
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, {
-      width: '26px',
-      height: '26px',
-      borderRadius: '13px',
+      width: '36px',
+      height: '36px',
+      borderRadius: '50%',
       border: 'none',
-      background: '#2b303b',
-      color: '#e7ecf2',
+      background: 'linear-gradient(180deg,#252d38,#1a212a)',
+      boxShadow: '0 4px 10px -3px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)',
+      color: '#9fb0c0',
+      fontSize: '16px',
       fontWeight: '800',
+      fontFamily: 'inherit',
       cursor: 'pointer',
+      flexShrink: '0',
     });
     closeBtn.addEventListener('click', () => this.close());
-    header.append(title, closeBtn);
-    panel.appendChild(header);
+    header.append(titleGroup, closeBtn);
+    screen.appendChild(header);
 
-    this.#buildTabs(panel);
+    this.#buildTabs(screen);
 
     const content = document.createElement('div');
+    content.className = 'um-content';
     Object.assign(content.style, {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
       // Fill whatever the fixed-height frame leaves after the header/tabs/home
       // bar, and scroll internally past that — the frame itself never resizes.
       flex: '1 1 auto',
       minHeight: '0',
       overflowY: 'auto',
-      userSelect: 'none',
+      padding: '0 24px 8px',
+      position: 'relative',
+      zIndex: '6',
     });
-    panel.appendChild(content);
+    screen.appendChild(content);
     this.content = content;
 
-    // Home-indicator bar under the screen, closing the tablet silhouette.
+    // Home-indicator pill under the screen, closing the tablet silhouette.
+    const homeWrap = document.createElement('div');
+    Object.assign(homeWrap.style, {
+      display: 'flex',
+      justifyContent: 'center',
+      padding: '14px 0 12px',
+      flexShrink: '0',
+      position: 'relative',
+      zIndex: '6',
+    });
     const homeBar = document.createElement('div');
     Object.assign(homeBar.style, {
-      width: '130px',
-      height: '4px',
-      margin: '10px auto 0',
-      background: 'rgba(255,255,255,0.28)',
-      borderRadius: '4px',
-      flexShrink: '0',
+      width: '150px',
+      height: '5px',
+      borderRadius: '3px',
+      background: 'rgba(199,210,220,0.35)',
     });
-    panel.appendChild(homeBar);
+    homeWrap.appendChild(homeBar);
+    screen.appendChild(homeWrap);
 
-    document.body.appendChild(panel);
-    this.panel = panel;
+    document.body.appendChild(rim);
+    this.panel = rim;
   }
 
-  // The four category tabs, left to right; exactly one is active and only its
+  // The five category tabs, left to right; exactly one is active and only its
   // rows are built (see #rebuild + structureSignature).
-  #buildTabs(panel) {
+  #buildTabs(parent) {
     const TABS = [
       ['garage', 'Garage'],
       ['market', 'Market'],
@@ -186,26 +268,33 @@ export class UpgradeMenu {
       ['ads', 'Advertising'],
     ];
     const bar = document.createElement('div');
-    Object.assign(bar.style, { display: 'flex', gap: '5px', marginBottom: '8px', flexShrink: '0' });
+    Object.assign(bar.style, {
+      display: 'flex',
+      gap: '9px',
+      padding: '0 24px 12px',
+      flexShrink: '0',
+      position: 'relative',
+      zIndex: '6',
+    });
     this.tabButtons = new Map();
     for (const [key, label] of TABS) {
       const b = document.createElement('button');
       b.textContent = label;
       Object.assign(b.style, {
         flex: '1',
-        padding: '7px 2px',
-        borderRadius: '9px',
+        padding: '12px 8px',
+        borderRadius: '16px',
         border: 'none',
-        fontWeight: '800',
-        fontSize: '11px',
+        fontSize: '14px',
         fontFamily: 'inherit',
         cursor: 'pointer',
+        whiteSpace: 'nowrap',
       });
       b.addEventListener('click', () => this.#selectTab(key));
       bar.appendChild(b);
       this.tabButtons.set(key, b);
     }
-    panel.appendChild(bar);
+    parent.appendChild(bar);
     this.#styleTabs();
   }
 
@@ -216,12 +305,10 @@ export class UpgradeMenu {
     if (this.isOpen) this.update(this.state); // the signature includes the tab → rebuilds now
   }
 
-  /** Active tab reads as the pressed key; the rest recede into the bezel. */
+  /** Active tab gets the pressed dirty-white key look; the rest recede dark. */
   #styleTabs() {
     for (const [key, b] of this.tabButtons) {
-      const active = key === this.activeTab;
-      b.style.background = active ? '#3ad06a' : 'rgba(255,255,255,0.07)';
-      b.style.color = active ? '#06310f' : '#9fb0c0';
+      Object.assign(b.style, key === this.activeTab ? TAB_ACTIVE : TAB_INACTIVE);
     }
   }
 
@@ -312,7 +399,7 @@ export class UpgradeMenu {
   /** Two-column card grid for the per-worker blocks — uses the tablet's width. */
   #cardGrid() {
     const grid = document.createElement('div');
-    Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' });
+    Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' });
     return grid;
   }
 
@@ -321,12 +408,14 @@ export class UpgradeMenu {
     const p = document.createElement('div');
     p.textContent = text;
     Object.assign(p.style, {
-      background: 'rgba(255,255,255,0.04)',
-      border: '1px dashed rgba(255,255,255,0.14)',
-      borderRadius: '16px',
-      padding: '18px 14px',
-      fontSize: '12px',
-      color: '#9fb0c0',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px dashed rgba(159,176,192,0.3)',
+      borderRadius: '22px',
+      padding: '20px 16px',
+      marginTop: '14px',
+      fontSize: '13px',
+      fontWeight: '600',
+      color: '#8b96a3',
       textAlign: 'center',
     });
     return p;
@@ -338,18 +427,24 @@ export class UpgradeMenu {
   // and two buttons, so it's built/refreshed separately.
   #buildAdvertising() {
     const card = document.createElement('div');
-    Object.assign(card.style, {
-      background: 'rgba(255,255,255,0.055)',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '16px',
-      padding: '9px 11px',
-    });
+    Object.assign(card.style, CARD_CHROME);
 
     this.adRepLine = document.createElement('div');
-    Object.assign(this.adRepLine.style, { fontSize: '12px', color: '#9fb0c0', marginBottom: '4px' });
+    Object.assign(this.adRepLine.style, {
+      fontSize: '14px',
+      fontWeight: '700',
+      color: '#eef2f6',
+      marginBottom: '4px',
+    });
 
     this.adBoostLine = document.createElement('div');
-    Object.assign(this.adBoostLine.style, { fontSize: '11px', color: '#ffd23f', minHeight: '14px', marginBottom: '6px' });
+    Object.assign(this.adBoostLine.style, {
+      fontSize: '12px',
+      fontWeight: '600',
+      color: '#f0c14b',
+      minHeight: '15px',
+      marginBottom: '10px',
+    });
 
     this.adBuyBtn = this.#adButton();
     this.adBuyBtn.addEventListener('click', () => {
@@ -378,15 +473,17 @@ export class UpgradeMenu {
 
   #adButton() {
     const b = document.createElement('button');
+    b.className = 'um-cost';
     Object.assign(b.style, {
       width: '100%',
-      padding: '6px 6px',
-      borderRadius: '11px',
+      padding: '11px 12px',
+      borderRadius: '13px',
       border: 'none',
       fontWeight: '800',
-      fontSize: '13px',
+      fontSize: '14px',
+      fontFamily: 'inherit',
       cursor: 'pointer',
-      marginBottom: '6px',
+      marginBottom: '8px',
     });
     return b;
   }
@@ -395,29 +492,42 @@ export class UpgradeMenu {
     const h = document.createElement('div');
     h.textContent = text.toUpperCase();
     Object.assign(h.style, {
-      fontSize: '10px',
+      fontSize: '15px',
       fontWeight: '800',
-      letterSpacing: '1.4px',
-      color: '#5fd98b',
-      paddingBottom: '2px',
-      marginTop: '2px',
+      letterSpacing: '1.5px',
+      color: '#f4f7fa',
+      margin: '14px 4px 12px',
     });
     return h;
   }
 
   #card(title, rows) {
     const card = document.createElement('div');
-    Object.assign(card.style, {
-      background: 'rgba(255,255,255,0.055)',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '16px',
-      padding: '9px 11px',
-    });
+    Object.assign(card.style, CARD_CHROME);
 
     if (title) {
       const heading = document.createElement('div');
-      heading.textContent = title;
-      Object.assign(heading.style, { fontWeight: '800', fontSize: '15px', marginBottom: '6px' });
+      Object.assign(heading.style, { display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '12px' });
+      const chip = document.createElement('div');
+      chip.textContent = chipLabel(title);
+      Object.assign(chip.style, {
+        width: '26px',
+        height: '26px',
+        borderRadius: '9px',
+        background: 'linear-gradient(160deg,#333d4a,#222a34)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '12px',
+        fontWeight: '900',
+        color: '#c7d2dc',
+        flexShrink: '0',
+      });
+      const name = document.createElement('span');
+      name.textContent = title;
+      Object.assign(name.style, { color: '#f4f7fa', fontSize: '16px', fontWeight: '800' });
+      heading.append(chip, name);
       card.appendChild(heading);
     }
 
@@ -425,31 +535,43 @@ export class UpgradeMenu {
     return card;
   }
 
+  // One upgrade row: label + effect on the left, cost button / state badge on
+  // the right. The right element is one <button> restyled per state in
+  // #refreshRow (buyable → green cost button, OWNED/MAX/LOCKED → soft badge).
   #row(row) {
     const wrap = document.createElement('div');
-    Object.assign(wrap.style, { marginBottom: '8px' });
+    Object.assign(wrap.style, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '10px',
+      padding: '8px 0',
+    });
+
+    const left = document.createElement('div');
+    left.style.minWidth = '0';
 
     const label = document.createElement('div');
     label.textContent = row.label;
-    Object.assign(label.style, { fontSize: '13px', fontWeight: '700', marginBottom: '1px' });
+    Object.assign(label.style, { fontSize: '14px', fontWeight: '700', color: '#eef2f6' });
 
     const effect = document.createElement('div');
-    Object.assign(effect.style, { fontSize: '11px', color: '#9fb0c0', marginBottom: '5px', minHeight: '14px' });
+    Object.assign(effect.style, {
+      fontSize: '12px',
+      fontWeight: '600',
+      color: '#9fb0c0',
+      marginTop: '2px',
+      minHeight: '15px',
+    });
+    left.append(label, effect);
 
     const button = document.createElement('button');
-    Object.assign(button.style, {
-      width: '100%',
-      padding: '6px 6px',
-      borderRadius: '11px',
-      border: 'none',
-      fontWeight: '800',
-      fontSize: '13px',
-      cursor: 'pointer',
-    });
+    button.className = 'um-cost';
+    Object.assign(button.style, { flexShrink: '0', border: 'none', fontFamily: 'inherit', whiteSpace: 'nowrap' });
     button.addEventListener('click', () => this.#buy(row.kind, row.pitIndex));
 
-    wrap.append(label, effect, button);
-    this.rowEls.set(rowKey(row), { effect, button });
+    wrap.append(left, button);
+    this.rowEls.set(rowKey(row), { wrap, label, effect, button });
     return wrap;
   }
 
@@ -492,16 +614,27 @@ export class UpgradeMenu {
     }
   }
 
+  // Map the row's state onto the 2A visual variants: enabled → green cost
+  // button; OWNED / MAX → soft green / amber badge; LOCKED → grey badge with
+  // the whole row dimmed; a '$' cost you can't afford → the green button,
+  // dimmed; any other status string (ORDERED, EN ROUTE, FULL) → grey badge.
   #refreshRow(row) {
     const el = this.rowEls.get(rowKey(row));
     if (!el) return;
-    el.effect.textContent = row.effect;
+    setEffectText(el.effect, row.effect);
     el.button.textContent = row.cost;
     el.button.disabled = row.disabled;
-    el.button.style.opacity = row.disabled ? '0.45' : '1';
-    el.button.style.cursor = row.disabled ? 'default' : 'pointer';
-    el.button.style.background = row.disabled ? '#3a434f' : '#3ad06a';
-    el.button.style.color = row.disabled ? '#9fb0c0' : '#06310f';
+
+    const locked = row.cost === 'LOCKED';
+    el.wrap.style.opacity = locked ? '0.5' : '1';
+    el.label.style.color = locked ? '#c7d2dc' : '#eef2f6';
+    el.effect.style.color = locked ? '#8b96a3' : '#9fb0c0';
+
+    if (!row.disabled) styleCostButton(el.button, false);
+    else if (row.cost === 'OWNED') styleBadge(el.button, '#3ad06a', 'rgba(58,208,106,0.15)');
+    else if (row.cost === 'MAX') styleBadge(el.button, '#f0c14b', 'rgba(240,193,75,0.15)');
+    else if (row.cost.startsWith('$')) styleCostButton(el.button, true);
+    else styleBadge(el.button, '#8b96a3', '#3a434f');
   }
 
   // --- purchases -----------------------------------------------------------
@@ -550,18 +683,189 @@ export class UpgradeMenu {
   }
 }
 
+// --- 2A design tokens -------------------------------------------------------
+
+const FONT = "'Nunito', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+
+const TAB_ACTIVE = {
+  fontWeight: '800',
+  color: '#10131a',
+  background: 'linear-gradient(180deg,#dfe1de,#c2c6c0)',
+  boxShadow: '0 8px 20px -6px rgba(0,0,0,0.5), inset 0 2px 0 rgba(255,255,255,0.55), inset 0 -3px 0 rgba(120,130,140,0.3)',
+};
+
+const TAB_INACTIVE = {
+  fontWeight: '700',
+  color: '#9fb0c0',
+  background: 'linear-gradient(180deg,#212934,#1a212a)',
+  boxShadow: '0 4px 10px -4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)',
+};
+
+const CARD_CHROME = {
+  borderRadius: '22px',
+  padding: '16px 16px 8px',
+  background: 'linear-gradient(180deg,#212a35,#181e27)',
+  boxShadow: '0 12px 28px -14px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)',
+};
+
+/** The green pressable buy button; dimmed (but still green) when unaffordable. */
+function styleCostButton(btn, dimmed) {
+  Object.assign(btn.style, {
+    padding: '9px 17px',
+    borderRadius: '13px',
+    fontSize: '14px',
+    fontWeight: '800',
+    letterSpacing: '0',
+    color: '#062611',
+    background: 'linear-gradient(180deg,#4ee383,#2eb95c)',
+    boxShadow: '0 6px 14px -5px rgba(58,208,106,0.6), inset 0 2px 0 rgba(255,255,255,0.4), inset 0 -3px 0 rgba(0,80,30,0.35)',
+    cursor: dimmed ? 'default' : 'pointer',
+    opacity: dimmed ? '0.45' : '1',
+  });
+}
+
+/** Static state badge (OWNED green / MAX amber / LOCKED & status grey-blue). */
+function styleBadge(btn, color, background) {
+  Object.assign(btn.style, {
+    padding: '8px 14px',
+    borderRadius: '13px',
+    fontSize: '11px',
+    fontWeight: '900',
+    letterSpacing: '0.8px',
+    color,
+    background,
+    boxShadow: 'none',
+    cursor: 'default',
+    opacity: '1',
+  });
+}
+
+// Style an advertising button by its disabled state (mirrors the row buttons).
+function setAdButton(btn, disabled) {
+  btn.disabled = disabled;
+  if (disabled) {
+    Object.assign(btn.style, {
+      background: '#3a434f',
+      color: '#8b96a3',
+      boxShadow: 'none',
+      cursor: 'default',
+      opacity: '0.7',
+    });
+  } else {
+    Object.assign(btn.style, {
+      background: 'linear-gradient(180deg,#4ee383,#2eb95c)',
+      color: '#062611',
+      boxShadow: '0 6px 14px -5px rgba(58,208,106,0.6), inset 0 2px 0 rgba(255,255,255,0.4), inset 0 -3px 0 rgba(0,80,30,0.35)',
+      cursor: 'pointer',
+      opacity: '1',
+    });
+  }
+}
+
+// Rewrite the effect line with every '→' tinted accent green; runs each frame,
+// so it only touches the DOM when the text actually changed.
+function setEffectText(el, text) {
+  if (el.dataset.effect === text) return;
+  el.dataset.effect = text;
+  el.replaceChildren();
+  const parts = text.split('→');
+  parts.forEach((part, i) => {
+    if (i > 0) {
+      const arrow = document.createElement('span');
+      arrow.textContent = '→';
+      arrow.style.color = '#3ad06a';
+      el.appendChild(arrow);
+    }
+    el.appendChild(document.createTextNode(part));
+  });
+}
+
+// "Worker A" → "A", "Attendant 2" → "2"; longer trailing words fall back to
+// the title's first letter.
+function chipLabel(title) {
+  const last = title.trim().split(/\s+/).pop();
+  return (last.length <= 2 ? last : title.trim()[0]).toUpperCase();
+}
+
+// Decorative status bar: clock left; signal bars, "5G" and battery right.
+function buildStatusBar() {
+  const bar = document.createElement('div');
+  Object.assign(bar.style, {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '9px 26px 3px',
+    flexShrink: '0',
+    position: 'relative',
+    zIndex: '6',
+  });
+
+  const clock = document.createElement('span');
+  clock.textContent = '9:41';
+  Object.assign(clock.style, {
+    color: '#c7d2dc',
+    fontSize: '13px',
+    fontWeight: '800',
+    letterSpacing: '0.5px',
+    fontVariantNumeric: 'tabular-nums',
+  });
+
+  const right = document.createElement('div');
+  Object.assign(right.style, { display: 'flex', alignItems: 'center', gap: '8px' });
+
+  const signal = document.createElement('div');
+  Object.assign(signal.style, { display: 'flex', alignItems: 'flex-end', gap: '2px', height: '11px' });
+  for (const h of [4, 6, 8, 11]) {
+    const s = document.createElement('span');
+    Object.assign(s.style, { width: '3px', height: `${h}px`, borderRadius: '1px', background: '#c7d2dc' });
+    signal.appendChild(s);
+  }
+
+  const net = document.createElement('span');
+  net.textContent = '5G';
+  Object.assign(net.style, { color: '#c7d2dc', fontSize: '11px', fontWeight: '800', letterSpacing: '0.3px' });
+
+  const battery = document.createElement('div');
+  Object.assign(battery.style, { display: 'flex', alignItems: 'center', gap: '2px' });
+  const shell = document.createElement('div');
+  Object.assign(shell.style, {
+    width: '23px',
+    height: '12px',
+    borderRadius: '3px',
+    boxShadow: 'inset 0 0 0 1.5px rgba(199,210,220,0.8)',
+    padding: '2px',
+  });
+  const fill = document.createElement('div');
+  Object.assign(fill.style, { width: '72%', height: '100%', borderRadius: '1px', background: '#3ad06a' });
+  shell.appendChild(fill);
+  const nub = document.createElement('div');
+  Object.assign(nub.style, { width: '2px', height: '5px', borderRadius: '0 1px 1px 0', background: 'rgba(199,210,220,0.8)' });
+  battery.append(shell, nub);
+
+  right.append(signal, net, battery);
+  bar.append(clock, right);
+  return bar;
+}
+
+// One shared stylesheet for what inline styles can't do: press feedback on the
+// enabled buy buttons and a dark scrollbar for the screen's content area.
+let menuStylesInjected = false;
+function injectMenuStylesheet() {
+  if (menuStylesInjected) return;
+  menuStylesInjected = true;
+  const style = document.createElement('style');
+  style.textContent = `
+    .um-cost:not(:disabled):active { transform: translateY(2px); filter: brightness(0.95); }
+    .um-content::-webkit-scrollbar { width: 8px; }
+    .um-content::-webkit-scrollbar-thumb { background: rgba(199,210,220,0.18); border-radius: 4px; }
+    .um-content::-webkit-scrollbar-track { background: transparent; }
+  `;
+  document.head.appendChild(style);
+}
+
 // A stable key per row (kind + pit). Expand Room has no pit.
 function rowKey(row) {
   return row.pitIndex === undefined ? row.kind : `${row.kind}:${row.pitIndex}`;
-}
-
-// Style an advertising button by its disabled state (mirrors #refreshRow's button styling).
-function setAdButton(btn, disabled) {
-  btn.disabled = disabled;
-  btn.style.opacity = disabled ? '0.45' : '1';
-  btn.style.cursor = disabled ? 'default' : 'pointer';
-  btn.style.background = disabled ? '#3a434f' : '#3ad06a';
-  btn.style.color = disabled ? '#9fb0c0' : '#06310f';
 }
 
 function mmss(seconds) {

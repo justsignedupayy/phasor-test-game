@@ -1476,6 +1476,44 @@ const openGasPump = (s, i = 0) => {
   s.cash = saved;
 };
 
+check('equipping a pump under the player places them on the garage side, never past the row', () => {
+  const s = createInitialState();
+  const last = settings.maxPumps - 1;
+  const p = settings.gasStation.positions[last];
+  // Standing on the purchase marker but past the lane centre — before the fix,
+  // the new lane walls' shallow-side push ejected this player out the far (-x)
+  // side, into the sealed strip beyond the row's end.
+  s.player.position.x = p.x - 0.5;
+  s.player.position.z = p.z;
+  openGasPump(s, last);
+  const clear = settings.pitLane.halfWidth + settings.player.radius;
+  assert.ok(s.player.position.x >= p.x + clear, 'player placed clear of the lane on the +x side');
+});
+
+check('a player stranded past the last pump lane is returned to walkable ground on tick', () => {
+  const s = createInitialState();
+  const last = settings.maxPumps - 1;
+  openGasPump(s, last);
+  const p = settings.gasStation.positions[last];
+  s.player.position.x = p.x - settings.pitLane.halfWidth - 1; // inside the sealed dead-end strip
+  s.player.position.z = p.z;
+  tick(s, 0.016);
+  assert.equal(s.player.position.x, p.x + settings.unlockMarkers.hireOffset.x);
+  assert.equal(s.player.position.z, p.z + settings.unlockMarkers.hireOffset.z);
+});
+
+check('the stranded-player net stays out of the way while the last pump is unequipped', () => {
+  const s = createInitialState();
+  const last = settings.maxPumps - 1;
+  openGasPump(s, 0); // station exists, but the last lane is still open ground
+  const p = settings.gasStation.positions[last];
+  const x = p.x - settings.pitLane.halfWidth - 1; // legal open ground before the last equip
+  s.player.position.x = x;
+  s.player.position.z = p.z;
+  tick(s, 0.016);
+  assert.equal(s.player.position.x, x, 'a legally reachable spot is left alone');
+});
+
 check('initial state: EVERY pump locked (no free starter), spawn seeded, fresh breaks', () => {
   const s = createInitialState();
   assert.equal(s.gasStation.pumps.length, settings.maxPumps);

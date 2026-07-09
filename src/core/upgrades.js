@@ -306,6 +306,16 @@ export function buyGasEquipment(state, pumpIndex) {
   if (state.cash < cost) return false;
   state.cash -= cost;
   pump.equipped = true;
+  // Equipping fences the lane under the buyer's feet: the purchase marker stands
+  // at the pump centre, and core/roads.pumpLaneBoxes turn solid this instant.
+  // Left to the generic shallow-side push-out, a player standing past the lane
+  // centre would be ejected out the FAR (-x) side — past the LAST pump that
+  // strip is sealed (end-capped spine, no spur, leftLimitX beyond), a dead end.
+  // Place an overlapping player on the garage (+x) side deterministically.
+  const p = settings.gasStation.positions[pumpIndex];
+  const player = state.player.position;
+  const clear = settings.pitLane.halfWidth + settings.player.radius;
+  if (Math.abs(player.x - p.x) < clear) player.x = p.x + clear + 0.05;
   return true;
 }
 

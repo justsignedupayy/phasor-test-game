@@ -348,6 +348,24 @@ function updatePlayer(state, dt) {
   for (const b of playerRoadBoxes(state)) {
     pushOutOfRect(player.position, settings.player.radius, b);
   }
+
+  // Safety net: once the LAST pump is equipped, the ground strip past its lane
+  // (west of the lane's -x face, out to leftLimitX) is sealed on every side —
+  // lane walls east, the spine's end cap above, the outer wall west — with no
+  // spur or ramp in. No legitimate path leads there, so a player found in it
+  // (a stale save, an unforeseen push-out) is stranded; return them to that
+  // pump's hire-marker spot, the nearest normal ground east of the lane. The
+  // 0.3 margin is the end cap's full reach, so a deck walker (x >= the spine
+  // piece's xMin, held off the cap) never trips this.
+  const G = settings.gasStation.positions;
+  const lastPump = state.gasStation.pumps[G.length - 1];
+  if (lastPump.equipped) {
+    const p = G[G.length - 1];
+    if (player.position.x < p.x - settings.pitLane.halfWidth - 0.3) {
+      player.position.x = p.x + settings.unlockMarkers.hireOffset.x;
+      player.position.z = p.z + settings.unlockMarkers.hireOffset.z;
+    }
+  }
 }
 
 /**

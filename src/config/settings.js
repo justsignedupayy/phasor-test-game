@@ -101,8 +101,13 @@ export const settings = {
     wallThickness: 0.35, // side-wall + roof thickness (and the back wall's depth)
     yOffset: 0, // base sits on the ground; raise/lower the whole prop here
     interiorColor: 0x14140f, // near-black back/interior — reads as a dark tunnel recess
-    // Tunnel box, sized for a single walking customer (taller/wider than a body).
-    customer: { width: 3.0, height: 2.8, depth: 3.4 },
+    // Tunnel cross-section sized for a single walking customer (taller/wider
+    // than a body). depth runs the body FAR past the camera's visible range at
+    // the default framing (mouth ≈ z 30.5, far end ≈ z 70 vs ~±30 visible
+    // around the player, who is wall-clamped at z ≈ 9.4), so the tunnel reads
+    // as genuinely leading off into the distance instead of a short box. The
+    // despawn point stays put — it derives from mouthGap + spawnInset, not depth.
+    customer: { width: 3.0, height: 2.8, depth: 40 },
     // Placement (used to derive the spawn/despawn + mouth points in the block at
     // the bottom of this file): a mouth sits mouthGap beyond the corridor door, and
     // the spawn/despawn point spawnInset deeper still (inside the dark). Entry and

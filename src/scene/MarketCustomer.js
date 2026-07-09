@@ -3,6 +3,7 @@ import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
+import { getProductImage } from './productImages.js';
 
 const HEAD_LABEL_Y = 2.1; // floats just above the head
 
@@ -15,8 +16,9 @@ const HEAD_LABEL_Y = 2.1; // floats just above the head
  * its position/rotation/state; this only renders it). Walks in idle/walkSlow
  * until it collects at checkout, then hauls a Bag.glb (parented to its hand
  * bone) out on the 'carryWalk' clip until it exits and is disposed.
- * Shows its order (e.g. "2A 1C") on a head-label sprite for its whole
- * lifetime — the request never changes after spawn, so it's drawn once.
+ * Shows its order (qty + product photo per entry, e.g. "2🍎 1🥕") on a
+ * head-label sprite for its whole lifetime — the request never changes after
+ * spawn, so it's drawn once (redrawn only if a photo finishes loading late).
  */
 export class MarketCustomer {
   /** @param {object} customer the customer this view renders (read once, for its tint + order label) */
@@ -46,7 +48,10 @@ export class MarketCustomer {
 
     this.headLabel = makeRequestSprite();
     this.headLabel.position.set(0, HEAD_LABEL_Y, 0); // on the Y axis — unaffected by root's facing rotation
-    drawRequestSprite(this.headLabel, formatRequest(customer.request));
+    // Drawn with product photos when they're loaded; letters until then, with a
+    // one-shot redraw in update() once every needed photo is ready.
+    this.request = customer.request;
+    this.labelHasAllImages = drawRequestSprite(this.headLabel, customer.request);
     this.root.add(this.headLabel);
 
     this.mixer = new THREE.AnimationMixer(this.model);
@@ -57,6 +62,12 @@ export class MarketCustomer {
 
   /** @param {object} customer one entry of core's state.supermarket.customerQueue */
   update(dt, customer) {
+    // The photos usually beat the first spawn, but if this label was drawn with
+    // letter fallbacks, swap in the images the frame they finish loading.
+    if (!this.labelHasAllImages && Object.keys(this.request).every((t) => getProductImage(t))) {
+      this.labelHasAllImages = drawRequestSprite(this.headLabel, this.request);
+    }
+
     this.root.position.x = customer.position.x;
     this.root.position.z = customer.position.z;
 
@@ -108,13 +119,6 @@ export class MarketCustomer {
   }
 }
 
-/** "2A 1C" — quantity immediately followed by the product letter, space-separated. */
-function formatRequest(request) {
-  return Object.entries(request)
-    .map(([type, qty]) => `${qty}${type}`)
-    .join(' ');
-}
-
 // A small camera-facing text label (mirrors PitView's/SupermarketView's canvas-sprite labels).
 function makeRequestSprite() {
   const canvas = document.createElement('canvas');
@@ -129,23 +133,50 @@ function makeRequestSprite() {
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false })
   );
-  sprite.scale.set(2, 0.5, 1);
+  sprite.scale.set(3.5, 0.875, 1); // 1.75x the original 2 x 0.5 — sized up for the product photos
   sprite.renderOrder = 999;
   sprite.userData.canvas = canvas;
   sprite.userData.tex = tex;
   return sprite;
 }
 
-function drawRequestSprite(sprite, text) {
+/**
+ * "2🍎 1🥕" — quantity immediately followed by the product's photo, space-
+ * separated (the letter itself if that photo hasn't loaded yet). Returns true
+ * once every entry rendered with its photo, so the caller can stop redrawing.
+ */
+function drawRequestSprite(sprite, request) {
   const canvas = sprite.userData.canvas;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = settings.colors.label;
   ctx.font = '800 30px Arial, sans-serif';
-  ctx.textAlign = 'center';
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
   ctx.shadowBlur = 6;
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+
+  const IMG = 48; // square photo edge, inside the 64px-high canvas
+  const GAP = 2; // qty-to-photo
+  const SPACE = 14; // between entries
+  let allImages = true;
+  const parts = Object.entries(request).map(([type, qty]) => {
+    const img = getProductImage(type);
+    if (!img) allImages = false;
+    const qtyWidth = ctx.measureText(`${qty}`).width;
+    return { qty: `${qty}`, type, img, qtyWidth, width: qtyWidth + GAP + (img ? IMG : ctx.measureText(type).width) };
+  });
+  const total = parts.reduce((sum, p) => sum + p.width, 0) + SPACE * (parts.length - 1);
+
+  let x = (canvas.width - total) / 2;
+  const midY = canvas.height / 2;
+  for (const p of parts) {
+    ctx.fillText(p.qty, x, midY + 2);
+    x += p.qtyWidth + GAP;
+    if (p.img) ctx.drawImage(p.img, x, midY - IMG / 2, IMG, IMG);
+    else ctx.fillText(p.type, x, midY + 2);
+    x += p.width - p.qtyWidth - GAP + SPACE;
+  }
   sprite.userData.tex.needsUpdate = true;
+  return allImages;
 }

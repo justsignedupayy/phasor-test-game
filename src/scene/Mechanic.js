@@ -5,7 +5,6 @@ import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
 import { AlertBounce } from './AlertBounce.js';
-import { BreakLabel } from './BreakLabel.js';
 
 /**
  * Mechanic — a worker NPC: the same rigged glTF model as the player (see
@@ -72,12 +71,8 @@ export class Mechanic {
     this.alertBounce = new AlertBounce(settings.emote.spriteScale);
     this.alertBounce.root.position.set(0, cfg.headHeight + settings.emote.heightAboveHead, 0);
     this.root.add(this.alertBounce.root);
-
-    // "x/y" break-progress counter floating above the head (hidden on break —
-    // the Zzz effect takes its place there).
-    this.breakLabel = new BreakLabel();
-    this.breakLabel.sprite.position.set(0, cfg.headHeight + 0.35, 0);
-    this.root.add(this.breakLabel.sprite);
+    // Break progress is shown on the wall-mounted LED display at the break spot
+    // (see scene/BreakDisplay.js) — no head-label counter here.
   }
 
   /**
@@ -86,18 +81,15 @@ export class Mechanic {
    * @param {boolean} flags.carPresent a car is in the pit to work on
    * @param {boolean} flags.hurrying   a remote-hurry boost is active
    * @param {boolean} flags.onBreak    core break flag for this pit's worker
-   * @param {object} flags.breakState  core break counter (pit.break / pump.break) for the head label
    * @param {number} flags.restFacing  the Y-facing the resting worker holds
    * @param {object} flags.leanOffset  the break-spot lean offset
    */
-  update(dt, { mechanic, carPresent, hurrying, onBreak, breakState, restFacing, leanOffset }) {
+  update(dt, { mechanic, carPresent, hurrying, onBreak, restFacing, leanOffset }) {
     if (!mechanic) {
-      this.breakLabel.update(null);
       this.alertBounce.update(dt);
       updateMixer(this.mixer, dt, 'Mechanic');
       return;
     }
-    this.breakLabel.update(breakState);
 
     this.root.position.x = mechanic.position.x;
     this.root.position.z = mechanic.position.z;

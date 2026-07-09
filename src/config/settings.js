@@ -646,6 +646,17 @@ export const settings = {
       driveDuration: 1.6, // seconds for the drive-in / drive-out tween (mirrors a car's, slower)
       modelScale: 1, // Truck.glb size fixup — tune by eye once visible
       modelYRotationOffset: 0, // facing fixup (radians); flip ±π if it drives backwards
+      // Wall-mounted LED delivery-status panel (scene/SupermarketView.js, visual
+      // only): the break panels' LedDisplay fixture reused on the LEFT wall of
+      // the delivery corridor, retinted green. Shows the restock box's "units/max"
+      // while no order is pending, and the mm:ss countdown to arrival once a
+      // truck is ordered. Placement derives from the corridor geometry
+      // (deliveryDoorX/Z, world.gateHalf) + settings.breaks.display; these are
+      // just its colours. STARTING VALUES — tune by eye.
+      display: {
+        ledColor: '#2eff62', // lit LED pixels (green, vs the break panels' red)
+        ledOffColor: '#06300f', // unlit pixels of the dot grid
+      },
     },
     checkoutPosition: { x: -44.5, z: 7.596 },
     // Where the served customer actually stands to check out: in FRONT of the

@@ -5,7 +5,6 @@ import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
 import { AlertBounce } from './AlertBounce.js';
-import { BreakLabel } from './BreakLabel.js';
 
 /**
  * MarketWorker — the supermarket's worker NPC (state.supermarket.workerLevel
@@ -65,12 +64,8 @@ export class MarketWorker {
     this.alertBounce = new AlertBounce(settings.emote.spriteScale);
     this.alertBounce.root.position.set(0, cfg.headHeight + settings.emote.heightAboveHead, 0);
     this.root.add(this.alertBounce.root);
-
-    // "x/y" break-progress counter floating above the head (hidden on break —
-    // the Zzz effect takes its place there), like the mechanics'.
-    this.breakLabel = new BreakLabel();
-    this.breakLabel.sprite.position.set(0, cfg.headHeight + 0.35, 0);
-    this.root.add(this.breakLabel.sprite);
+    // Break progress is shown on the wall-mounted LED display at the break spot
+    // (see scene/BreakDisplay.js) — no head-label counter here.
   }
 
   /** @param {object} worker core's state.supermarket.worker */
@@ -78,7 +73,6 @@ export class MarketWorker {
     this.root.position.x = worker.position.x;
     this.root.position.z = worker.position.z;
     this.root.position.y = 0;
-    this.breakLabel.update(worker.break);
 
     // Once on break, nudge the body onto its break spot (the same lean offset the
     // mechanics use) so it leans upright against the wall. Pure render offset —

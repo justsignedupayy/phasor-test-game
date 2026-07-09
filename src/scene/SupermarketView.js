@@ -6,7 +6,9 @@ import { MarketCustomer } from './MarketCustomer.js';
 import { TruckView } from './TruckView.js';
 import { showCashPopup } from './popup.js';
 import { formatMoney } from '../core/format.js';
-import { deliverStock } from '../core/supermarket.js';
+import { deliverStock, truckDeliveryTime } from '../core/supermarket.js';
+import { getProductImage } from './productImages.js';
+import { LedDisplay, formatMmSs } from './BreakDisplay.js';
 
 /**
  * SupermarketView — the whole shop's render layer: 4 shelves (shelf_end.glb /
@@ -34,6 +36,7 @@ export class SupermarketView {
     this.#buildCheckout();
     this.#buildRestockPile();
     this.#buildCarriedBox();
+    this.#buildTruckDisplay();
   }
 
   #buildShelves() {
@@ -48,7 +51,7 @@ export class SupermarketView {
       model.visible = false;
       this.sm.add(model);
 
-      const label = makeLabelSprite();
+      const label = makeLabelSprite(1.75);
       label.position.set(cfg.x + ox, 2.6, cfg.z + oz);
       label.visible = false;
       this.sm.add(label);
@@ -115,6 +118,30 @@ export class SupermarketView {
     this.sm.add(this.restockRing);
   }
 
+  /**
+   * The delivery-status LED panel: the break panels' wall fixture (LedDisplay)
+   * reused on the LEFT wall of the delivery corridor, halfway down it, at the
+   * break panels' mounting height, facing into the corridor (+x). Green LEDs
+   * (settings.supermarket.truck.display) so it reads as delivery info, not a
+   * break clock. Content is set in update(): restock stock "units/max" while
+   * idle, the mm:ss countdown while a truck order is pending.
+   */
+  #buildTruckDisplay() {
+    const W = settings.world;
+    const S = settings.supermarket;
+    const D = settings.breaks.display;
+    const corridorStart = -(W.halfZ + W.wallThickness); // the building wall's outer face
+    this.truckDisplay = new LedDisplay({
+      x: S.deliveryDoorX - W.gateHalf + D.wallInset, // the corridor's left wall, inner face
+      y: D.y,
+      z: (corridorStart + S.deliveryDoorZ) / 2,
+      rotationY: Math.PI / 2,
+      ledColor: S.truck.display.ledColor,
+      ledOffColor: S.truck.display.ledOffColor,
+    });
+    this.sm.add(this.truckDisplay.group);
+  }
+
   /** The box the PLAYER (manual restocking) carries from the pile to a shelf. */
   #buildCarriedBox() {
     this.carriedBox = cloneStorageModel('box');
@@ -158,10 +185,13 @@ export class SupermarketView {
       shelf.label.visible = unlocked;
       if (!unlocked) continue;
       const stateShelf = S.shelves[shelf.index];
-      const text = `${stateShelf.productType} ${stateShelf.stock}/${settings.supermarket.shelfCapacity}`;
-      if (text !== shelf.labelText) {
-        shelf.labelText = text;
-        drawLabelSprite(shelf.label, text);
+      const stockText = `${stateShelf.stock}/${settings.supermarket.shelfCapacity}`;
+      // The photo-loaded flag is part of the cache key so the label re-draws
+      // once, swapping the letter fallback for the image when it arrives.
+      const key = `${stateShelf.productType}|${stockText}|${getProductImage(stateShelf.productType) ? 1 : 0}`;
+      if (key !== shelf.labelText) {
+        shelf.labelText = key;
+        drawShelfLabelSprite(shelf.label, stateShelf.productType, stockText);
       }
     }
 
@@ -184,6 +214,13 @@ export class SupermarketView {
     // box via deliverStock at touchdown), then the drive-out. Single reused instance.
     if (S.truckArriving && this.truck.idle) this.truck.arrive(() => deliverStock(state));
     this.truck.update(dt);
+
+    // Delivery-status LED panel: mm:ss to arrival while an order is pending,
+    // the restock box's stock the rest of the time (including while the truck
+    // itself is in flight — the order clock is done by then).
+    if (!unlocked) this.truckDisplay.hide();
+    else if (S.truckOrdered) this.truckDisplay.setText(formatMmSs(truckDeliveryTime(state) - S.truckTimer));
+    else this.truckDisplay.setText(`${S.restockBox.units}/${S.restockBox.maxUnits}`);
 
     if (S.paidThisTick > 0) this.#popup(S.paidThisTick, settings.supermarket.checkoutPosition);
 
@@ -276,18 +313,47 @@ export class SupermarketView {
   }
 }
 
-// A camera-facing text label rendered to a small canvas texture (mirrors PitView's storage label).
-function makeLabelSprite() {
+// A camera-facing text label rendered to a small canvas texture (mirrors PitView's
+// storage label). scaleMult sizes the whole sprite up around the same anchor point —
+// the shelf signs pass 1.75 for their product photos; the restock counter stays at 1.
+function makeLabelSprite(scaleMult = 1) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 64;
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 4;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sprite.scale.set(2.2, 0.55, 1);
+  sprite.scale.set(2.2 * scaleMult, 0.55 * scaleMult, 1);
   sprite.userData.canvas = canvas;
   sprite.userData.tex = tex;
   return sprite;
+}
+
+/**
+ * Shelf sign: the product's photo (its letter until the photo loads) followed
+ * by the live "stock/capacity" count, centered together on the canvas.
+ */
+function drawShelfLabelSprite(sprite, productType, stockText) {
+  const canvas = sprite.userData.canvas;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = settings.colors.label;
+  ctx.font = '800 30px Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 6;
+
+  const IMG = 52; // square photo edge, inside the 64px-high canvas
+  const GAP = 10; // photo-to-count
+  const img = getProductImage(productType);
+  const leadWidth = img ? IMG : ctx.measureText(productType).width;
+  let x = (canvas.width - (leadWidth + GAP + ctx.measureText(stockText).width)) / 2;
+  const midY = canvas.height / 2;
+  if (img) ctx.drawImage(img, x, midY - IMG / 2, IMG, IMG);
+  else ctx.fillText(productType, x, midY + 2);
+  ctx.fillText(stockText, x + leadWidth + GAP, midY + 2);
+  sprite.userData.tex.needsUpdate = true;
 }
 
 function drawLabelSprite(sprite, text) {

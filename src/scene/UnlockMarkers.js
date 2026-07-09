@@ -237,7 +237,7 @@ function drawMarkerLabel(canvas, costText, hint, locked) {
   ctx.shadowBlur = 10;
 
   ctx.fillStyle = locked ? '#c9cdd4' : settings.colors.label;
-  ctx.font = '800 84px Arial, sans-serif';
+  ctx.font = `800 84px ${settings.ui.fontStack}`;
   ctx.textBaseline = 'middle';
   ctx.fillText(locked ? `🔒 ${costText}` : costText, w / 2, h * 0.35);
 
@@ -247,12 +247,12 @@ function drawMarkerLabel(canvas, costText, hint, locked) {
   // a little rather than vanishing into an unreadable smear).
   ctx.fillStyle = '#ffffff';
   let hintSize = 44;
-  ctx.font = `700 ${hintSize}px Arial, sans-serif`;
+  ctx.font = `700 ${hintSize}px ${settings.ui.fontStack}`;
   const maxWidth = w - 40;
   const hintWidth = ctx.measureText(hint).width;
   if (hintWidth > maxWidth) {
     hintSize = Math.max(28, Math.floor(hintSize * (maxWidth / hintWidth)));
-    ctx.font = `700 ${hintSize}px Arial, sans-serif`;
+    ctx.font = `700 ${hintSize}px ${settings.ui.fontStack}`;
   }
   ctx.fillText(hint, w / 2, h * 0.78);
 }

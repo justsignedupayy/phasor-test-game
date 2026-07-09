@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import settings from '../config/settings.js';
 
 /**
  * popup.js — floating DOM cash text at a screen point. One-shot: animates
@@ -23,7 +24,7 @@ export function showCashPopup(text, x, y) {
     left: `${x}px`,
     top: `${y}px`,
     transform: 'translate(-50%, -50%)',
-    font: '800 34px Arial, sans-serif',
+    font: `800 34px ${settings.ui.fontStack}`,
     color: '#ffd23f',
     textShadow: '0 2px 0 #3a2a00, 0 0 10px rgba(0,0,0,0.5)',
     pointerEvents: 'none',

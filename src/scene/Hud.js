@@ -30,7 +30,7 @@ export class Hud {
     Object.assign(el.style, {
       // Scales with viewport width so it never overruns the corner buttons on a
       // narrow portrait screen, capped at the original landscape size.
-      font: '800 clamp(28px, 8vw, 56px) Arial, sans-serif',
+      font: `800 clamp(28px, 8vw, 56px) ${settings.ui.fontStack}`,
       color: '#3ad06a',
       textShadow: '0 3px 0 #06310f, 0 0 14px rgba(0,0,0,0.5)',
       whiteSpace: 'nowrap',
@@ -61,7 +61,7 @@ export class Hud {
 
     const el = document.createElement('div');
     Object.assign(el.style, {
-      font: '700 clamp(13px, 3.2vw, 18px) Arial, sans-serif',
+      font: `700 clamp(13px, 3.2vw, 18px) ${settings.ui.fontStack}`,
       color: '#8fd3ff',
       textShadow: '0 2px 0 rgba(0,0,0,0.5)',
       whiteSpace: 'nowrap',
@@ -110,7 +110,7 @@ export class Hud {
       color: '#fff',
       fontWeight: '800',
       fontSize: '14px',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: settings.ui.fontStack,
       cursor: 'pointer',
       boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
     });

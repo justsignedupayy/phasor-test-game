@@ -195,7 +195,7 @@ export function makeLabelSprite(text) {
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = settings.colors.label;
-  ctx.font = '800 96px Arial, sans-serif';
+  ctx.font = `800 96px ${settings.ui.fontStack}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
@@ -229,7 +229,7 @@ function drawStorageSprite(sprite, text) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = settings.colors.label;
-  ctx.font = '800 34px Arial, sans-serif';
+  ctx.font = `800 34px ${settings.ui.fontStack}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';

@@ -449,6 +449,12 @@ export const settings = {
     // centre): clear of the car spot (z ≈ ±2.2 around the centre), the tire
     // stack (x+2.9, z+0.2) and the pump prop (x+2, z+1.1).
     hireOffset: { x: 2.1, z: -3.2 },
+    // Expand-Room (buy-the-lot) markers sit on the NEXT locked pit's centre, but
+    // the land fence wall always stands ~2.1 units to its RIGHT (ownedRightX =
+    // that pit's x + LOT_HALF_WIDTH). Nudge the circle LEFT (−x) so it clears
+    // the fence with comfortable spacing. Only ever affects pits B/C/D/E — pit A
+    // starts unlocked and never shows an Expand-Room marker.
+    expandOffset: { x: -1.8, z: 0 },
     // The "Open Gas Station" marker stands just INSIDE the left wall at the
     // future gate's z — the pump row is unreachable until the station exists.
     gasEntryInset: 1.7,
@@ -977,6 +983,16 @@ export const settings = {
       ledOffColor: '#3a0b06', // unlit pixels of the dot grid
       bgColor: '#0a0a0a', // panel face behind the dots
     },
+  },
+
+  ui: {
+    // Single UI font across every DOM overlay AND canvas text sprite. The face
+    // (montserrat.black.ttf) is registered via @font-face in public/style.css
+    // and preloaded for canvas draws in main.js; the stack falls back to the
+    // system sans until it loads / if the file is ever missing. It ships as one
+    // Black weight, so UI hierarchy comes from SIZE, not from font-weight
+    // (existing font-weight styles stay harmless — they all map to this face).
+    fontStack: "'Montserrat', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
   },
 
   colors: {

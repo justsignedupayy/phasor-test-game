@@ -1,3 +1,14 @@
+/* Single UI typeface for the whole game (see settings.ui.fontStack). Ships as a
+   lone Black weight; the 100–900 range maps every requested weight onto the one
+   file so nothing ever falls back to the system sans once loaded. */
+@font-face {
+    font-family: 'Montserrat';
+    src: url('/assets/fonts/montserrat.black.ttf') format('truetype');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -12,6 +23,7 @@ html, body {
 }
 
 body {
+    font-family: 'Montserrat', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
     touch-action: none;          /* no scroll/zoom interfering with the joystick */
     user-select: none;
     -webkit-user-select: none;

@@ -338,7 +338,7 @@ function drawShelfLabelSprite(sprite, productType, stockText) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = settings.colors.label;
-  ctx.font = '800 30px Arial, sans-serif';
+  ctx.font = `800 30px ${settings.ui.fontStack}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';
@@ -361,7 +361,7 @@ function drawLabelSprite(sprite, text) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = settings.colors.label;
-  ctx.font = '800 30px Arial, sans-serif';
+  ctx.font = `800 30px ${settings.ui.fontStack}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,0.6)';

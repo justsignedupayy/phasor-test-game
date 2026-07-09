@@ -1,6 +1,7 @@
 import { breakRemaining, endBreak } from '../core/breaks.js';
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
+import settings from '../config/settings.js';
 
 /**
  * BreakMenu — a small DOM panel (not a full-screen overlay) opened by tapping a
@@ -35,7 +36,7 @@ export class BreakMenu {
       border: '1px solid rgba(255,255,255,0.14)',
       borderRadius: '12px',
       color: '#e7ecf2',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: settings.ui.fontStack,
       userSelect: 'none',
       zIndex: '18',
     });

@@ -1,6 +1,7 @@
 import { truckDeliveryTime, orderTruck, callTruckEarly } from '../core/supermarket.js';
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
+import settings from '../config/settings.js';
 
 /**
  * TruckMenu — a small DOM panel (styled to match BreakMenu / the Advertising
@@ -36,7 +37,7 @@ export class TruckMenu {
       border: '1px solid rgba(255,255,255,0.14)',
       borderRadius: '12px',
       color: '#e7ecf2',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: settings.ui.fontStack,
       userSelect: 'none',
       zIndex: '18',
     });

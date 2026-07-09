@@ -64,7 +64,7 @@ function getAngerTexture() {
   ctx.stroke();
 
   ctx.fillStyle = ANGER_FILL;
-  ctx.font = '800 34px Arial, sans-serif';
+  ctx.font = `800 34px ${settings.ui.fontStack}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('?!@&#!', w / 2, by + bh / 2 + 2);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import settings from '../config/settings.js';
 
 /**
  * ZzzEffect — the classic cartoon sleep effect above a worker's head while
@@ -35,7 +36,7 @@ function getZTexture() {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.font = 'bold 48px Arial, sans-serif';
+  ctx.font = `bold 48px ${settings.ui.fontStack}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 7;

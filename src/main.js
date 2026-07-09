@@ -44,6 +44,14 @@ import { PoofEffects, RevealPoofs } from './scene/Poof.js';
 
 const container = document.getElementById('app');
 
+// Warm the UI font (settings.ui.fontStack / @font-face in style.css) so canvas
+// text sprites — customer requests, pit labels, cash popups — draw in it from
+// the first frame instead of the system fallback. Fire-and-forget: canvas draws
+// don't trigger a font load on their own the way DOM text does.
+if (document.fonts?.load) {
+  document.fonts.load("900 34px 'Montserrat'").catch(() => {});
+}
+
 // Core state (Three-free) and render layer. Resume a save if one exists; if it
 // is one (not a fresh state) and carries a savedAt, estimate what was earned
 // while away — handed to the Hud below once it exists (Hud owns draining it in).
@@ -314,7 +322,7 @@ function showLoading() {
     top: '50%',
     left: '50%',
     transform: 'translate(-50%, -50%)',
-    font: '800 22px Arial, sans-serif',
+    font: `800 22px ${settings.ui.fontStack}`,
     color: '#e7ecf2',
     textShadow: '0 2px 0 rgba(0,0,0,0.6)',
     pointerEvents: 'none',

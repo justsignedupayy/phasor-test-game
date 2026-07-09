@@ -53,11 +53,6 @@ export class UpgradeMenu {
   // top edge, physically read as the handle of the panel it opens. Pixel
   // values below are load-bearing (see the design handoff), not eyeballed.
   #buildButton() {
-    const fontLink = document.createElement('link');
-    fontLink.rel = 'stylesheet';
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600&display=swap';
-    document.head.appendChild(fontLink);
-
     const btn = document.createElement('button');
     Object.assign(btn.style, {
       position: 'fixed',
@@ -120,7 +115,7 @@ export class UpgradeMenu {
     const label = document.createElement('span');
     label.textContent = 'Upgrades';
     Object.assign(label.style, {
-      fontFamily: "'Barlow Semi Condensed', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+      fontFamily: FONT,
       fontWeight: '600',
       fontSize: '14px',
       letterSpacing: '0.02em',
@@ -756,7 +751,7 @@ export class UpgradeMenu {
 
 // --- 2A design tokens -------------------------------------------------------
 
-const FONT = "'Nunito', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+const FONT = settings.ui.fontStack;
 
 const TAB_ACTIVE = {
   fontWeight: '800',
@@ -919,18 +914,13 @@ function buildStatusBar() {
 }
 
 // One shared stylesheet for what inline styles can't do: press feedback on the
-// enabled buy buttons and a dark scrollbar for the screen's content area.
-// Also kicks off the Nunito web-font load here (not in index.html) so a slow
-// or blocked fonts CDN can never delay the game's first paint — until/unless
-// it arrives, the FONT stack just falls back to the system sans.
+// enabled buy buttons and a dark scrollbar for the screen's content area. The UI
+// font itself is the local Montserrat face (settings.ui.fontStack / @font-face
+// in public/style.css) — no web-font CDN load, so it can never delay first paint.
 let menuStylesInjected = false;
 function injectMenuStylesheet() {
   if (menuStylesInjected) return;
   menuStylesInjected = true;
-  const font = document.createElement('link');
-  font.rel = 'stylesheet';
-  font.href = 'https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap';
-  document.head.appendChild(font);
   const style = document.createElement('style');
   style.textContent = `
     .um-cost:not(:disabled):active { transform: translateY(2px); filter: brightness(0.95); }

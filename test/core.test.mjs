@@ -1988,7 +1988,10 @@ check('fresh game: expand (rep-locked), pit-0 hire, market, cashier and gas mark
   assert.ok(expand, 'next locked lot (B) carries the expand marker');
   assert.equal(expand.cost, expandRoomCost(s));
   assert.equal(expand.locked, true, 'rep 5% < lot B\'s 10% gate');
-  assert.deepEqual({ x: expand.x, z: expand.z }, settings.pit.positions[1]);
+  assert.deepEqual({ x: expand.x, z: expand.z }, {
+    x: settings.pit.positions[1].x + settings.unlockMarkers.expandOffset.x,
+    z: settings.pit.positions[1].z + settings.unlockMarkers.expandOffset.z,
+  });
 
   const hire = m.get('hireMechanic:0');
   assert.ok(hire, 'pit 0 is equipped but unmanned → hire marker');

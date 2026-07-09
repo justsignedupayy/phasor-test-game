@@ -479,8 +479,8 @@ export function getUnlockMarkers(state) {
     markers.push({
       kind: 'expandRoom',
       index: nextPit.index,
-      x: p.x,
-      z: p.z,
+      x: p.x + M.expandOffset.x,
+      z: p.z + M.expandOffset.z,
       cost: expandRoomCost(state),
       locked,
       hint: locked

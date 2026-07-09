@@ -41,7 +41,29 @@ export const settings = {
     grass: {
       buffer: 60,
       segments: 72,
-      colorJitter: 0.14,
+      colorJitter: 0.1, // kept gentle — big saturation swings made the field look artificial
+    },
+    // Procedural surface detail (scene/groundTextures.js, visual only):
+    // canvas-drawn, seamlessly tileable textures + bump maps for the grass
+    // field, road slabs, garage floor patches and building walls. *Tile =
+    // world units covered by one texture repeat (smaller = busier);
+    // *BumpScale = bump-map relief strength. dirtTint is a per-channel
+    // multiplier (0xffffff = no change) applied over colors.grass inside the
+    // grass texture's dirt patches. brick* set the walls' brick size in world
+    // units and the baked brick/mortar palette. Tune by eye in `npm run dev`.
+    surfaceTexture: {
+      grassTile: 11,
+      roadTile: 6,
+      floorTile: 9,
+      grassBumpScale: 0.6,
+      roadBumpScale: 0.8,
+      floorBumpScale: 0.25,
+      dirtTint: 0xd9c9ab,
+      brickWidth: 1.1, // one brick's world-unit length along the wall
+      brickHeight: 0.42, // one course's world-unit height (~7 courses on a 3-high wall)
+      brickColor: 0xbfa38a, // warm sandy brick, close kin to the old off-white walls
+      mortarColor: 0xd6d0c6, // light grey joints, a touch brighter than the bricks
+      brickBumpScale: 0.5,
     },
   },
 
@@ -885,9 +907,9 @@ export const settings = {
   // often, so breaks-per-hour stay unchanged); the market worker's is untouched
   // because customer traffic (customerSpawnInterval) didn't change.
   breakThresholds: {
-    carMechanic: 500,
+    carMechanic: 50,
     marketWorker: 50,
-    gasAttendant: 500, // one job = one filled car
+    gasAttendant: 50, // one job = one filled car
   },
 
   // How long (real seconds) a break lasts.
@@ -920,6 +942,25 @@ export const settings = {
     // wall, `side` = across it, `lift` = raise/lower. STARTING VALUE — tune by
     // eye, worker leaning upright against the wall, no furniture to sink into.
     leanOffset: { side: 0, forward: 0, lift: 0 },
+    // Wall-mounted LED break displays (scene/BreakDisplay.js, visual only):
+    // one panel per worker slot at its break-lean spot, showing jobs-to-break
+    // while working and the mm:ss countdown while resting. Panels hang high on
+    // the wall the worker leans against (pit mechanics: front wall; market
+    // worker: left wall); pump attendants have no wall, so theirs stand on a
+    // pole at the spot. LED colours are CSS strings (canvas-drawn); the frame
+    // is a hex int (a lit material). STARTING VALUES — tune by eye.
+    display: {
+      width: 1.6, // panel world width
+      height: 0.55, // panel world height
+      y: 2.35, // panel centre height on the wall (wall top = world.wallHeight = 3)
+      wallInset: 0.06, // stand-off from the wall's inner face (avoids z-fighting)
+      poleY: 2.2, // pole-mounted (pump) panel centre height
+      pumpBack: 0.5, // pole sits this far behind the attendant's spot (out of its lean space)
+      frameColor: 0x23272c, // the casing box + pole
+      ledColor: '#ff2d1e', // lit LED pixels
+      ledOffColor: '#3a0b06', // unlit pixels of the dot grid
+      bgColor: '#0a0a0a', // panel face behind the dots
+    },
   },
 
   colors: {
@@ -932,7 +973,7 @@ export const settings = {
     pit: 0x7a6e5e, // the bay/work-area floor patch, darker for contrast
     pitGlow: 0xffe08a, // highlight ring when the player can repair
     toolbox: 0xc0392b, // a small toolbox marking an equipped pit
-    grass: 0x8fae7a, // soft muted green for the exterior ground field (scene/GroundField.js)
+    grass: 0x7d975c, // muted natural lawn green for the exterior ground field (scene/GroundField.js)
     road: 0x4a4a4a, // asphalt outside each gate + the exterior entry/exit roads
     roadLine: 0xf5e642, // yellow divider line between adjacent pit bays
     laneStripe: 0xffffff, // white guide paint on the garage floor + exterior lane dashes

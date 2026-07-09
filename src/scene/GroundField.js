@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
+import { makeGrassMaterial } from './groundTextures.js';
 
 /**
  * GroundField — one large, static, low-poly grass plane under the entire world,
@@ -35,7 +36,9 @@ export class GroundField {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    const field = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true }));
+    // Tileable procedural grass map + bump over the vertex-colour facets, so
+    // the field reads as textured ground up close, not one smooth green sheet.
+    const field = new THREE.Mesh(geo, makeGrassMaterial(halfW * 2, halfD * 2));
     field.rotation.x = -Math.PI / 2;
     field.position.y = -0.02;
     field.receiveShadow = true;

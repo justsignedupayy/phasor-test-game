@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { ownedRightX } from '../core/upgrades.js';
+import { fitBrickSpan, makeAsphaltMaterial, makeBrickWallMaterials, makeFloorMaterial } from './groundTextures.js';
 
 // Door-frame pillar cross-section (a PILLAR_W × wallHeight × PILLAR_W box).
 // Shared by the frame builders AND the wall layout: pillar-framed door gaps are
@@ -127,9 +128,11 @@ export class Garage {
     const floorW = W.halfX * 2;
     const floorD = W.halfZ * 2;
 
+    // All three floor sheets get the tileable concrete grain map (their colour
+    // stays the settings tunable — the map is a neutral multiplier).
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(floorW, floorD),
-      new THREE.MeshStandardMaterial({ color: c.floor })
+      makeFloorMaterial(c.floor, floorW, floorD)
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
@@ -141,7 +144,7 @@ export class Garage {
     const lobbyW = lobbyRightX - -W.halfX;
     const lobby = new THREE.Mesh(
       new THREE.PlaneGeometry(lobbyW, floorD),
-      new THREE.MeshStandardMaterial({ color: c.lobby })
+      makeFloorMaterial(c.lobby, lobbyW, floorD)
     );
     lobby.rotation.x = -Math.PI / 2;
     lobby.position.set(-W.halfX + lobbyW / 2, 0.012, 0);
@@ -155,7 +158,7 @@ export class Garage {
     const bayW = W.halfX - lobbyRightX;
     const bay = new THREE.Mesh(
       new THREE.PlaneGeometry(bayW, floorD),
-      new THREE.MeshStandardMaterial({ color: c.pit })
+      makeFloorMaterial(c.pit, bayW, floorD)
     );
     bay.rotation.x = -Math.PI / 2;
     bay.position.set(lobbyRightX + bayW / 2, 0.012, 0);
@@ -227,7 +230,6 @@ export class Garage {
    * Each section is its own group, hidden until that pit's land is bought.
    */
   #buildExteriorRoads() {
-    const c = settings.colors;
     const W = settings.world;
     const P = settings.pit;
     const positions = P.positions;
@@ -237,7 +239,9 @@ export class Garage {
     const laneWidth = positions.length > 1 ? Math.abs(positions[1].x - positions[0].x) : 4.5;
 
     const R = W.road;
-    const roadMat = new THREE.MeshStandardMaterial({ color: c.road });
+    // Procedural asphalt (grain + worn mottling); every slab here is
+    // laneWidth × extent, so one shared material's repeat fits them all.
+    const roadMat = makeAsphaltMaterial(laneWidth, R.extent);
 
     // Roads run from each wall out to the road extent (past where cars spawn / drive
     // off), so they reach toward the world edge instead of stopping short of it.
@@ -301,7 +305,7 @@ export class Garage {
 
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(laneWidth, z1 - z0),
-      new THREE.MeshStandardMaterial({ color: c.road })
+      makeAsphaltMaterial(laneWidth, z1 - z0)
     );
     road.rotation.x = -Math.PI / 2;
     road.position.set(truckX, 0.006, (z0 + z1) / 2); // matches the per-pit slabs' y
@@ -408,9 +412,19 @@ export class Garage {
     // so both right corners are filled flush — no gap where the bands meet.
     const depthZ = W.halfZ * 2 + 2 * t;
 
-    this.wallMat = new THREE.MeshStandardMaterial({ color: settings.colors.wall, flatShading: true });
-    const box = (w, d) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.wallMat);
+    // Every wall piece gets its OWN per-face brick materials (not one shared
+    // material): texture repeat/offset are per-texture state, the side/end/top
+    // faces need different repeats to avoid stretching, and the pooled
+    // segments are rescaled per frame — each one's run-dependent faces are
+    // refit to its world span by fitBrickSpan in the layout passes. runW is
+    // the piece's build-time run length (1 for pooled segments, refit later);
+    // runAxis is the world axis the wall runs along.
+    const box = (w, d, runW, runAxis) => {
+      const depth = runAxis === 'x' ? d : w; // wall thickness across the run
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, d),
+        makeBrickWallMaterials(runW, h, depth, runAxis)
+      );
       m.castShadow = true;
       m.receiveShadow = true;
       return m;
@@ -425,8 +439,9 @@ export class Garage {
     // same machinery as the other walls.
     this.leftSegments = this.#buildLeftWallSegments(box);
 
-    // Right wall: slides to rightWallX each frame (solid, full depth).
-    this.rightWall = box(t, depthZ);
+    // Right wall: slides to rightWallX each frame (solid, full depth — it only
+    // translates, never rescales, so its brick tiling is set once here).
+    this.rightWall = box(t, depthZ, depthZ, 'z');
     this.group.add(this.rightWall);
 
     // Front + back walls: pools of unit-width segments; gaps are left at unlocked
@@ -441,7 +456,7 @@ export class Garage {
     const W = settings.world;
     const pool = [];
     for (let i = 0; i < count; i++) {
-      const seg = box(1, W.wallThickness);
+      const seg = box(1, W.wallThickness, 1, 'x');
       seg.visible = false;
       this.group.add(seg);
       pool.push(seg);
@@ -453,7 +468,7 @@ export class Garage {
   #buildLeftWallSegments(box) {
     const pool = [];
     for (let i = 0; i < 2; i++) {
-      const seg = box(settings.world.wallThickness, 1);
+      const seg = box(settings.world.wallThickness, 1, 1, 'z');
       seg.visible = false;
       this.group.add(seg);
       pool.push(seg);
@@ -510,17 +525,20 @@ export class Garage {
     const h = W.wallHeight;
 
     const group = new THREE.Group();
-    // Matches the lobby floor the corridors spill out of, so they read as one space.
-    const floorMat = new THREE.MeshStandardMaterial({ color: settings.colors.lobby });
 
     // One corridor from the building wall's slab centre (wallZ) out to the
     // relocated door plane (doorZ); works on either wall — the direction falls
     // out of the two z's.
     const corridor = (doorX, wallZ, doorZ) => {
       const dir = Math.sign(doorZ - wallZ);
-      // Floor: the corridor interior, from the building wall out past the door frame.
+      // Floor: the corridor interior, from the building wall out past the door
+      // frame. Matches the lobby floor (colour + concrete grain) the corridors
+      // spill out of, so they read as one space.
       const depth = Math.abs(doorZ) + t / 2 - W.halfZ;
-      const floor = new THREE.Mesh(new THREE.PlaneGeometry(g * 2, depth), floorMat);
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(g * 2, depth),
+        makeFloorMaterial(settings.colors.lobby, g * 2, depth)
+      );
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(doorX, 0.012, dir * (W.halfZ + depth / 2));
       floor.receiveShadow = true;
@@ -533,7 +551,11 @@ export class Garage {
       const zStart = dir * (W.halfZ + t);
       const zEnd = doorZ - dir * (PILLAR_W / 2);
       for (const side of [-1, 1]) {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, Math.abs(zEnd - zStart)), this.wallMat);
+        const len = Math.abs(zEnd - zStart);
+        const wall = new THREE.Mesh(
+          new THREE.BoxGeometry(t, h, len),
+          makeBrickWallMaterials(len, h, t, 'z')
+        );
         wall.position.set(doorX + side * (g + t / 2), h / 2, (zStart + zEnd) / 2);
         wall.castShadow = true;
         wall.receiveShadow = true;
@@ -672,6 +694,7 @@ export class Garage {
       mesh.visible = width > 0.001;
       mesh.scale.x = Math.max(0.001, width);
       mesh.position.set((a + b) / 2, h / 2, wallZ);
+      fitBrickSpan(mesh.material, a, b); // keep bricks world-sized + world-anchored while the segment rescales
     });
   }
 
@@ -705,6 +728,7 @@ export class Garage {
       mesh.visible = true;
       mesh.scale.z = Math.max(0.001, z1 - z0);
       mesh.position.set(x, h / 2, (z0 + z1) / 2);
+      fitBrickSpan(mesh.material, z0, z1); // this wall runs along z; same refit as the x-walls
     });
   }
 }

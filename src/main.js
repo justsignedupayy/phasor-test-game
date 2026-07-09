@@ -34,6 +34,7 @@ import { CarriedBox } from './scene/CarriedBox.js';
 import { SupermarketView } from './scene/SupermarketView.js';
 import { GasStationView } from './scene/GasStationView.js';
 import { BreakMenu } from './scene/BreakMenu.js';
+import { BreakDisplays } from './scene/BreakDisplay.js';
 import { TruckMenu } from './scene/TruckMenu.js';
 import { UnlockMarkers } from './scene/UnlockMarkers.js';
 import { SlidingDoors } from './scene/SlidingDoors.js';
@@ -64,6 +65,9 @@ const menu = new UpgradeMenu(state);
 
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
+// Wall-mounted LED panels over every worker's break-lean spot (jobs-to-break /
+// break countdown), driven purely from core break state each frame.
+const breakDisplays = new BreakDisplays(sceneManager);
 const bridges = new Bridges(sceneManager);
 // Static tunnel-mouth props at the market's customer entry + exit (customers
 // emerge from / vanish into them rather than popping in/out); shown with the market.
@@ -283,6 +287,7 @@ async function main() {
     carYard.update(dt, state);
     supermarketView.update(dt, state);
     gasStationView.update(dt, state);
+    breakDisplays.update(state);
     pitMoney.update(dt, state, state.player.position);
     pumpMoney.update(dt, state, state.player.position);
     unlockMarkers.update(dt, state, state.player.position);

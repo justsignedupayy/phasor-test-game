@@ -4,6 +4,7 @@ import { CarView } from './CarView.js';
 import { Mechanic } from './Mechanic.js';
 import { makeLabelSprite } from './PitView.js';
 import { cloneStorageModel } from './StorageModels.js';
+import { makeAsphaltMaterial } from './groundTextures.js';
 import { showCashPopup } from './popup.js';
 import { requiredFillTicks } from '../core/gasStation.js';
 import { formatMoney } from '../core/format.js';
@@ -68,7 +69,7 @@ export class GasStationView {
     const z1 = W.halfZ + R.extent;
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(laneWidth, z1 - z0),
-      new THREE.MeshStandardMaterial({ color: c.road })
+      makeAsphaltMaterial(laneWidth, z1 - z0)
     );
     road.rotation.x = -Math.PI / 2;
     road.position.set(pos.x, 0.006, (z0 + z1) / 2);

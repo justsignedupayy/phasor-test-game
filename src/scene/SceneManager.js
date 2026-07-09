@@ -52,13 +52,30 @@ export class SceneManager {
     this.camTarget.z += (z - this.camTarget.z) * k;
     this.camera.position.set(this.camTarget.x + d, d, this.camTarget.z + d);
     this.camera.lookAt(this.camTarget);
+
+    // The key light (and so its shadow box) rides along with the camera target
+    // at a constant offset: shadows exist everywhere the camera goes, instead
+    // of only inside a fixed ±22-unit box around the world origin.
+    this.dirLight.position.set(
+      this.camTarget.x + this.dirOffset.x,
+      this.dirOffset.y,
+      this.camTarget.z + this.dirOffset.z
+    );
+    this.dirLight.target.position.set(this.camTarget.x, 0, this.camTarget.z);
   }
 
   #addLights() {
-    this.scene.add(new THREE.AmbientLight(0xfff5e0, 1.8));
+    // Sky/ground hemisphere instead of a flat ambient, and kept LOWER than the
+    // old ambient so the key light carries more of the exposure — surfaces get
+    // visible directional shading (and readable shadows) instead of uniform
+    // brightness, which flattened everything.
+    this.scene.add(new THREE.HemisphereLight(0xfff5e0, 0xa89c85, 1.15));
 
-    const dir = new THREE.DirectionalLight(0xfff0cc, 2.2);
-    dir.position.set(12, 20, 8);
+    // Key light: stronger and at a slightly lower sun angle than before, so
+    // ground bump/texture detail catches raking light and shadows read.
+    const dir = new THREE.DirectionalLight(0xfff0cc, 2.9);
+    this.dirOffset = new THREE.Vector3(12, 16, 8); // key direction; follow() keeps it relative to the view
+    dir.position.copy(this.dirOffset);
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
     const s = 22;
@@ -71,10 +88,11 @@ export class SceneManager {
     dir.shadow.bias = -0.0005;
     this.scene.add(dir);
     this.scene.add(dir.target);
+    this.dirLight = dir;
 
     // Softer fill from the opposite side so the unlit side of objects never
     // goes dark — no shadows, this light is purely there to fill.
-    const fill = new THREE.DirectionalLight(0xddeeff, 0.6);
+    const fill = new THREE.DirectionalLight(0xddeeff, 0.45);
     fill.position.set(-8, 10, -6);
     this.scene.add(fill);
   }

@@ -84,7 +84,7 @@ export class Hud {
 
     const cashBtn = this.#debugButton('💵 QUICK CASH', '#27ae60');
     cashBtn.addEventListener('click', () => {
-      this.state.cash += 1000;
+      this.state.cash += 5000;
     });
     this.quickCashButton = cashBtn;
 

@@ -42,6 +42,7 @@ export class UnlockMarkers {
     this.sig = '';
     this.progress = new Map(); // "kind:index" -> { paid, sendTimer, flights[] } — one live drain per marker
     this.labels = new Map(); // "kind:index" -> cost label sprite, so a payment can redraw it in place
+    this.wedges = new Map(); // "kind:index" -> pie-wedge fill mesh, so a payment can regrow it in place
     this.orphanFlights = []; // bill visuals still airborne after their drain ended (refund/complete)
   }
 
@@ -54,6 +55,7 @@ export class UnlockMarkers {
       for (const child of [...this.group.children]) disposeMarker(child);
       this.group.clear();
       this.labels.clear();
+      this.wedges.clear();
       for (const m of list) this.#build(m);
     }
 
@@ -86,6 +88,7 @@ export class UnlockMarkers {
             state.cash -= amount;
             p.paid += amount;
             this.#refreshLabel(key, Math.max(0, m.cost - p.paid), m);
+            this.#growWedge(key, Math.PI * 2 * (p.paid / m.cost));
             // Cosmetic bill flights pace the continuous drain, one per interval.
             p.sendTimer -= dt;
             if (p.sendTimer <= 0) {
@@ -159,6 +162,14 @@ export class UnlockMarkers {
     updateMarkerLabel(label, costText, m.hint, m.locked);
   }
 
+  /** Regrow a marker's cash-fill wedge to thetaLength radians (dispose+replace geometry). */
+  #growWedge(key, thetaLength) {
+    const wedge = this.wedges.get(key);
+    if (!wedge) return;
+    wedge.geometry.dispose();
+    wedge.geometry = new THREE.CircleGeometry(settings.unlockMarkers.radius, 40, Math.PI / 2, thetaLength);
+  }
+
   #build(m) {
     const M = settings.unlockMarkers;
     const holder = new THREE.Group();
@@ -178,11 +189,44 @@ export class UnlockMarkers {
     circle.position.set(m.x, 0.02, m.z);
     holder.add(circle);
 
+    // Cash-fill wedge: grows clockwise from 12 o'clock as the drain pays down
+    // this marker's cost, in wedgeColor (a solid dark green — money.cashTintColor
+    // is too pale once spread across a large flat fill). Same y as the base
+    // circle, NOT a y gap: the camera is an angled isometric ortho (see
+    // settings.camera), so lifting the wedge even 0.01 above the circle shifts
+    // its on-screen projection sideways relative to the circle beneath it — a
+    // thin partial wedge's footprint lands mostly off the circle and barely
+    // reads, only converging back onto the circle's footprint near 100% fill
+    // (exactly the "invisible until nearly done" symptom). depthWrite:false on
+    // both meshes means they never depth-fight each other regardless of y, so
+    // real occlusion by nearer 3D geometry (characters, cars) still comes for
+    // free from the normal depth test against the opaque buffer drawn earlier
+    // — coplanar + depthTest:true is safe. What still needs forcing is PAINT
+    // ORDER between these two specific coplanar meshes (camera-distance sort
+    // ties at identical positions and can flip frame to frame): renderOrder
+    // makes that deterministic without touching depth at all. Color/opacity
+    // are fixed constants; the fill amount is communicated purely by sweep angle.
+    const key = `${m.kind}:${m.index ?? ''}`;
+    const paidSoFar = this.progress.get(key)?.paid ?? 0;
+    const initialTheta = Math.PI * 2 * (paidSoFar / m.cost);
+    const wedge = new THREE.Mesh(
+      new THREE.CircleGeometry(M.radius, 40, Math.PI / 2, initialTheta),
+      new THREE.MeshBasicMaterial({
+        color: settings.unlockMarkers.wedgeColor,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+      })
+    );
+    wedge.rotation.x = -Math.PI / 2;
+    wedge.position.set(m.x, 0.02, m.z); // same y as the base circle — see note above
+    wedge.renderOrder = 1; // paints after circle's default 0, deterministically
+    holder.add(wedge);
+    this.wedges.set(key, wedge);
+
     // Cost (+ hint) label: a camera-facing sprite, big enough to read from afar.
     // Shows the REMAINING balance, not the original cost, in case this marker
     // already has a partial payment in flight from before the rebuild.
-    const key = `${m.kind}:${m.index ?? ''}`;
-    const paidSoFar = this.progress.get(key)?.paid ?? 0;
     const label = makeMarkerLabel(`$${formatMoney(Math.max(0, m.cost - paidSoFar))}`, m.hint, m.locked);
     // The gas-gate marker's label rides higher so it clears the cashier
     // marker's label next door (see settings.unlockMarkers.gasEntryLabelHeight).

@@ -475,6 +475,11 @@ export const settings = {
     unlockDuration: 5, // seconds of standing in a marker to complete ANY unlock
     billInterval: 0.08, // seconds between cosmetic bill flights while draining
     billFlyDuration: 0.15, // seconds for one bill's flight from player to marker
+    // Dedicated dark green for the progress wedge fill — money.cashTintColor is
+    // a pale mint tuned for small flying bill props and reads as barely-there
+    // spread across a large flat fill. This one stays unmistakably green even
+    // at a small slice.
+    wedgeColor: 0x1b7a3d,
   },
 
   // Pay from finished cars waits at its own pit as a small stack of bills (see

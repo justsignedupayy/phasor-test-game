@@ -50,14 +50,18 @@ import { frontCustomer } from './supermarket.js';
 /**
  * The steps, in order. state.tutorial.step indexes into this list.
  *
- * NOTE on the worker-lifecycle trio: firstRestock sits BEFORE firstBreak on
- * purpose. A box holds 25 tires and, past pit A's special early first break
- * (settings.breakThresholds.pitAFirstBreak jobs, which may land before these
- * steps), every later break needs the full 50 jobs — so while WAITING on the
- * firstBreak step pit A can run dry first, and a dry pit stops taking cars,
- * which stops jobs, which means the break could never arrive. The restock
- * step must therefore come first (and firstBreak carries its own out-of-tires
- * guidance while waiting — see pendingView).
+ * NOTE on the worker-lifecycle trio: firstBreak sits BEFORE firstRestock on
+ * purpose. The break this step showcases is pit A's special EARLY first break
+ * (settings.breakThresholds.pitAFirstBreak = 5 jobs, 30s — see
+ * GameState.createPit), which arrives long before the pit's 25-tire stack can
+ * run dry — so the step must already be current to catch it live; parked
+ * behind firstRestock (which waits for the dry pit at ~25 jobs) it could only
+ * ever fire on the SECOND, full-threshold break. A first break the player
+ * still manages to miss (come and gone during an earlier step) is remembered
+ * by t.firstBreakEverStarted and the step completes itself instead of waiting
+ * ~50 more jobs for the next one; and if the pit somehow runs dry while
+ * waiting, firstBreak carries its own out-of-tires guidance (see pendingView)
+ * so no-tires → no-jobs → no-break can't deadlock it.
  */
 export const TUTORIAL_STEPS = [
   'repairCars', // complete settings.tutorial.repairCount manual repairs at pit A
@@ -65,8 +69,8 @@ export const TUTORIAL_STEPS = [
   'hireMechanic', // (once affordable) hire pit A's worker at its ground marker
   'breakLed', // walk to pit A's wall LED (jobs-to-break / break countdown)
   'firstPendingCash', // pit A's worker banks its first pending cash → tap to hurry, walk up to collect
+  'firstBreak', // the worker's special early first break → tap them (or let it end)
   'firstRestock', // pit A runs dry under the worker → hand-carry a box
-  'firstBreak', // the worker's first break → tap them (or let it end)
   'viewWorkerUpgrade', // open the tablet's Garage tab (seeing the Worker Speed row is enough)
   'gainReputation', // perform ONE reputation gain (Watch Ad or Buy Advertising)
   'buyLotB', // (once affordable) buy lot B at its ground marker
@@ -95,6 +99,11 @@ export function createTutorialState() {
     // the cash gets auto-collected (player standing there) before this step is even reached, so
     // a pit that runs fully dry in the meantime (no more repairs possible, pendingCash back at 0)
     // can't erase the only evidence the step's visibility check would otherwise rely on.
+    firstBreakEverStarted: false, // step 'firstBreak': latched the FIRST time pit 0's worker is
+    // ever seen on break, regardless of the current step. Pit A's special early first break
+    // (5 jobs, 30s — see GameState.createPit) can come and go while an earlier step is still
+    // current; without this latch the step's visibility could only catch a break running LIVE,
+    // silently waiting for the second (full-threshold) break instead of the first.
   };
 }
 
@@ -136,7 +145,11 @@ function stepVisible(state, id) {
     case 'firstRestock':
       return state.pits[0].tiresRemaining <= 0; // waits for the pit to actually run dry
     case 'firstBreak':
-      return state.pits[0].break.onBreak; // waits for the worker's first break
+      // firstBreakEverStarted is the real signal (see createTutorialState): the
+      // special early first break may already be over before this step is even
+      // reached — a live onBreak check alone would skip it and sit waiting for
+      // the SECOND break. The live check is the common in-the-moment case.
+      return state.tutorial.firstBreakEverStarted || state.pits[0].break.onBreak;
     default:
       return true;
   }
@@ -196,6 +209,11 @@ export function tickTutorial(state, dt) {
   const t = state.tutorial;
   if (!t || !t.active) return;
 
+  // Pit A's worker's first break can start (and end, 30 seconds later) while an
+  // earlier step is still current — latch that it ever happened, on every step,
+  // so 'firstBreak' never has to catch it live (see stepVisible).
+  if (state.pits[0].break.onBreak) t.firstBreakEverStarted = true;
+
   const id = TUTORIAL_STEPS[t.step];
   if (!t.shown && stepVisible(state, id)) t.shown = true;
 
@@ -223,7 +241,10 @@ export function tickTutorial(state, dt) {
     case 'firstBreak':
       // Tapping the resting worker advances via notifyBreakMenuOpened; a break
       // that simply ran its course (or was ad-ended) completes the step too —
-      // there is no resting worker left to point at.
+      // there is no resting worker left to point at. The same line auto-skips
+      // the step when the first break came and went entirely during an earlier
+      // step (shown latches off firstBreakEverStarted with onBreak already
+      // false) rather than waiting for the second break.
       if (t.shown && !state.pits[0].break.onBreak) advance(state);
       break;
     case 'gainReputation':

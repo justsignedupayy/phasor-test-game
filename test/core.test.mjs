@@ -2425,9 +2425,28 @@ check('the full guided path runs start to finish against live state', () => {
   assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, workerSpot, 'highlights the worker itself');
   s.pits[0].pendingCash = 0; // mirrors collectPending banking it on player proximity
   tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'firstBreak');
+
+  // 6: the worker's special early first break — hidden until it happens, with a
+  // dry-pit guard meanwhile
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s), null, 'nothing to show while the worker keeps working');
+  s.pits[0].tiresRemaining = 0; // the deadlock guard: no tires → no jobs → no break ever
+  v = getTutorialView(s);
+  assert.equal(v.pending, true);
+  assert.ok(v.text.includes('grab a box'), 'guides a restock so the break can still arrive');
+  s.pits[0].tiresRemaining = settings.storage.maxTiresPerPit;
+  s.pits[0].break.onBreak = true; // the special early first break arrives (5 jobs in)
+  tickTutorial(s, 0.016);
+  v = getTutorialView(s);
+  assert.equal(v.id, 'firstBreak');
+  assert.ok(v.text.includes('Tap them'), 'explains the wake-early tap');
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, breakSpot, 'highlights the resting spot');
+  notifyBreakMenuOpened(s, 0); // the player taps the resting worker
+  s.pits[0].break.onBreak = false;
   assert.equal(currentTutorialStep(s), 'firstRestock');
 
-  // 6: the first dry pit under the worker — hidden until tires actually run out
+  // 7: the first dry pit under the worker — hidden until tires actually run out
   tickTutorial(s, 0.016);
   assert.equal(getTutorialView(s), null, 'nothing to show while the worker still has tires');
   s.pits[0].tiresRemaining = 0;
@@ -2441,24 +2460,6 @@ check('the full guided path runs start to finish against live state', () => {
   s.pits[0].playerPresent = true;
   tick(s, 0.016); // the delivery refills the pit and completes the step
   s.pits[0].playerPresent = false;
-  assert.equal(currentTutorialStep(s), 'firstBreak');
-
-  // 7: the worker's first break — hidden until it happens, with a dry-pit guard meanwhile
-  tickTutorial(s, 0.016);
-  assert.equal(getTutorialView(s), null, 'nothing to show while the worker keeps working');
-  s.pits[0].tiresRemaining = 0; // the deadlock guard: no tires → no jobs → no break ever
-  v = getTutorialView(s);
-  assert.equal(v.pending, true);
-  assert.ok(v.text.includes('grab a box'), 'guides a restock so the break can still arrive');
-  s.pits[0].tiresRemaining = settings.storage.maxTiresPerPit;
-  s.pits[0].break.onBreak = true; // the break arrives
-  tickTutorial(s, 0.016);
-  v = getTutorialView(s);
-  assert.equal(v.id, 'firstBreak');
-  assert.ok(v.text.includes('Tap them'), 'explains the wake-early tap');
-  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, breakSpot, 'highlights the resting spot');
-  notifyBreakMenuOpened(s, 0); // the player taps the resting worker
-  s.pits[0].break.onBreak = false;
   assert.equal(currentTutorialStep(s), 'viewWorkerUpgrade');
 
   // 8: view the Garage tab (a tablet anchor; seeing it is enough)
@@ -2591,7 +2592,43 @@ check('firstBreak also completes when the break simply runs its course', () => {
   assert.equal(getTutorialView(s).id, 'firstBreak');
   s.pits[0].break.onBreak = false; // the break ended on its own — nothing left to tap
   tickTutorial(s, 0.016);
-  assert.equal(currentTutorialStep(s), 'viewWorkerUpgrade');
+  assert.equal(currentTutorialStep(s), 'firstRestock');
+});
+
+check('the special early first break is the one that fires the firstBreak step', () => {
+  const s = createInitialState();
+  s.permanentReputation = 0; // rusty cars → pit 0
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('firstBreak');
+  s.tutorial.shown = false;
+  let guard = 0;
+  while (!s.pits[0].break.onBreak && guard++ < 200000) {
+    tick(s, 0.05);
+    tickTutorial(s, 0.05);
+  }
+  assert.equal(s.pits[0].break.onBreak, true, 'the worker eventually breaks');
+  const jobsDone = settings.storage.maxTiresPerPit - s.pits[0].tiresRemaining; // one tire per repair
+  assert.equal(jobsDone, settings.breakThresholds.pitAFirstBreak, 'it is the special 5-job FIRST break, not the 50-job one');
+  tickTutorial(s, 0.05);
+  assert.equal(getTutorialView(s).id, 'firstBreak', 'the step is live during that first break');
+});
+
+check('firstBreak does not wait for the SECOND break when the first came and went during an earlier step', () => {
+  const s = createInitialState();
+  // The special early first break trips + ends while the tutorial is still on
+  // an earlier step…
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('breakLed');
+  s.pits[0].break.onBreak = true;
+  tickTutorial(s, 0.016);
+  assert.equal(s.tutorial.firstBreakEverStarted, true, 'the break is latched from a foreign step');
+  endBreak(s.pits[0].break); // …and is over before firstBreak is ever reached
+  // Reaching the step later: it completes off the latch instead of silently
+  // waiting ~50 more jobs for the second break.
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('firstBreak');
+  s.tutorial.shown = false;
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'firstRestock', 'auto-skips — nothing left to point at');
 });
 
 check('firstPendingCash still latches + advances even when the player is already standing at the pit (same-tick collection)', () => {
@@ -2609,7 +2646,7 @@ check('firstPendingCash still latches + advances even when the player is already
     if (getTutorialView(s)?.id === 'firstPendingCash') sawHighlight = true;
   }
   assert.ok(sawHighlight, 'onPitCashAccrued latches the step even though pendingCash bounces straight back to 0');
-  assert.equal(currentTutorialStep(s), 'firstRestock', 'the step still advances instead of getting stuck');
+  assert.equal(currentTutorialStep(s), 'firstBreak', 'the step still advances instead of getting stuck');
 });
 
 check('firstPendingCash also completes via a hurry tap, not just walking up to collect', () => {
@@ -2617,7 +2654,7 @@ check('firstPendingCash also completes via a hurry tap, not just walking up to c
   // walk up to collect"), but only collecting used to clear the step. A
   // player who taps hurry (the one-tap action, no walking required) and never
   // returns to the pit got stuck here forever, silently blocking every step
-  // after it (firstRestock, firstBreak, viewWorkerUpgrade, gainReputation, ...).
+  // after it (firstBreak, firstRestock, viewWorkerUpgrade, gainReputation, ...).
   const s = createInitialState();
   s.cash = 1e9;
   hireMechanic(s, 0);
@@ -2635,7 +2672,7 @@ check('firstPendingCash also completes via a hurry tap, not just walking up to c
     ticks++;
   }
   assert.ok(sawHighlight, 'the message rendered before the hurry tap completed it');
-  assert.equal(currentTutorialStep(s), 'firstRestock', 'a hurry tap alone advances the step -- no deadlock');
+  assert.equal(currentTutorialStep(s), 'firstBreak', 'a hurry tap alone advances the step -- no deadlock');
   assert.ok(s.pits[0].pendingCash > 0, 'the cash itself is still sitting uncollected, as it should be');
 });
 
@@ -2684,7 +2721,7 @@ check('firstPendingCash does not deadlock when the pit runs fully dry (and its c
     if (getTutorialView(s)?.id === 'firstPendingCash') sawHighlight = true;
   }
   assert.ok(sawHighlight, 'pendingCashEverEarned latches the step even with a dry pit and nothing left to collect');
-  assert.equal(currentTutorialStep(s), 'firstRestock', 'the step still advances -- no deadlock');
+  assert.equal(currentTutorialStep(s), 'firstBreak', 'the step still advances -- no deadlock');
 });
 
 check('gainReputation does not deadlock when reputation was already maxed BEFORE reaching the step', () => {

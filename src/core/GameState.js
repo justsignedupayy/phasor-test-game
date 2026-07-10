@@ -4,6 +4,7 @@
  */
 import settings from '../config/settings.js';
 import { createBreakState } from './breaks.js';
+import { createTutorialState } from './tutorial.js';
 
 /**
  * One repair pit. Two-stage unlock: roomUnlocked (empty floor) then equipped
@@ -191,6 +192,11 @@ export class GameState {
 
     // The gas station (see core/gasStation.js + upgrades.js).
     this.gasStation = createGasStationState();
+
+    // The mandatory first-game tutorial (see core/tutorial.js): step index,
+    // manual-repair countdown and the done/active flag — persisted with the
+    // save, so it runs exactly once per fresh game.
+    this.tutorial = createTutorialState();
   }
 }
 

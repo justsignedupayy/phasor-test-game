@@ -483,6 +483,7 @@ export function getUnlockMarkers(state) {
       z: p.z + M.expandOffset.z,
       cost: expandRoomCost(state),
       locked,
+      category: `Buy Lot ${letter(nextPit.index)}`,
       hint: locked
         ? `Needs ${Math.round(settings.pit.unlockReputation[nextPit.index] * 100)}% reputation`
         : `Buy lot ${letter(nextPit.index)}`,
@@ -499,6 +500,7 @@ export function getUnlockMarkers(state) {
         z: p.z,
         cost: pitEquipmentCost(state, pit.index),
         locked: false,
+        category: 'Garage Upgrade',
         hint: `Equip pit ${letter(pit.index)}`,
       });
     }
@@ -510,6 +512,7 @@ export function getUnlockMarkers(state) {
         z: p.z + M.hireOffset.z,
         cost: hireCost(state, pit.index),
         locked: false,
+        category: 'Hire Worker',
         hint: `Hire worker ${letter(pit.index)}`,
       });
     }
@@ -528,6 +531,7 @@ export function getUnlockMarkers(state) {
         z: settings.gasStation.gateZ,
         cost: gasExpandCost(state),
         locked: !ready,
+        category: 'Gas Station Unlock',
         hint: ready ? 'Open the gas station' : 'Finish the garage & market first',
       });
     } else {
@@ -539,6 +543,7 @@ export function getUnlockMarkers(state) {
         z: p.z,
         cost: gasExpandCost(state),
         locked: false,
+        category: 'Gas Station Upgrade',
         hint: `Buy pump lot ${nextPump.index + 1}`,
       });
     }
@@ -553,6 +558,7 @@ export function getUnlockMarkers(state) {
         z: p.z,
         cost: gasEquipmentCost(state, pump.index),
         locked: false,
+        category: 'Gas Station Upgrade',
         hint: `Install pump ${pump.index + 1}`,
       });
     }
@@ -564,6 +570,7 @@ export function getUnlockMarkers(state) {
         z: p.z + M.hireOffset.z,
         cost: attendantHireCost(state, pump.index),
         locked: false,
+        category: 'Hire Attendant',
         hint: `Hire attendant ${pump.index + 1}`,
       });
     }
@@ -575,7 +582,15 @@ export function getUnlockMarkers(state) {
   const S = state.supermarket;
   const spot = settings.supermarket.workerIdleSpot;
   if (!S.unlocked) {
-    markers.push({ kind: 'openMarket', x: spot.x, z: spot.z, cost: supermarketCost(state), locked: false, hint: 'Open the supermarket' });
+    markers.push({
+      kind: 'openMarket',
+      x: spot.x,
+      z: spot.z,
+      cost: supermarketCost(state),
+      locked: false,
+      category: 'Supermarket Unlock',
+      hint: 'Open the supermarket',
+    });
   } else if (S.workerLevel === 0) {
     const locked = cashierMissing(state); // the hire is cashier-gated, like every other market upgrade
     const hireSpot = settings.supermarket.hireWorkerMarkerSpot;
@@ -585,12 +600,21 @@ export function getUnlockMarkers(state) {
       z: hireSpot.z,
       cost: marketWorkerHireCost(state),
       locked,
+      category: 'Hire Market Worker',
       hint: locked ? 'Hire a cashier first' : 'Hire the market worker',
     });
   }
   if (!state.hasCashier) {
     const c = settings.supermarket.cashRegisterPosition;
-    markers.push({ kind: 'hireCashier', x: c.x, z: c.z, cost: cashierCost(state), locked: false, hint: 'Hire the cashier' });
+    markers.push({
+      kind: 'hireCashier',
+      x: c.x,
+      z: c.z,
+      cost: cashierCost(state),
+      locked: false,
+      category: 'Hire Cashier',
+      hint: 'Hire the cashier',
+    });
   }
 
   return markers;

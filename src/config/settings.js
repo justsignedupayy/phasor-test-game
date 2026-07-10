@@ -496,6 +496,32 @@ export const settings = {
     wedgeColor: 0x1b7a3d,
   },
 
+  // The mandatory first-game tutorial (core/tutorial.js + scene/TutorialView.js):
+  // a linear guided walk through the first unlocks, shown as a pulsing ground
+  // ring (or a glow on a tablet UI element) + a short instruction bubble. Pure
+  // guidance — gameplay is never gated; completion state persists in the save.
+  tutorial: {
+    repairCount: 25, // COMPLETED manual repairs step 1 counts down (one rep = one finished car, not one tap)
+    finalePopupSeconds: 8, // the closing popup auto-dismisses after this long (or on tap)
+    ledProximity: 4, // world-unit range that completes the "walk over to the LED" steps (break/truck panels)
+    // The screen-edge directional arrow shown while the current step's world
+    // target is outside the camera view (and the "open the tablet" nudge arrow
+    // under the Upgrades handle) — see scene/TutorialView.js.
+    arrow: {
+      size: 44, // arrow glyph font size (px)
+      edgeMargin: 56, // px inset from the viewport edges the arrow clamps to
+      buttonGap: 46, // px below the Upgrades handle the open-the-tablet arrow floats
+    },
+    ring: {
+      radius: 1.5, // glow ring outer radius (world units) — comfortably wraps a marker circle / car spot
+      thickness: 0.32, // radial width of the ring band
+      color: 0xffe08a, // matches colors.pitGlow / the label yellow, the game's "look here" tint
+      pulseSpeed: 3.2, // radians/sec of the pulse oscillation
+      pulseScale: 0.1, // ± fraction of scale swing per pulse
+    },
+    labelHeight: 2.8, // world-space height the instruction bubble anchors above a world target
+  },
+
   // Pay from finished cars waits at its own pit as a small stack of bills (see
   // scene/PitMoney.js) until the player walks up to collect (core banks it on
   // proximity). A hired cashier banks every payout straight to cash instead, so
@@ -577,12 +603,14 @@ export const settings = {
 
     shelfCapacity: 20, // max units per product, per shelf; starts full once unlocked
 
-    // A customer order is 1-5 items, so an average basket pays ~$30.
+    // A customer order is 1-5 items, so an average basket pays ~$30. Labels are
+    // the REAL product names, matching the shelf-sign photos in
+    // scene/productImages.js (fruit/bakery/veg/dairy.png) — keep the two in step.
     products: {
-      A: { price: 8, label: 'Canned Goods' },
-      B: { price: 6, label: 'Snacks' },
-      C: { price: 11, label: 'Frozen Pizza' },
-      D: { price: 15, label: 'Ice Cream' },
+      A: { price: 8, label: 'Fruit' },
+      B: { price: 6, label: 'Bakery' },
+      C: { price: 11, label: 'Veg' },
+      D: { price: 15, label: 'Dairy' },
     },
 
     customerSpawnInterval: 5, // seconds between spawns, once unlocked

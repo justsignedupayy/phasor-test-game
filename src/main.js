@@ -52,6 +52,13 @@ import { Bridges } from './scene/Bridges.js';
 import { Tunnels } from './scene/Tunnels.js';
 import { PoofEffects, RevealPoofs } from './scene/Poof.js';
 import { SparkleEffects } from './scene/Sparkle.js';
+import {
+  tickTutorial,
+  notifyGarageTabViewed,
+  notifyMarketShelfRestocked,
+  notifyBreakMenuOpened,
+} from './core/tutorial.js';
+import { TutorialView } from './scene/TutorialView.js';
 
 const container = document.getElementById('app');
 
@@ -141,6 +148,9 @@ async function main() {
   // Automatic sliding glass doors on the walk-in entrances (gas gate, customer
   // entry/exit, delivery gate); the delivery door also tracks the truck's tween.
   const slidingDoors = new SlidingDoors(sceneManager, () => supermarketView.truck.model);
+  // The first-game tutorial overlay: glow ring / UI glow + instruction bubble,
+  // driven by core/tutorial.js's view model (resolves tablet targets via `menu`).
+  const tutorialView = new TutorialView(sceneManager, state, menu);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -162,6 +172,7 @@ async function main() {
     if (restingPit >= 0) {
       e.stopPropagation(); // don't let Input's window listener also spawn a joystick here
       breakMenu.open(state.pits[restingPit].break, `Worker ${String.fromCharCode(65 + restingPit)}`);
+      notifyBreakMenuOpened(state, restingPit); // tutorial: the first-break step wants this tap
       return;
     }
     if (supermarketView.raycastRestingWorker(raycaster, state)) {
@@ -268,7 +279,10 @@ async function main() {
       const cfg = M.shelves[hit.index];
       if (!near(cfg)) return;
       if (state.player.carryingRestockBox) {
-        if (market.workerLevel < 2 && restockShelf(state, hit.index)) state.player.carryingRestockBox = false;
+        if (market.workerLevel < 2 && restockShelf(state, hit.index)) {
+          state.player.carryingRestockBox = false;
+          notifyMarketShelfRestocked(state); // tutorial: a PLAYER restock (the worker never taps)
+        }
       } else if (market.workerLevel === 0) {
         buyProduct(state, hit.index);
       }
@@ -306,6 +320,11 @@ async function main() {
     tick(state, dt); // movement + spawning + queue→pits + workers' auto-repair
     tickSupermarket(state, dt); // supermarket customers + (once hired) the market worker
     tickGasStation(state, dt); // gas pumps: spawning + queue→pumps + attendants' auto-fill
+    // Tutorial: the "opened the Garage tab" step completes by simply seeing the
+    // tab (checked per-frame while open); then advance the state-watched steps.
+    // Runs after the sims so one-tick signals (paidThisTick) are still readable.
+    if (menu.isOpen && menu.activeTab === 'garage') notifyGarageTabViewed(state);
+    tickTutorial(state, dt);
 
     // Area ambience: purely a function of this frame's player position.
     updateAmbience(ambienceZoneForX(state.player.position.x), dt);
@@ -386,6 +405,7 @@ async function main() {
     truckMenu.update();
     hud.update(state.cash, dt);
     menu.update(state);
+    tutorialView.update(dt, state);
 
     sceneManager.follow(state.player.position.x, state.player.position.z, dt);
     sceneManager.render();

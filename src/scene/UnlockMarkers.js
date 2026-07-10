@@ -50,7 +50,9 @@ export class UnlockMarkers {
 
   update(dt, state, playerPos) {
     const list = getUnlockMarkers(state);
-    const sig = list.map((m) => `${m.kind}:${m.index ?? ''}:${m.cost}:${m.locked}:${m.hint}`).join('|');
+    const sig = list
+      .map((m) => `${m.kind}:${m.index ?? ''}:${m.cost}:${m.locked}:${m.hint}:${m.category}`)
+      .join('|');
     if (sig !== this.sig) {
       this.sig = sig;
       // Rebuild from scratch: dispose every old marker's geometry/materials/textures.
@@ -162,7 +164,7 @@ export class UnlockMarkers {
     const costText = formatMoney(remainingCost); // the money icon draws in place of a literal '$'
     if (label.userData.lastCostText === costText) return; // continuous drain: skip no-op redraws
     label.userData.lastCostText = costText;
-    updateMarkerLabel(label, costText, m.hint, m.locked);
+    updateMarkerLabel(label, costText, m);
   }
 
   /** Regrow a marker's cash-fill wedge to thetaLength radians (dispose+replace geometry). */
@@ -227,10 +229,10 @@ export class UnlockMarkers {
     holder.add(wedge);
     this.wedges.set(key, wedge);
 
-    // Cost (+ hint) label: a camera-facing sprite, big enough to read from afar.
-    // Shows the REMAINING balance, not the original cost, in case this marker
-    // already has a partial payment in flight from before the rebuild.
-    const label = makeMarkerLabel(formatMoney(Math.max(0, m.cost - paidSoFar)), m.hint, m.locked);
+    // Cost (+ category + hint) label: a camera-facing sprite, big enough to read
+    // from afar. Shows the REMAINING balance, not the original cost, in case this
+    // marker already has a partial payment in flight from before the rebuild.
+    const label = makeMarkerLabel(formatMoney(Math.max(0, m.cost - paidSoFar)), m);
     // The gas-gate marker's label rides higher so it clears the cashier
     // marker's label next door (see settings.unlockMarkers.gasEntryLabelHeight).
     const labelY = m.kind === 'gasExpand' && m.index === 0 ? M.gasEntryLabelHeight : M.labelHeight;
@@ -243,14 +245,15 @@ export class UnlockMarkers {
 }
 
 /**
- * A two-line canvas sprite: the cost big on top (a money icon, plus a lock
- * icon while the purchase is gated, before the number), the short hint
- * underneath. Same canvas-texture pattern as PitView's makeLabelSprite, just wide.
+ * A three-line canvas sprite: the cost big on top (a money icon, plus a lock
+ * icon while the purchase is gated, before the number), the marker's category
+ * name beneath it, and the short hint at the bottom. Same canvas-texture
+ * pattern as PitView's makeLabelSprite, just wide.
  */
-function makeMarkerLabel(numberText, hint, locked) {
+function makeMarkerLabel(numberText, m) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
-  canvas.height = 192;
+  canvas.height = 240;
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 4;
   // depthTest off + late renderOrder: these labels are UI, not scenery — on the
@@ -261,20 +264,23 @@ function makeMarkerLabel(numberText, hint, locked) {
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false })
   );
   sprite.renderOrder = 20;
-  sprite.scale.set(3.6, 1.35, 1);
-  drawMarkerLabel(canvas, numberText, hint, locked);
+  // Same width as ever; height keeps the canvas' aspect (240/512) so the added
+  // category line doesn't squash the drawing.
+  sprite.scale.set(3.6, 1.69, 1);
+  drawMarkerLabel(canvas, numberText, m);
   tex.needsUpdate = true;
   return sprite;
 }
 
 /** Redraws a marker label sprite's existing canvas/texture in place — no new texture allocated. */
-function updateMarkerLabel(sprite, numberText, hint, locked) {
+function updateMarkerLabel(sprite, numberText, m) {
   const tex = sprite.material.map;
-  drawMarkerLabel(tex.image, numberText, hint, locked);
+  drawMarkerLabel(tex.image, numberText, m);
   tex.needsUpdate = true;
 }
 
-function drawMarkerLabel(canvas, numberText, hint, locked) {
+function drawMarkerLabel(canvas, numberText, m) {
+  const { hint, locked, category } = m;
   const w = canvas.width;
   const h = canvas.height;
   const ctx = canvas.getContext('2d');
@@ -289,7 +295,7 @@ function drawMarkerLabel(canvas, numberText, hint, locked) {
   const fontSize = 84;
   ctx.font = `800 ${fontSize}px ${settings.ui.fontStack}`;
   ctx.textBaseline = 'middle';
-  const costY = h * 0.35;
+  const costY = h * 0.26;
   const numberWidth = ctx.measureText(numberText).width;
   const capHeight = fontSize * 0.72; // ~cap-height of this bold sans at fontSize
   const iconGap = 12;
@@ -313,21 +319,26 @@ function drawMarkerLabel(canvas, numberText, hint, locked) {
   ctx.fillStyle = locked ? '#c9cdd4' : settings.colors.label;
   ctx.fillText(numberText, x, costY);
 
-  // The hint can be a long sentence ("Finish the garage & market first"):
-  // shrink its font by the overflow ratio so it always fits on one line,
-  // floored at a still-readable size (a too-long hint at the floor just clips
+  // A line's font shrinks by its overflow ratio so it always fits one line,
+  // floored at a still-readable size (a too-long line at the floor just clips
   // a little rather than vanishing into an unreadable smear).
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#ffffff';
-  let hintSize = 44;
-  ctx.font = `700 ${hintSize}px ${settings.ui.fontStack}`;
   const maxWidth = w - 40;
-  const hintWidth = ctx.measureText(hint).width;
-  if (hintWidth > maxWidth) {
-    hintSize = Math.max(28, Math.floor(hintSize * (maxWidth / hintWidth)));
-    ctx.font = `700 ${hintSize}px ${settings.ui.fontStack}`;
-  }
-  ctx.fillText(hint, w / 2, h * 0.78);
+  const fitLine = (text, weight, size, floor, color, y) => {
+    ctx.font = `${weight} ${size}px ${settings.ui.fontStack}`;
+    const width = ctx.measureText(text).width;
+    if (width > maxWidth) {
+      ctx.font = `${weight} ${Math.max(floor, Math.floor(size * (maxWidth / width)))}px ${settings.ui.fontStack}`;
+    }
+    ctx.fillStyle = color;
+    ctx.fillText(text, w / 2, y);
+  };
+
+  ctx.textAlign = 'center';
+  // Category/name line ("Hire Worker", "Gas Station Upgrade", …): what this
+  // marker IS, self-explanatory at a glance even outside the tutorial.
+  fitLine(category ?? '', '800', 46, 30, '#ffffff', h * 0.55);
+  // The situational hint line ("Hire worker A", "Finish the garage & market first").
+  fitLine(hint, '700', 36, 26, '#d8dee6', h * 0.85);
 }
 
 /** Dispose a marker holder's geometries, materials and canvas textures. */

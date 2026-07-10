@@ -13,6 +13,7 @@ import { updateReputationTimer } from './reputation.js';
 import { resolveSupermarketCollisions, resolveGarageCollisions, pushOutOfRect } from './collision.js';
 import { playerRoadBoxes, pitRampAvoid } from './roads.js';
 import { tickBreak, incrementJobCount } from './breaks.js';
+import { onManualRepairCompleted, onPitShelfRestocked } from './tutorial.js';
 
 export function tick(state, dt) {
   // collectedThisTick is a one-tick render signal (the scene pops "+$" / flies
@@ -39,6 +40,10 @@ export function tapRepair(state, pitIndex) {
   const car = pit.car;
   if (!car || car.fixed) return;
   applyRepair(state, pit, settings.repair.tapTicks);
+  // Tutorial step 1 counts COMPLETED manual repairs: only the tap that actually
+  // finished the car decrements the countdown — mid-repair taps never count
+  // (no-op once the tutorial moves on).
+  if (car.fixed) onManualRepairCompleted(state, pitIndex);
 }
 
 /**
@@ -311,6 +316,9 @@ function updateStorage(state) {
       player.carryingBox = false;
       player.carryingBoxPitIndex = null;
       pit.tiresRemaining = S.maxTiresPerPit; // delivered box refills the stack
+      // Tutorial step 2: this delivery path is player-only (the mechanic's
+      // auto-restock runs through updateMechanic, never here).
+      onPitShelfRestocked(state, pit.index);
     }
   }
 }

@@ -67,6 +67,16 @@ import {
 } from '../src/core/reputation.js';
 import { formatMoney } from '../src/core/format.js';
 import {
+  TUTORIAL_STEPS,
+  tickTutorial,
+  getTutorialView,
+  currentTutorialStep,
+  notifyGarageTabViewed,
+  notifyMarketShelfRestocked,
+  notifyBreakMenuOpened,
+  dismissTutorialFinale,
+} from '../src/core/tutorial.js';
+import {
   spawnCustomer,
   tickSupermarket,
   buyProduct,
@@ -2170,6 +2180,386 @@ check('with Player Speed owned, movement covers speed × multiplier per second',
   tick(s, dt);
   const expected = settings.player.speed * settings.upgrades.playerSpeed.multiplier * dt;
   assert.ok(Math.abs(s.player.position.z - z0 - expected) < 1e-6);
+});
+
+// --- first-game tutorial ------------------------------------------------------
+console.log('\ncore tutorial');
+
+/** A synthetic never-finishing car: taps make progress but no repair completes. */
+const slowCar = () => ({
+  id: 999,
+  tier: 'rusty',
+  baseTicks: 1e9,
+  ticksDone: 0,
+  fixed: false,
+  payout: 0,
+  settleRemaining: 0,
+});
+
+/** A one-tap car: baseTicks == tapTicks, so a single tap COMPLETES the repair. */
+const quickCar = () => ({
+  id: 999,
+  tier: 'rusty',
+  baseTicks: settings.repair.tapTicks,
+  ticksDone: 0,
+  fixed: false,
+  payout: 0,
+  settleRemaining: 0,
+});
+
+check('fresh game: tutorial active on step 1, counting down from settings.tutorial.repairCount', () => {
+  const s = createInitialState();
+  assert.equal(s.tutorial.active, true);
+  assert.equal(currentTutorialStep(s), 'repairCars');
+  assert.equal(s.tutorial.repairsRemaining, settings.tutorial.repairCount);
+  const v = getTutorialView(s);
+  assert.equal(v.id, 'repairCars');
+  assert.ok(v.text.includes(`${settings.tutorial.repairCount} left`), 'text carries the live countdown');
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, settings.pit.positions[0], 'ring on pit A');
+});
+
+check('step 1 counts COMPLETED repairs: mid-repair taps never decrement, a finished car does', () => {
+  const s = createInitialState();
+  const start = s.tutorial.repairsRemaining;
+
+  tapRepair(s, 0); // no car at the pit — guard exits before any repair applies
+  assert.equal(s.tutorial.repairsRemaining, start, 'a tap that repaired nothing never counts');
+
+  s.pits[0].playerPresent = true;
+  s.pits[0].car = slowCar();
+  for (let i = 0; i < 10; i++) tapRepair(s, 0); // real progress, but the car never finishes
+  assert.equal(s.tutorial.repairsRemaining, start, 'ten mid-repair taps count for nothing');
+
+  s.pits[0].car = quickCar();
+  tapRepair(s, 0); // this tap finishes the car
+  assert.equal(s.tutorial.repairsRemaining, start - 1, 'one completed repair = one rep');
+  assert.ok(getTutorialView(s).text.includes(`${start - 1} left`), 'countdown text updates per completion');
+
+  for (let i = 0; i < start - 1; i++) {
+    s.pits[0].car = quickCar();
+    tapRepair(s, 0);
+  }
+  assert.equal(currentTutorialStep(s), 'restockPit', 'countdown reaching 0 advances the step');
+});
+
+/** Drive one fresh state through step 1 (25 completed manual repairs) quickly. */
+function completeRepairStep(s) {
+  s.pits[0].playerPresent = true;
+  for (let i = 0; i < settings.tutorial.repairCount; i++) {
+    s.pits[0].car = quickCar();
+    tapRepair(s, 0);
+  }
+  s.pits[0].car = null;
+  s.pits[0].playerPresent = false;
+}
+
+check('step 2: highlight walks shelf → pit with the carried box; the delivery completes it', () => {
+  const s = createInitialState();
+  completeRepairStep(s);
+  assert.equal(currentTutorialStep(s), 'restockPit');
+
+  const shelf = {
+    x: settings.pit.positions[0].x + settings.storage.shelfOffset.x,
+    z: settings.pit.positions[0].z + settings.storage.shelfOffset.z,
+  };
+  let v = getTutorialView(s);
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, shelf, 'points at pit A\'s shelf while empty-handed');
+
+  s.player.carryingBox = true;
+  s.player.carryingBoxPitIndex = 0;
+  v = getTutorialView(s);
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, settings.pit.positions[0], 'points back at the pit while carrying');
+
+  s.pits[0].playerPresent = true;
+  tick(s, 0.016); // updateStorage delivers the box → the tutorial hook fires
+  assert.equal(s.player.carryingBox, false);
+  assert.equal(s.pits[0].tiresRemaining, settings.storage.maxTiresPerPit);
+  assert.equal(currentTutorialStep(s), 'hireMechanic');
+});
+
+check('affordability-gated steps show a live "earn $X more" hint, then latch to the highlight', () => {
+  const s = createInitialState();
+  completeRepairStep(s);
+  s.player.carryingBox = true;
+  s.player.carryingBoxPitIndex = 0;
+  s.pits[0].playerPresent = true;
+  tick(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'hireMechanic');
+
+  s.cash = 0;
+  tickTutorial(s, 0.016);
+  let v = getTutorialView(s);
+  assert.equal(v.pending, true, 'unaffordable → informational hint, not the highlight');
+  assert.equal(v.anchor.kind, 'info');
+  assert.ok(v.text.includes(`Earn $${formatMoney(hireCost(s, 0))} more`), 'states the amount still needed');
+  assert.ok(v.text.includes('worker'), 'says what it unlocks');
+
+  s.cash = hireCost(s, 0) - 30;
+  assert.ok(getTutorialView(s).text.includes('Earn $30 more'), 'amount updates live as cash grows');
+
+  s.cash = hireCost(s, 0);
+  tickTutorial(s, 0.016);
+  v = getTutorialView(s);
+  assert.equal(v.id, 'hireMechanic');
+  assert.equal(v.anchor.kind, 'world', 'affordable → the real highlight takes over');
+  assert.equal(v.anchor.x, settings.pit.positions[0].x + settings.unlockMarkers.hireOffset.x, 'ring on the hire marker');
+
+  s.cash = 0; // e.g. the marker drain took the cash mid-unlock
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s).anchor.kind, 'world', 'visibility latches — no flicker when cash dips back down');
+});
+
+check('the full guided path runs start to finish against live state', () => {
+  const s = createInitialState();
+
+  // 1: manual repairs
+  completeRepairStep(s);
+
+  // 2: pit shelf restock
+  s.player.carryingBox = true;
+  s.player.carryingBoxPitIndex = 0;
+  s.pits[0].playerPresent = true;
+  tick(s, 0.016);
+  s.pits[0].playerPresent = false;
+
+  // 3: hire pit A's worker
+  s.cash = hireCost(s, 0);
+  tickTutorial(s, 0.016);
+  hireMechanic(s, 0);
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'breakLed');
+
+  // 4: the break LED intro — completed by walking up to the panel
+  let ledView = getTutorialView(s);
+  const breakSpot = settings.breaks.breakSpots[0];
+  assert.deepEqual({ x: ledView.anchor.x, z: ledView.anchor.z }, breakSpot, 'ring at pit A\'s break-LED spot');
+  assert.ok(ledView.text.includes('LED'), 'explains the panel');
+  s.player.position = { ...breakSpot };
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'firstRestock');
+
+  // 5: the first dry pit under the worker — hidden until tires actually run out
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s), null, 'nothing to show while the worker still has tires');
+  s.pits[0].tiresRemaining = 0;
+  tickTutorial(s, 0.016);
+  let v = getTutorialView(s);
+  assert.equal(v.id, 'firstRestock');
+  assert.ok(v.text.includes('out of tires'), 'urgency framing');
+  assert.equal(v.anchor.x, settings.pit.positions[0].x + settings.storage.shelfOffset.x, 'points at the shelf');
+  s.player.carryingBox = true;
+  s.player.carryingBoxPitIndex = 0;
+  s.pits[0].playerPresent = true;
+  tick(s, 0.016); // the delivery refills the pit and completes the step
+  s.pits[0].playerPresent = false;
+  assert.equal(currentTutorialStep(s), 'firstBreak');
+
+  // 6: the worker's first break — hidden until it happens, with a dry-pit guard meanwhile
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s), null, 'nothing to show while the worker keeps working');
+  s.pits[0].tiresRemaining = 0; // the deadlock guard: no tires → no jobs → no break ever
+  v = getTutorialView(s);
+  assert.equal(v.pending, true);
+  assert.ok(v.text.includes('grab a box'), 'guides a restock so the break can still arrive');
+  s.pits[0].tiresRemaining = settings.storage.maxTiresPerPit;
+  s.pits[0].break.onBreak = true; // the break arrives
+  tickTutorial(s, 0.016);
+  v = getTutorialView(s);
+  assert.equal(v.id, 'firstBreak');
+  assert.ok(v.text.includes('Tap them'), 'explains the wake-early tap');
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, breakSpot, 'highlights the resting spot');
+  notifyBreakMenuOpened(s, 0); // the player taps the resting worker
+  s.pits[0].break.onBreak = false;
+  assert.equal(currentTutorialStep(s), 'viewWorkerUpgrade');
+
+  // 7: view the Garage tab (a tablet anchor; seeing it is enough)
+  const tabletView = getTutorialView(s);
+  assert.deepEqual(tabletView.anchor, { kind: 'tablet', tab: 'garage', element: 'workerSpeed:0' });
+  notifyGarageTabViewed(s);
+  assert.equal(currentTutorialStep(s), 'gainReputation');
+
+  // 8: one reputation gain is required even though rep is untouched so far
+  tickTutorial(s, 0.016);
+  assert.deepEqual(getTutorialView(s).anchor, { kind: 'tablet', tab: 'ads', element: 'watchAd' });
+  watchAdForReputation(s); // +5% → exactly lot B's 10% gate
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'buyLotB');
+
+  // 9: buy lot B once affordable (the rep gate is met thanks to step 8)
+  s.cash = 0;
+  tickTutorial(s, 0.016);
+  assert.ok(getTutorialView(s).text.includes('lot B'), 'the waiting hint names the goal');
+  s.cash = expandRoomCost(s);
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s).id, 'buyLotB');
+  assert.equal(buyExpandRoom(s), true);
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'hireCashier');
+
+  // 10: hire the cashier
+  s.cash = cashierCost(s);
+  tickTutorial(s, 0.016);
+  buyCashier(s);
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'openMarket');
+
+  // 11: open the supermarket
+  s.cash = supermarketCost(s);
+  tickTutorial(s, 0.016);
+  buySupermarket(s);
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'serveCustomer');
+
+  // 12: manually serve one customer — the highlight follows the flow's next action
+  tickTutorial(s, 0.016);
+  assert.ok(getTutorialView(s).text.includes('Wait for a customer'), 'waiting text before anyone arrives');
+  const customer = spawnCustomer(s);
+  customer.state = 'waiting';
+  // Gather by following the tutorial's own guidance: each leg anchors the next
+  // needed shelf and names its REAL product — buy exactly what it points at.
+  let guard = 0;
+  while (!getTutorialView(s).text.includes('checkout') && guard++ < 20) {
+    const view = getTutorialView(s);
+    assert.equal(view.anchor.kind, 'world', 'gathering legs anchor shelves in the world');
+    const idx = settings.supermarket.shelves.findIndex(
+      (cfg) => cfg.x === view.anchor.x && cfg.z === view.anchor.z
+    );
+    assert.ok(idx >= 0, 'the anchor sits on a real shelf');
+    const type = s.supermarket.shelves[idx].productType;
+    assert.ok(
+      view.text.includes(settings.supermarket.products[type].label),
+      'text names the REAL product on the shelf'
+    );
+    buyProduct(s, idx);
+  }
+  assert.ok(guard < 20, 'gathering converged');
+  assert.ok(getTutorialView(s).text.includes('checkout'), 'complete bag points at the checkout');
+  placeAtCheckout(s);
+  checkoutCustomer(s); // sets paidThisTick — the step's completion signal
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'restockMarket');
+
+  // 13: market restock — box first, then the shelf while carrying
+  v = getTutorialView(s);
+  assert.deepEqual(
+    { x: v.anchor.x, z: v.anchor.z },
+    settings.supermarket.restockBoxPosition,
+    'points at the dock box while empty-handed'
+  );
+  s.player.carryingRestockBox = true;
+  v = getTutorialView(s);
+  assert.ok(v.text.includes('shelf'), 'points at a shelf while carrying');
+  s.player.carryingRestockBox = false;
+  notifyMarketShelfRestocked(s);
+  assert.equal(currentTutorialStep(s), 'orderTruck');
+
+  // 14: order the truck (the box must be below max for the order to take)
+  tickTutorial(s, 0.016);
+  assert.deepEqual(getTutorialView(s).anchor, { kind: 'tablet', tab: 'market', element: 'orderTruck' });
+  takeRestockUnit(s);
+  assert.equal(orderTruck(s), true);
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'truckLed');
+
+  // 15: the truck LED — completed by walking to the corridor panel
+  v = getTutorialView(s);
+  assert.ok(v.text.includes('countdown'), 'explains the arrival tracking');
+  const W = settings.world;
+  const ledSpot = {
+    x: settings.supermarket.deliveryDoorX - W.gateHalf,
+    z: (-(W.halfZ + W.wallThickness) + settings.supermarket.deliveryDoorZ) / 2,
+  };
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, ledSpot, 'anchored on the corridor LED');
+  s.player.position = { ...ledSpot };
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'hireMarketWorker');
+
+  // 16: hire the market worker once affordable
+  s.cash = 0;
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s).anchor.kind, 'info', 'earn-hint until affordable');
+  s.cash = marketWorkerHireCost(s);
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s).id, 'hireMarketWorker');
+  hireMarketWorker(s);
+  tickTutorial(s, 0.016);
+
+  // 17: the finale popup, then done for good
+  assert.equal(currentTutorialStep(s), 'finale');
+  assert.equal(getTutorialView(s).anchor.kind, 'popup');
+  dismissTutorialFinale(s);
+  assert.equal(s.tutorial.active, false);
+  assert.equal(currentTutorialStep(s), null);
+  assert.equal(getTutorialView(s), null, 'nothing ever shows again once finished');
+});
+
+check('firstBreak also completes when the break simply runs its course', () => {
+  const s = createInitialState();
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('firstBreak');
+  s.tutorial.shown = false;
+  s.pits[0].break.onBreak = true;
+  tickTutorial(s, 0.016); // latches shown
+  assert.equal(getTutorialView(s).id, 'firstBreak');
+  s.pits[0].break.onBreak = false; // the break ended on its own — nothing left to tap
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'viewWorkerUpgrade');
+});
+
+check('truckLed completes once the delivery already landed, even without the walk', () => {
+  const s = createInitialState();
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('truckLed');
+  s.tutorial.shown = false;
+  s.supermarket.truckOrdered = true;
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s).id, 'truckLed');
+  s.supermarket.truckOrdered = false; // delivered — no countdown left to show
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'hireMarketWorker');
+});
+
+check('every unlock marker carries a category label beneath the cost', () => {
+  const s = createInitialState();
+  const m = markersByKind(s);
+  assert.equal(m.get('hireMechanic:0').category, 'Hire Worker');
+  assert.equal(m.get('expandRoom:1').category, 'Buy Lot B');
+  assert.equal(m.get('gasExpand:0').category, 'Gas Station Unlock');
+  assert.equal(m.get('openMarket').category, 'Supermarket Unlock');
+  assert.equal(m.get('hireCashier').category, 'Hire Cashier');
+  s.cash = 1e12;
+  s.permanentReputation = settings.reputation.repCap;
+  completeGasPrereqs(s);
+  buyGasExpand(s);
+  buySupermarket(s);
+  for (const marker of getUnlockMarkers(s)) {
+    assert.ok(marker.category && marker.category.length > 0, `marker ${marker.kind} has a category`);
+  }
+});
+
+check('product labels are the real shelf names, matching the product images', () => {
+  const labels = ['A', 'B', 'C', 'D'].map((t) => settings.supermarket.products[t].label);
+  assert.deepEqual(labels, ['Fruit', 'Bakery', 'Veg', 'Dairy']);
+});
+
+check('the finale popup also auto-dismisses after finalePopupSeconds', () => {
+  const s = createInitialState();
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('finale');
+  s.tutorial.shown = false;
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s).anchor.kind, 'popup');
+  tickTutorial(s, settings.tutorial.finalePopupSeconds + 0.1);
+  assert.equal(s.tutorial.active, false);
+  assert.equal(getTutorialView(s), null);
+});
+
+check('the tutorial never gates gameplay: purchases work regardless of the current step', () => {
+  const s = createInitialState();
+  assert.equal(currentTutorialStep(s), 'repairCars');
+  s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
+  assert.equal(buyExpandRoom(s), true, 'lot B purchasable while the tutorial is on step 1');
+  assert.equal(buyCashier(s), true);
+  assert.equal(buySupermarket(s), true);
+  assert.equal(currentTutorialStep(s), 'repairCars', 'the tutorial just keeps waiting for ITS condition');
 });
 
 console.log(`\n${passed} passed`);

@@ -4,6 +4,7 @@ import { getUnlockMarkers, buyUnlockMarker } from '../core/upgrades.js';
 import { formatMoney } from '../core/format.js';
 import { spawnFlyingBills } from './MoneyFly.js';
 import { playMoneySound } from '../platform/audio.js';
+import { getMoneyIcon, getLockIcon } from './icons.js';
 
 /**
  * UnlockMarkers — the world-space "buy it here" markers: one white ground
@@ -158,7 +159,7 @@ export class UnlockMarkers {
   #refreshLabel(key, remainingCost, m) {
     const label = this.labels.get(key);
     if (!label) return;
-    const costText = `$${formatMoney(remainingCost)}`;
+    const costText = formatMoney(remainingCost); // the money icon draws in place of a literal '$'
     if (label.userData.lastCostText === costText) return; // continuous drain: skip no-op redraws
     label.userData.lastCostText = costText;
     updateMarkerLabel(label, costText, m.hint, m.locked);
@@ -229,7 +230,7 @@ export class UnlockMarkers {
     // Cost (+ hint) label: a camera-facing sprite, big enough to read from afar.
     // Shows the REMAINING balance, not the original cost, in case this marker
     // already has a partial payment in flight from before the rebuild.
-    const label = makeMarkerLabel(`$${formatMoney(Math.max(0, m.cost - paidSoFar))}`, m.hint, m.locked);
+    const label = makeMarkerLabel(formatMoney(Math.max(0, m.cost - paidSoFar)), m.hint, m.locked);
     // The gas-gate marker's label rides higher so it clears the cashier
     // marker's label next door (see settings.unlockMarkers.gasEntryLabelHeight).
     const labelY = m.kind === 'gasExpand' && m.index === 0 ? M.gasEntryLabelHeight : M.labelHeight;
@@ -242,11 +243,11 @@ export class UnlockMarkers {
 }
 
 /**
- * A two-line canvas sprite: the cost big on top (with a lock glyph while the
- * purchase is gated), the short hint underneath. Same canvas-texture pattern
- * as PitView's makeLabelSprite, just wide.
+ * A two-line canvas sprite: the cost big on top (a money icon, plus a lock
+ * icon while the purchase is gated, before the number), the short hint
+ * underneath. Same canvas-texture pattern as PitView's makeLabelSprite, just wide.
  */
-function makeMarkerLabel(costText, hint, locked) {
+function makeMarkerLabel(numberText, hint, locked) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 192;
@@ -261,36 +262,62 @@ function makeMarkerLabel(costText, hint, locked) {
   );
   sprite.renderOrder = 20;
   sprite.scale.set(3.6, 1.35, 1);
-  drawMarkerLabel(canvas, costText, hint, locked);
+  drawMarkerLabel(canvas, numberText, hint, locked);
   tex.needsUpdate = true;
   return sprite;
 }
 
 /** Redraws a marker label sprite's existing canvas/texture in place — no new texture allocated. */
-function updateMarkerLabel(sprite, costText, hint, locked) {
+function updateMarkerLabel(sprite, numberText, hint, locked) {
   const tex = sprite.material.map;
-  drawMarkerLabel(tex.image, costText, hint, locked);
+  drawMarkerLabel(tex.image, numberText, hint, locked);
   tex.needsUpdate = true;
 }
 
-function drawMarkerLabel(canvas, costText, hint, locked) {
+function drawMarkerLabel(canvas, numberText, hint, locked) {
   const w = canvas.width;
   const h = canvas.height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  ctx.textAlign = 'center';
   ctx.shadowColor = 'rgba(0,0,0,0.7)';
   ctx.shadowBlur = 10;
 
-  ctx.fillStyle = locked ? '#c9cdd4' : settings.colors.label;
-  ctx.font = `800 84px ${settings.ui.fontStack}`;
+  // Cost line: the money icon (and, while locked, the lock icon before it)
+  // drawn immediately before the number, the icon(s) + number centered
+  // together as one group — the same combined-and-centered layout the old
+  // `🔒 $1,234` text had, with drawn icons standing in for its literal glyphs.
+  const fontSize = 84;
+  ctx.font = `800 ${fontSize}px ${settings.ui.fontStack}`;
   ctx.textBaseline = 'middle';
-  ctx.fillText(locked ? `🔒 ${costText}` : costText, w / 2, h * 0.35);
+  const costY = h * 0.35;
+  const numberWidth = ctx.measureText(numberText).width;
+  const capHeight = fontSize * 0.72; // ~cap-height of this bold sans at fontSize
+  const iconGap = 12;
+
+  // The lock reads too small drawn at plain cap-height, so it gets its own
+  // larger scale — each icon still centers vertically on costY regardless of
+  // its own height, only the money icon matches the digits' cap-height exactly.
+  const icons = [];
+  if (locked) icons.push({ img: getLockIcon(), height: capHeight * 2 });
+  icons.push({ img: getMoneyIcon(), height: capHeight });
+  const iconWidths = icons.map(({ img, height }) => height * (img.naturalWidth / img.naturalHeight));
+  const iconsWidth = iconWidths.reduce((sum, iw) => sum + iw + iconGap, 0);
+
+  let x = w / 2 - (iconsWidth + numberWidth) / 2;
+  ctx.textAlign = 'left';
+  icons.forEach(({ img, height }, i) => {
+    const iw = iconWidths[i];
+    ctx.drawImage(img, x, costY - height / 2, iw, height);
+    x += iw + iconGap;
+  });
+  ctx.fillStyle = locked ? '#c9cdd4' : settings.colors.label;
+  ctx.fillText(numberText, x, costY);
 
   // The hint can be a long sentence ("Finish the garage & market first"):
   // shrink its font by the overflow ratio so it always fits on one line,
   // floored at a still-readable size (a too-long hint at the floor just clips
   // a little rather than vanishing into an unreadable smear).
+  ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
   let hintSize = 44;
   ctx.font = `700 ${hintSize}px ${settings.ui.fontStack}`;

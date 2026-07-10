@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
+import { playDoorOpenSound, playDoorCloseSound } from '../platform/audio.js';
 
 /**
  * SlidingDoors — automatic sliding glass doors on the walk-in entrances: the
@@ -41,6 +42,7 @@ class Door {
     parent.add(this.group);
 
     this.openness = 0; // 0 = shut, 1 = fully parted; eased into panel offsets
+    this.near = false; // previous frame's proximity, for open/close sound edge-detection
     this.#layout();
   }
 
@@ -82,11 +84,16 @@ class Door {
     this.group.visible = active;
     if (!active) {
       this.openness = 0;
+      this.near = false;
       this.#layout();
       return;
     }
     const D = settings.slidingDoors;
     const near = movers.some((m) => Math.hypot(m.x - this.x, m.z - this.z) <= D.range);
+    // Sound only on the proximity edge (open/close), never every frame held open/shut.
+    if (near && !this.near) playDoorOpenSound();
+    else if (!near && this.near) playDoorCloseSound();
+    this.near = near;
     this.openness = Math.min(1, Math.max(0, this.openness + (near ? dt : -dt) / D.openDuration));
     this.#layout();
   }

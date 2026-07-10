@@ -1020,10 +1020,12 @@ export const settings = {
     ambienceFadeDuration: 0.75,
     // One-shot / triggered sound effects (platform/audio.js) — each its own
     // knob so they can be balanced independently of the ambience layers above.
-    walkVolume: 0.5,
     hammerVolume: 0.25,
     moneyVolume: 0.6,
     bagVolume: 0.6,
+    // Sliding door open/close one-shots (scene/SlidingDoors.js's Door class).
+    doorOpenVolume: 0.5,
+    doorCloseVolume: 0.5,
   },
 
   ui: {

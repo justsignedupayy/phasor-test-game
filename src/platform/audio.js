@@ -11,10 +11,14 @@
  * — ONE shared listener pair services all of them, so a gesture that arrives
  * before every track has failed still catches the rest.
  *
- * The remaining sounds (walk/hammer/money/bag) are only ever started from a
- * later game action, by which point the page already has a user gesture on
- * record, so they never need the gesture-retry path. Every Audio instance is
- * created once and reused — never recreated per trigger.
+ * The remaining triggered sounds (hammer/money/bag) are only ever started
+ * from a later game action, by which point the page already has a user
+ * gesture on record, so they never need the gesture-retry path. Each of
+ * those reuses one Audio instance, created once. The door open/close sounds
+ * are the one exception: multiple doors can trigger within the same moment,
+ * so each of those plays a freshly-constructed Audio instance instead (see
+ * playDoorOpenSound/playDoorCloseSound) rather than risk one shared instance
+ * cutting off an in-progress play.
  */
 import settings from '../config/settings.js';
 import { loadMusicVolume, saveMusicVolume } from './storage.js';
@@ -24,7 +28,6 @@ const ASSET_DIR = '/assets/audio/';
 let music = null;
 let ambience = null; // { garage, gasStation, market } Audio instances
 
-let walkSound = null;
 let hammerSound = null;
 let moneySound = null;
 let bagSound = null;
@@ -108,20 +111,6 @@ export function updateAmbience(zone, dt) {
   }
 }
 
-/** Loop/pause the player's footstep sound; pause preserves position so resuming never re-triggers from the start. */
-export function setWalking(active) {
-  if (!walkSound) {
-    walkSound = new Audio(ASSET_DIR + 'walk.mp3');
-    walkSound.loop = true;
-    walkSound.volume = settings.audio.walkVolume;
-  }
-  if (active) {
-    if (walkSound.paused) walkSound.play().catch(() => {});
-  } else if (!walkSound.paused) {
-    walkSound.pause();
-  }
-}
-
 /** Loop/stop the repair-hammering sound (player or any pit mechanic actively repairing). */
 export function setHammerActive(active) {
   if (!hammerSound) {
@@ -154,4 +143,23 @@ export function playBagSound() {
   }
   bagSound.currentTime = 0;
   bagSound.play().catch(() => {});
+}
+
+/**
+ * One-shot: a sliding door opening. Unlike the sounds above, a fresh Audio
+ * instance is created and played EVERY call — several doors can open within
+ * the same moment (see scene/SlidingDoors.js), and a single shared instance
+ * would cut off an already-playing door sound instead of layering.
+ */
+export function playDoorOpenSound() {
+  const audio = new Audio(ASSET_DIR + 'autdooropen.mp3'); // filename typo is intentional — matches the shipped asset
+  audio.volume = settings.audio.doorOpenVolume;
+  audio.play().catch(() => {});
+}
+
+/** One-shot: a sliding door closing (see playDoorOpenSound above). */
+export function playDoorCloseSound() {
+  const audio = new Audio(ASSET_DIR + 'autodoorclose.mp3');
+  audio.volume = settings.audio.doorCloseVolume;
+  audio.play().catch(() => {});
 }

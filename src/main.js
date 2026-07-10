@@ -26,7 +26,6 @@ import {
   initMusic,
   initAmbience,
   updateAmbience,
-  setWalking,
   setHammerActive,
   playMoneySound,
   playBagSound,
@@ -40,6 +39,7 @@ import { loadCharacterModel } from './scene/CharacterModel.js';
 import { preloadCarModels } from './scene/CarView.js';
 import { preloadMoneyModel, PitMoney } from './scene/PitMoney.js';
 import { preloadStorageModels } from './scene/StorageModels.js';
+import { preloadIcons } from './scene/icons.js';
 import { CarriedBox } from './scene/CarriedBox.js';
 import { SupermarketView } from './scene/SupermarketView.js';
 import { GasStationView } from './scene/GasStationView.js';
@@ -120,6 +120,7 @@ async function main() {
   await preloadCarModels();
   await preloadMoneyModel();
   await preloadStorageModels();
+  await preloadIcons();
   loadingEl.remove();
 
   const character = new Character(gltf);
@@ -306,8 +307,7 @@ async function main() {
     tickSupermarket(state, dt); // supermarket customers + (once hired) the market worker
     tickGasStation(state, dt); // gas pumps: spawning + queue→pumps + attendants' auto-fill
 
-    // Footstep loop + area ambience: purely a function of this frame's player state.
-    setWalking(state.player.moving);
+    // Area ambience: purely a function of this frame's player position.
     updateAmbience(ambienceZoneForX(state.player.position.x), dt);
 
     // Money one-shot: fires only on the discrete tick a pit/pump actually banks
@@ -320,9 +320,13 @@ async function main() {
     ) {
       playMoneySound();
     }
-    // Plastic-bag one-shot: fires on the tick a customer's checkout completes
-    // (state.supermarket.paidThisTick is the same kind of one-tick signal).
-    if (state.supermarket.paidThisTick > 0) playBagSound();
+    // Plastic-bag + money one-shots together: fires on the tick a customer's
+    // checkout completes (state.supermarket.paidThisTick is the same kind of
+    // one-tick signal as pit/pump collectedThisTick above).
+    if (state.supermarket.paidThisTick > 0) {
+      playBagSound();
+      playMoneySound();
+    }
 
     // Scene sets per-pit proximity each frame; core only reads these flags.
     // playerPresent = near the worker/pit (repair + box delivery); playerNearShelf

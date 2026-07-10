@@ -129,13 +129,22 @@ export class Hud {
         this.offlineEl.remove();
         this.offlineEl = null;
       } else {
-        this.offlineEl.textContent = `Earned while offline: $${formatMoney(this._offlineRemaining)}`;
+        this.offlineEl.innerHTML = `Earned while offline: ${moneyIconHtml('0 0.05em 0 0.15em')}${formatMoney(this._offlineRemaining)}`;
       }
     }
 
     if (cash !== this._cash) {
       this._cash = cash;
-      this.el.textContent = `$${formatMoney(cash)}`;
+      this.el.innerHTML = `${moneyIconHtml('0 0.08em 0 0')}${formatMoney(cash)}`;
     }
   }
+}
+
+/**
+ * Inline money-icon <img>, standing in for a literal '$' before a cash number.
+ * Sized in em so it tracks the containing line's own font-size (and so its
+ * line-height), vertical-align middle to sit centered against the digits.
+ */
+function moneyIconHtml(margin) {
+  return `<img src="/assets/images/money.png" alt="$" style="height:1em;vertical-align:middle;margin:${margin};">`;
 }

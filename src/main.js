@@ -22,7 +22,15 @@ import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
 import { loadGame, saveGame, getSavedAt } from './platform/storage.js';
-import { initMusic } from './platform/audio.js';
+import {
+  initMusic,
+  initAmbience,
+  updateAmbience,
+  setWalking,
+  setHammerActive,
+  playMoneySound,
+  playBagSound,
+} from './platform/audio.js';
 import { SettingsMenu } from './scene/SettingsMenu.js';
 import { estimateOfflineEarnings } from './core/offlineEarnings.js';
 import { ownedRightX } from './core/upgrades.js';
@@ -77,6 +85,9 @@ new SettingsMenu(); // top-left Settings tab (music volume slider)
 // Looping background music at the persisted volume; if autoplay is blocked it
 // starts on the first user gesture instead (see platform/audio.js).
 initMusic();
+// The three area-ambience layers, silent until the per-frame zone check below
+// fades one in.
+initAmbience();
 
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
@@ -295,6 +306,24 @@ async function main() {
     tickSupermarket(state, dt); // supermarket customers + (once hired) the market worker
     tickGasStation(state, dt); // gas pumps: spawning + queue→pumps + attendants' auto-fill
 
+    // Footstep loop + area ambience: purely a function of this frame's player state.
+    setWalking(state.player.moving);
+    updateAmbience(ambienceZoneForX(state.player.position.x), dt);
+
+    // Money one-shot: fires only on the discrete tick a pit/pump actually banks
+    // its waiting pay (collectedThisTick is a one-tick render signal, zeroed at
+    // the top of tick()/tickGasStation() — never on the marker drain's per-frame
+    // trickle, which has its own moneysound call at UnlockMarkers' #finalize).
+    if (
+      state.pits.some((pit) => pit.collectedThisTick > 0) ||
+      state.gasStation.pumps.some((pump) => pump.collectedThisTick > 0)
+    ) {
+      playMoneySound();
+    }
+    // Plastic-bag one-shot: fires on the tick a customer's checkout completes
+    // (state.supermarket.paidThisTick is the same kind of one-tick signal).
+    if (state.supermarket.paidThisTick > 0) playBagSound();
+
     // Scene sets per-pit proximity each frame; core only reads these flags.
     // playerPresent = near the worker/pit (repair + box delivery); playerNearShelf
     // = near this pit's shelf (box pickup).
@@ -337,6 +366,9 @@ async function main() {
     tunnels.update(state);
     slidingDoors.update(dt, state);
     carYard.update(dt, state);
+    // Hammer loop: on while the player or any pit mechanic is in its 'repair'
+    // clip — the same condition already driving the wrench prop's visibility.
+    setHammerActive(character.wrench.visible || carYard.pitViews.some((pv) => pv.mechanic?.wrench.visible));
     supermarketView.update(dt, state);
     gasStationView.update(dt, state);
     breakDisplays.update(state);
@@ -357,6 +389,20 @@ async function main() {
   }
 
   requestAnimationFrame(frame);
+}
+
+/**
+ * Which area-ambience zone a player x falls in — mirrors the world's actual
+ * layout: the gas station is entirely OUTSIDE the building (x < -halfX, see
+ * settings.gasStation), the market/lobby is the building's left slice up to
+ * the lobby/bay seam (settings.supermarket.lobbyRightX, shared with the lobby
+ * floor patch in scene/Garage.js), and everything right of that is the pit bay.
+ */
+function ambienceZoneForX(x) {
+  const W = settings.world;
+  if (x < -W.halfX) return 'gasStation';
+  if (x < settings.supermarket.lobbyRightX) return 'market';
+  return 'garage';
 }
 
 function showLoading() {

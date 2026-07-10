@@ -1006,6 +1006,26 @@ export const settings = {
     },
   },
 
+  // Looping area-ambience layers (platform/audio.js), each audible only while
+  // the player stands in its matching zone (garage/pit floor, the gas station
+  // exterior, the market/lobby) — see settings.supermarket.lobbyRightX and
+  // world.halfX for the zone boundaries. Played on top of bgmusic, which keeps
+  // looping everywhere unchanged. STARTING VALUES — balance by ear.
+  audio: {
+    garageVolume: 0.4,
+    gasStationVolume: 0.4,
+    marketVolume: 0.4,
+    // Seconds for the outgoing zone's track to fade down while the incoming
+    // one fades up, on every zone crossing.
+    ambienceFadeDuration: 0.75,
+    // One-shot / triggered sound effects (platform/audio.js) — each its own
+    // knob so they can be balanced independently of the ambience layers above.
+    walkVolume: 0.5,
+    hammerVolume: 0.25,
+    moneyVolume: 0.6,
+    bagVolume: 0.6,
+  },
+
   ui: {
     // Single UI font across every DOM overlay AND canvas text sprite. The face
     // (montserrat.black.ttf) is registered via @font-face in public/style.css
@@ -1113,5 +1133,10 @@ settings.supermarket.deliveryDoorOutside = {
   x: settings.supermarket.deliveryDoorX,
   z: -(settings.world.halfZ + settings.supermarket.deliveryCorridorLength + 1.5),
 };
+
+// The lobby/bay floor seam (scene/Garage.js's lobby patch, and the market-vs-
+// garage ambience zone boundary in platform/audio.js): everything left of this
+// x is the market/lobby, everything right (up to world.halfX) is the pit bay.
+settings.supermarket.lobbyRightX = settings.pit.positions[0].x - 2.5;
 
 export default settings;

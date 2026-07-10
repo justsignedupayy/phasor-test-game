@@ -136,7 +136,7 @@ export class Garage {
 
     // Left lobby patch: a distinct floor colour from the left wall up to just
     // short of pit 0's lot, marking the pit-free, traffic-free lobby area.
-    const lobbyRightX = settings.pit.positions[0].x - 2.5;
+    const lobbyRightX = settings.supermarket.lobbyRightX;
     const lobbyW = lobbyRightX - -W.halfX;
     const lobby = new THREE.Mesh(
       new THREE.PlaneGeometry(lobbyW, floorD),

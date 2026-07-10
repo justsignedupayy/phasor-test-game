@@ -3,6 +3,7 @@ import settings from '../config/settings.js';
 import { getUnlockMarkers, buyUnlockMarker } from '../core/upgrades.js';
 import { formatMoney } from '../core/format.js';
 import { spawnFlyingBills } from './MoneyFly.js';
+import { playMoneySound } from '../platform/audio.js';
 
 /**
  * UnlockMarkers — the world-space "buy it here" markers: one white ground
@@ -148,6 +149,7 @@ export class UnlockMarkers {
     if (!p) return;
     state.cash += p.paid;
     buyUnlockMarker(state, m.kind, m.index);
+    playMoneySound();
     this.orphanFlights.push(...p.flights); // airborne bills finish their flight
     this.progress.delete(key);
   }

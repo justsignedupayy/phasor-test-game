@@ -325,10 +325,10 @@ check('spawnCar produces variety (1-, 2- and 3-damage cars appear)', () => {
   assert.ok(counts.has(1) && counts.has(2) && counts.has(3));
 });
 
-check('a standard 3-damage car needs ~15 ticks at base fixing time', () => {
+check('a standard 3-damage car needs ~37.5 ticks at base fixing time', () => {
   const s = createInitialState();
   const car = { baseTicks: settings.repair.ticksPerPart * 3 };
-  assert.equal(requiredTicks(car, s.pits[0]), 15);
+  assert.equal(requiredTicks(car, s.pits[0]), 37.5);
 });
 
 // --- repair loop ----------------------------------------------------------

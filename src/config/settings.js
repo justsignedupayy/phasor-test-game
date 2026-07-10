@@ -264,10 +264,10 @@ export const settings = {
   },
 
   // Repair is measured in ticks. A car needs baseTicks = ticksPerPart × numParts,
-  // so a standard 3-damage car ≈ 15 ticks. A pit's required ticks shrink with its
+  // so a standard 3-damage car ≈ 37.5 ticks. A pit's required ticks shrink with its
   // fixing-time upgrade (car.baseTicks × pit.fixTimeFactor).
   repair: {
-    ticksPerPart: 5, // 3-damage car → 15 ticks
+    ticksPerPart: 12.5, // 5 × 2.5 (flat 2.5× fixing-time raise) — 3-damage car → 37.5 ticks
     tapTicks: 5, // ticks added per manual repair tap (≈ a worker's base rate)
   },
 
@@ -283,15 +283,16 @@ export const settings = {
   spawn: {
     interval: 1, // seconds between spawns — paces the whole repair economy
     maxQueuePerPit: 10, // max cars waiting per pit's own queue
-    basePayoutPerPart: 4, // payout = basePayoutPerPart × numParts (3-damage car = $12)
+    basePayoutPerPart: 8, // 4 × 2 (flat 2× payout raise); payout = basePayoutPerPart × numParts (3-damage car = $24)
   },
 
   // Two-stage room unlock + the per-pit upgrades. All costs are geometric
   // (cost = baseCost × costGrowth^level); see upgrades.js for the level used.
   //
-  // Balance anchors: an average rusty car pays ~$4.80 every ~1.6s of pit-0 work
+  // Balance anchors: an average rusty car pays ~$9.60 every ~4s of pit-0 work
   // (the 5×-traffic rebalance kept $/min flat; the later flat 4× payout raise
-  // and 3× cost raise moved both sides together); each new income stream
+  // and 3× cost raise moved both sides together; then a flat 2× payout raise
+  // paired with a 2.5× fixing-time raise); each new income stream
   // (pit land + equipment + mechanic) costs roughly a few minutes of the income
   // that came before it; the gas tier is priced against the full-garage income it
   // is gated behind (see upgrades.gas below).
@@ -316,7 +317,7 @@ export const settings = {
       baseCost: 150,
       costGrowth: 1.6,
       maxLevel: 8,
-      baseRate: 5 / 1.5, // ticks/sec at level 0 → a 15-tick car takes ~4.5s (1.5× slower than before)
+      baseRate: 5 / 1.5, // ticks/sec at level 0 → a 37.5-tick car takes ~11.25s (1.5× slower than before)
       ratePerLevel: 2.5 / 1.5, // +ticks/sec per level (1.5× slower than before)
     },
     // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
@@ -324,7 +325,7 @@ export const settings = {
       baseCost: 225,
       costGrowth: 1.5,
       maxLevel: 5,
-      factorPerLevel: 0.15, // each level: factor -0.15 (15-tick car → ~13, ~11, ...)
+      factorPerLevel: 0.15, // each level: factor -0.15 (37.5-tick car → ~32, ~26, ...)
       factorFloor: 0.4, // factor never drops below this
     },
     // One-time, garage-wide cashier hire: payouts then skip the per-pit waiting
@@ -901,8 +902,8 @@ export const settings = {
     // fillTicks = baseTicks × tier.ticksMult; payout = basePayout × tier.payoutMult
     // (same tier scaling as repairs, own base numbers). STARTING VALUES.
     fill: {
-      baseTicks: 8,
-      basePayout: 9.6, // 2.4 × 4 (the flat 4× payout raise on top of the 5×-traffic rebalance)
+      baseTicks: 20, // 8 × 2.5 (flat 2.5× fixing-time raise, mirrors repair.ticksPerPart)
+      basePayout: 19.2, // 9.6 × 2 (flat 2× payout raise, mirrors spawn.basePayoutPerPart)
     },
     // Automatic spawning, mirroring settings.spawn: each pump owns its own queue.
     // UNLIKE pits there is no tier routing — a spawned car (any tier) joins the

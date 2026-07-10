@@ -115,13 +115,17 @@ export class Hud {
     }, settings.offline.popupSeconds * 1000);
   }
 
-  // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe save).
+  // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe
+  // save). DEV BUILDS ONLY — a shipped cheat button is a moderation red flag
+  // (and wrecks the economy), so production builds never create the row.
+  // Sits below the pause button, which owns the production top-right corner.
   #buildDebugButtons() {
+    if (!import.meta.env?.DEV) return;
     const row = document.createElement('div');
     Object.assign(row.style, {
       position: 'fixed',
       right: '14px',
-      top: '14px',
+      top: 'calc(env(safe-area-inset-top, 0px) + 68px)', // clears the 44px pause button
       display: 'flex',
       gap: '8px',
       zIndex: '17',

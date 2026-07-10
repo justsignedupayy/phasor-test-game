@@ -33,6 +33,7 @@ import {
   resumeAll,
 } from './platform/audio.js';
 import { SettingsMenu } from './scene/SettingsMenu.js';
+import { PauseControl } from './scene/PauseButton.js';
 import { estimateOfflineEarnings } from './core/offlineEarnings.js';
 import { ownedRightX } from './core/upgrades.js';
 import { roomWallBox } from './core/collision.js';
@@ -129,15 +130,38 @@ initMusic();
 // The three area-ambience layers, silent until the per-frame zone check below
 // fades one in.
 initAmbience();
+// Pause switch — the pause button today, and the single hook a platform pause
+// (the Bridge ad flow, an external pause command) plugs into later. While
+// paused, the frame loop early-outs before input/sims/view updates (the scene
+// keeps rendering, frozen), every looping track is silenced, and the state is
+// saved — a pause is a natural save point and the pre-ad point later.
+// Module-scoped so the visibilitychange handler below can respect it.
+let paused = false;
+let pauseControl = null; // constructed in main() once the game is playable
+function setPaused(v) {
+  if (paused === v) return;
+  paused = v;
+  if (paused) {
+    suspendAll();
+    saveGame(state);
+  } else if (!document.hidden) {
+    // Only restart audio when actually visible — resuming while hidden would
+    // undo the minimize-silence below.
+    resumeAll();
+  }
+  pauseControl?.sync(paused);
+}
+
 // Minimizing the tab throttles requestAnimationFrame (freezing the game) but
 // HTMLAudioElements would keep sounding — silence every looping track while
 // hidden and resume them on return (also save right away, since the throttled
-// autosave interval may never fire again if the tab is killed).
+// autosave interval may never fire again if the tab is killed). A game that is
+// PAUSED stays silent on return: pause outranks visibility.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     suspendAll();
     saveGame(state);
-  } else {
+  } else if (!paused) {
     resumeAll();
   }
 });
@@ -197,6 +221,9 @@ async function main() {
   // The first-game tutorial overlay: glow ring / UI glow + instruction bubble,
   // driven by core/tutorial.js's view model (resolves tablet targets via `menu`).
   const tutorialView = new TutorialView(sceneManager, state, menu, unlockMarkers);
+  // Pause button + full-screen "Paused" overlay; created only now, so the
+  // loading sequence can never be paused into a stuck state.
+  pauseControl = new PauseControl(setPaused);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their
@@ -206,6 +233,7 @@ async function main() {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   sceneManager.renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (paused) return; // belt and braces — the overlay already swallows canvas taps
     const rect = sceneManager.renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -355,7 +383,15 @@ async function main() {
   const basis = sceneManager.moveBasis; // camera-relative ground axes
 
   function frame() {
-    const dt = Math.min(clock.getDelta(), 0.05); // clamp tab-switch jumps
+    const dt = Math.min(clock.getDelta(), 0.05); // clamp tab-switch jumps (getDelta each frame keeps the clock fresh across a pause)
+
+    if (paused) {
+      // Frozen: no input, no sims, no view updates — keep presenting the last
+      // state so the overlay sits over the (static) scene and resizes render.
+      sceneManager.render();
+      requestAnimationFrame(frame);
+      return;
+    }
 
     // Screen-space joystick -> camera-relative world direction -> core.
     const ix = input.value.x;

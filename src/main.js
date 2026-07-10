@@ -41,6 +41,7 @@ import { SlidingDoors } from './scene/SlidingDoors.js';
 import { Bridges } from './scene/Bridges.js';
 import { Tunnels } from './scene/Tunnels.js';
 import { PoofEffects, RevealPoofs } from './scene/Poof.js';
+import { SparkleEffects } from './scene/Sparkle.js';
 
 const container = document.getElementById('app');
 
@@ -84,6 +85,9 @@ const tunnels = new Tunnels(sceneManager);
 // RevealPoofs watches the state flags the views already gate visibility on.
 const poofs = new PoofEffects(sceneManager);
 const revealPoofs = new RevealPoofs(poofs);
+// Bright glitter burst; fired alongside a poof when a car finishes repair at a
+// pit (garage-only — see scene/CarYard.js).
+const sparkles = new SparkleEffects(sceneManager);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
 
@@ -104,7 +108,7 @@ async function main() {
   const character = new Character(gltf);
   sceneManager.add(character.root);
 
-  const carYard = new CarYard(sceneManager, gltf);
+  const carYard = new CarYard(sceneManager, gltf, { poofs, sparkles });
   const pitMoney = new PitMoney(sceneManager);
   const carriedBox = new CarriedBox(sceneManager);
   const supermarketView = new SupermarketView(sceneManager, gltf);
@@ -301,6 +305,7 @@ async function main() {
     unlockMarkers.update(dt, state, state.player.position);
     revealPoofs.update(state); // fires poofs on this frame's reveal edges…
     poofs.update(dt); // …and animates the live bursts
+    sparkles.update(dt); // repair-complete glitter bursts (fired from CarYard)
     breakMenu.update();
     truckMenu.update();
     hud.update(state.cash, dt);

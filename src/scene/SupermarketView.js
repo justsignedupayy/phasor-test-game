@@ -107,13 +107,8 @@ export class SupermarketView {
       return box;
     });
 
-    // Live unit count ("X/4") floating above the box, same sprite style as the shelf labels.
-    this.restockLabel = makeLabelSprite();
-    this.restockLabel.position.set(pos.x, 1.8, pos.z);
-    this.restockLabel.visible = false;
-    this.sm.add(this.restockLabel);
-    this.restockLabelText = '';
-
+    // The live "X/4" stock readout lives on the wall-mounted delivery LED
+    // (#buildTruckDisplay); no floating label over the box is needed.
     this.restockRing = makeRing(pos.x, pos.z);
     this.sm.add(this.restockRing);
   }
@@ -198,17 +193,8 @@ export class SupermarketView {
     this.checkoutCounter.visible = unlocked;
     this.bag.visible = unlocked && !!S.checkoutBag;
     for (const box of this.pileBoxes) box.visible = unlocked;
-
-    // Restock-box unit count ("X/maxUnits") floating above the box — the pile
-    // mesh stays decorative; this label is the live readout of remaining units.
-    this.restockLabel.visible = unlocked;
-    if (unlocked) {
-      const text = `${S.restockBox.units}/${S.restockBox.maxUnits}`;
-      if (text !== this.restockLabelText) {
-        this.restockLabelText = text;
-        drawLabelSprite(this.restockLabel, text);
-      }
-    }
+    // The pile mesh stays decorative; its "X/maxUnits" stock readout is shown on
+    // the wall-mounted delivery LED (truckDisplay) below, not a floating label.
 
     // Delivery truck: core flags an arrival; play the drive-in (which tops up the
     // box via deliverStock at touchdown), then the drive-out. Single reused instance.

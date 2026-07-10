@@ -18,10 +18,15 @@ import { formatMoney } from '../core/format.js';
  *   - queue advance: a queued car's slot index drops -> drive to the new (nearer) slot
  *   - enter pit:     pit.car becomes a (previously queued) id -> drive it from the door into the pit
  *   - drive-off:     a pit car is fixed (id leaves) -> fully heal + drive out the FRONT door + "+$"
+ *                    + a poof/sparkle celebration burst at the pit
  */
 export class CarYard {
-  constructor(sceneManager, gltf) {
+  constructor(sceneManager, gltf, effects = {}) {
     this.sm = sceneManager;
+    // Optional celebration effects fired when a car finishes repair at a pit
+    // (garage-only — the gas station never triggers these). { poofs, sparkles }.
+    this.poofs = effects.poofs ?? null;
+    this.sparkles = effects.sparkles ?? null;
 
     this.pitViews = []; // PitView per pit (static furniture + worker + ring)
     this.pitCars = []; // CarView currently in each pit (or null)
@@ -125,6 +130,10 @@ export class CarYard {
       // Pop "+$" here only when the cashier banks the pay instantly. Without a
       // cashier the money waits at the pit; PitMoney pops it on collection.
       if (state.hasCashier) this.#popup(out.car.payout, pos);
+      // Repair just completed at this pit: celebrate with a poof cloud + sparkle
+      // shower at the car's spot (garage-only; the gas station never fires these).
+      this.poofs?.spawn({ x: pos.x, y: 0.7, z: pos.z }, 1.2);
+      this.sparkles?.spawn({ x: pos.x, y: 0.95, z: pos.z }, 1.2);
       this.pitCars[i] = null;
     }
 

@@ -302,8 +302,8 @@ export const settings = {
       baseCost: 150,
       costGrowth: 1.6,
       maxLevel: 8,
-      baseRate: 5, // ticks/sec at level 0 → a 15-tick car takes ~3s (5× traffic pace)
-      ratePerLevel: 2.5, // +ticks/sec per level
+      baseRate: 5 / 1.5, // ticks/sec at level 0 → a 15-tick car takes ~4.5s (1.5× slower than before)
+      ratePerLevel: 2.5 / 1.5, // +ticks/sec per level (1.5× slower than before)
     },
     // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
     fixingTime: {
@@ -373,8 +373,8 @@ export const settings = {
         baseCost: 750,
         costGrowth: 1.6,
         maxLevel: 8,
-        baseRate: 5,
-        ratePerLevel: 2.5,
+        baseRate: 5 / 1.5, // 1.5× slower than before (mirrors the pit workerSpeed)
+        ratePerLevel: 2.5 / 1.5, // 1.5× slower than before
       },
     },
   },
@@ -626,8 +626,10 @@ export const settings = {
     // from it (player or market worker) steps out through the delivery gate:
     // core/supermarket.planRoute threads that gate into the route, and
     // simulation.clampToBounds opens the same gap for the player. Off-grid
-    // (outside the room), so the final leg to it is a straight walk. Tune by eye.
-    restockBoxPosition: { x: -42, z: -14.5 },
+    // (outside the room), so the final leg to it is a straight walk. Sat left of
+    // the delivery corridor's left side wall so the box (and its truck/dock) read
+    // fully clear of it on the isometric camera. Tune by eye.
+    restockBoxPosition: { x: -45, z: -14.5 },
 
     // The restock box holds a SHARED, limited inventory (one unit restocks any
     // one shelf fully, to shelfCapacity). A delivery truck tops it back up to

@@ -7,7 +7,7 @@
 const SAVE_KEY = 'garageIdleSave';
 const MUSIC_VOLUME_KEY = 'garageIdleMusicVolume'; // own key: device preference, survives SAVE_VERSION bumps
 const MUTED_KEY = 'garageIdleMuted'; // own key like the volume: device preference, survives SAVE_VERSION bumps
-const SAVE_VERSION = 20; // v20: tutorial 'firstBreak' moved BEFORE 'firstRestock' (it now showcases pit A's special early first break) + state.tutorial.firstBreakEverStarted latch, swapping those step indices; v19: tutorial gained a 'firstPendingCash' step between breakLed and firstRestock, shifting every later step index; v18: tutorial reworked — repairsRemaining now counts COMPLETED manual repairs (was per-tap repairTapsRemaining) and four steps were inserted (breakLed/firstRestock/firstBreak/truckLed), shifting every step index; v17: mandatory first-game tutorial state (state.tutorial — see core/tutorial.js); v16: save payload now carries savedAt (Date.now() at save time), read by getSavedAt() for the offline-earnings estimate on next load; v15: Watch Ad now grants PERMANENT +rep with a cooldown (state.adCooldownRemaining replaces the removed temporary state.repBoostRemaining); v14: per-worker-type "Shorter Breaks" levels (state.breakLevels) + one-time Player Speed purchase (state.playerSpeedBought); v13: order-based truck (supermarket.truckOrdered; truckTimer now counts a placed order's wait, not an automatic arrival clock); v12: gas station starts fully locked + per-pump attendant break state (pump.break); v11: gas station (state.gasStation: pumps/attendants/spawnTimer); v10: conveyor replaced by mechanic auto-restock (state.autoRestock + per-pit core mechanic; removed hasConveyor/conveyorTimer/conveyorBounds); v9: restock box moved to the front-wall delivery dock (saved restockBoxPosition); v8: supermarket restock box (limited units) + delivery truck (timer/upgrade); v7: per-worker break state (pit.break / worker.break); v6: supermarket (shelves/customers/worker); v5: per-pit tires/shelf + conveyor + carried box; v4: pendingCash + cashier; v3: 5 pits
+export const SAVE_VERSION = 20; // v20: tutorial 'firstBreak' moved BEFORE 'firstRestock' (it now showcases pit A's special early first break) + state.tutorial.firstBreakEverStarted latch, swapping those step indices; v19: tutorial gained a 'firstPendingCash' step between breakLed and firstRestock, shifting every later step index; v18: tutorial reworked — repairsRemaining now counts COMPLETED manual repairs (was per-tap repairTapsRemaining) and four steps were inserted (breakLed/firstRestock/firstBreak/truckLed), shifting every step index; v17: mandatory first-game tutorial state (state.tutorial — see core/tutorial.js); v16: save payload now carries savedAt (Date.now() at save time), read by getSavedAt() for the offline-earnings estimate on next load; v15: Watch Ad now grants PERMANENT +rep with a cooldown (state.adCooldownRemaining replaces the removed temporary state.repBoostRemaining); v14: per-worker-type "Shorter Breaks" levels (state.breakLevels) + one-time Player Speed purchase (state.playerSpeedBought); v13: order-based truck (supermarket.truckOrdered; truckTimer now counts a placed order's wait, not an automatic arrival clock); v12: gas station starts fully locked + per-pump attendant break state (pump.break); v11: gas station (state.gasStation: pumps/attendants/spawnTimer); v10: conveyor replaced by mechanic auto-restock (state.autoRestock + per-pit core mechanic; removed hasConveyor/conveyorTimer/conveyorBounds); v9: restock box moved to the front-wall delivery dock (saved restockBoxPosition); v8: supermarket restock box (limited units) + delivery truck (timer/upgrade); v7: per-worker break state (pit.break / worker.break); v6: supermarket (shelves/customers/worker); v5: per-pit tires/shelf + conveyor + carried box; v4: pendingCash + cashier; v3: 5 pits
 
 const backend = {
   read(key = SAVE_KEY) {
@@ -30,6 +30,44 @@ export function saveGame(state) {
   backend.write(JSON.stringify({ saveVersion: SAVE_VERSION, savedAt: Date.now(), state }));
 }
 
+/**
+ * Stepwise save migrations: MIGRATIONS[n] upgrades a version-n payload IN
+ * PLACE to version n+1. migratePayload walks a payload forward one step at a
+ * time until it reaches SAVE_VERSION; a version with no registered step (or a
+ * payload from a NEWER build) returns null and the save is discarded — the
+ * pre-migration behavior. Register a step here for every future version bump
+ * so shipped players stop losing progress on updates.
+ */
+const MIGRATIONS = {
+  // v19 → v20: the tutorial's 'firstBreak' and 'firstRestock' steps swapped
+  // list positions (indexes 5/6 — firstBreak now showcases pit A's special
+  // early first break), and tutorial state gained the firstBreakEverStarted
+  // latch. Remapping the index preserves the step the player was actually on;
+  // the latch starts false (worst case: an already-past first break makes the
+  // step wait for the next live one, exactly the old behavior).
+  19: (payload) => {
+    const t = payload.state?.tutorial;
+    if (t && t.active) {
+      if (t.step === 5) t.step = 6;
+      else if (t.step === 6) t.step = 5;
+    }
+    if (t) t.firstBreakEverStarted = t.firstBreakEverStarted ?? false;
+  },
+};
+
+/** Walk a payload forward to SAVE_VERSION, or null if no path exists. Pure —
+ * exported for the Node test suite. */
+export function migratePayload(payload) {
+  if (!payload || typeof payload.saveVersion !== 'number') return null;
+  while (payload.saveVersion < SAVE_VERSION) {
+    const step = MIGRATIONS[payload.saveVersion];
+    if (!step) return null;
+    step(payload);
+    payload.saveVersion += 1;
+  }
+  return payload.saveVersion === SAVE_VERSION ? payload : null; // newer-than-us saves are discarded
+}
+
 function readValidPayload() {
   const raw = backend.read();
   if (!raw) return null;
@@ -41,8 +79,7 @@ function readValidPayload() {
     return null;
   }
 
-  if (!payload || payload.saveVersion !== SAVE_VERSION) return null;
-  return payload;
+  return migratePayload(payload);
 }
 
 /** Returns the saved GameState-shaped object, or null if there's no valid save. */

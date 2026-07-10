@@ -66,6 +66,7 @@ import {
   adCost,
 } from '../src/core/reputation.js';
 import { formatMoney } from '../src/core/format.js';
+import { migratePayload, SAVE_VERSION } from '../src/platform/storage.js';
 import {
   TUTORIAL_STEPS,
   tickTutorial,
@@ -2810,6 +2811,44 @@ check('the tutorial never gates gameplay: purchases work regardless of the curre
   assert.equal(buyCashier(s), true);
   assert.equal(buySupermarket(s), true);
   assert.equal(currentTutorialStep(s), 'repairCars', 'the tutorial just keeps waiting for ITS condition');
+});
+
+// --- save migrations (platform/storage.js, pure part only) -------------------
+console.log('\nsave migrations');
+
+check('a v19 save migrates to the current version instead of being discarded', () => {
+  const payload = { saveVersion: 19, savedAt: 123, state: { tutorial: { active: true, step: 2 } } };
+  const out = migratePayload(payload);
+  assert.equal(out.saveVersion, SAVE_VERSION);
+  assert.equal(out.state.tutorial.step, 2, 'steps before the swapped pair are untouched');
+  assert.equal(out.state.tutorial.firstBreakEverStarted, false, 'the new latch is backfilled');
+});
+
+check("v19→v20 remaps the swapped tutorial steps by ID (old firstRestock=5 ↔ old firstBreak=6)", () => {
+  const onOldFirstRestock = migratePayload({ saveVersion: 19, state: { tutorial: { active: true, step: 5 } } });
+  assert.equal(TUTORIAL_STEPS[onOldFirstRestock.state.tutorial.step], 'firstRestock');
+  const onOldFirstBreak = migratePayload({ saveVersion: 19, state: { tutorial: { active: true, step: 6 } } });
+  assert.equal(TUTORIAL_STEPS[onOldFirstBreak.state.tutorial.step], 'firstBreak');
+});
+
+check('a finished tutorial is not re-indexed by the v19→v20 step swap', () => {
+  const out = migratePayload({ saveVersion: 19, state: { tutorial: { active: false, step: 5 } } });
+  assert.equal(out.state.tutorial.step, 5, 'inactive tutorial keeps its index');
+  assert.equal(out.state.tutorial.firstBreakEverStarted, false, 'the latch is still backfilled');
+});
+
+check('saves with no migration path are discarded: too old, from the future, or malformed', () => {
+  assert.equal(migratePayload({ saveVersion: 3, state: {} }), null, 'ancient version with no registered steps');
+  assert.equal(migratePayload({ saveVersion: SAVE_VERSION + 1, state: {} }), null, 'newer build\'s save');
+  assert.equal(migratePayload({ state: {} }), null, 'missing saveVersion');
+  assert.equal(migratePayload(null), null, 'null payload');
+});
+
+check('a current-version save passes through unchanged', () => {
+  const payload = { saveVersion: SAVE_VERSION, savedAt: 9, state: { cash: 42 } };
+  const out = migratePayload(payload);
+  assert.equal(out, payload);
+  assert.equal(out.state.cash, 42);
 });
 
 console.log(`\n${passed} passed`);

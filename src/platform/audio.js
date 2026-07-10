@@ -143,6 +143,29 @@ export function updateAmbience(zone, dt) {
   }
 }
 
+/**
+ * Pause every LOOPING track — call when the page is hidden (tab switch /
+ * app minimize), where HTMLAudioElements would otherwise keep sounding even
+ * though requestAnimationFrame (and so the game) is throttled to a halt.
+ * One-shots (money/bag/door) are sub-second fire-and-forget and need no
+ * handling; the hammer loop is paused here and resumes itself on the first
+ * visible frame via setHammerActive (called every frame while repairing).
+ */
+export function suspendAll() {
+  if (music && !music.paused) music.pause();
+  if (ambience) for (const key of Object.keys(ambience)) ambience[key].paused || ambience[key].pause();
+  if (hammerSound && !hammerSound.paused) hammerSound.pause();
+}
+
+/** Resume the tracks suspendAll paused (page visible again). Mute state needs
+ * no special casing — muted tracks play at volume 0. A track that was never
+ * started (autoplay still blocked) just fails quietly and stays on the shared
+ * gesture-unlock path. */
+export function resumeAll() {
+  if (music) music.play().catch(() => {});
+  if (ambience) for (const key of Object.keys(ambience)) ambience[key].play().catch(() => {});
+}
+
 /** Loop/stop the repair-hammering sound (player or any pit mechanic actively repairing). */
 export function setHammerActive(active) {
   if (!hammerSound) {

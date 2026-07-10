@@ -93,8 +93,10 @@ Pump cars mirror this exactly (`hurryPump` / `tapFill`).
   that pit can't take it.
 - **glTF loaded once, cloned**: the character model (player + every worker) and the car
   model are each loaded a single time and cloned; never re-load per instance.
-- **Save format is versioned**: `storage.js` carries `SAVE_VERSION`; a mismatch
-  discards the save. There is no offline-earnings catch-up — reload restores state as-is.
+- **Save format is versioned + migrated**: `storage.js` carries `SAVE_VERSION` and a
+  stepwise `MIGRATIONS` map (register a step for every version bump); a version with
+  no migration path is discarded. On load, `core/offlineEarnings.js` estimates cash
+  earned since `savedAt` and the Hud drains it in with a "While you were away" popup.
 
 ### Tuning notes
 - Camera framing & room size are tuned by eye: `settings.camera.viewSize` (zoom),

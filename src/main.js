@@ -29,6 +29,8 @@ import {
   setHammerActive,
   playMoneySound,
   playBagSound,
+  suspendAll,
+  resumeAll,
 } from './platform/audio.js';
 import { SettingsMenu } from './scene/SettingsMenu.js';
 import { estimateOfflineEarnings } from './core/offlineEarnings.js';
@@ -61,6 +63,38 @@ import {
 import { TutorialView } from './scene/TutorialView.js';
 
 const container = document.getElementById('app');
+
+// WebGL2 gate: Three.js r163+ is WebGL2-only, and on a device without it the
+// WebGLRenderer constructor throws — leaving a silent black page. Probe BEFORE
+// booting anything and show a friendly message instead; the throw halts the
+// rest of this module so no renderer/game construction is ever attempted.
+if (!document.createElement('canvas').getContext('webgl2')) {
+  const msg = document.createElement('div');
+  Object.assign(msg.style, {
+    position: 'fixed',
+    inset: '0',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    padding: '24px',
+    background: '#12161c',
+    color: '#e7ecf2',
+    fontFamily: settings.ui.fontStack,
+    textAlign: 'center',
+    zIndex: '100',
+  });
+  const title = document.createElement('div');
+  title.textContent = 'This device can’t run the game';
+  Object.assign(title.style, { fontWeight: '800', fontSize: '22px' });
+  const detail = document.createElement('div');
+  detail.textContent = 'It needs WebGL2 graphics support. Please update your browser or try a newer device.';
+  Object.assign(detail.style, { fontSize: '15px', color: '#9fb0c0', maxWidth: '420px' });
+  msg.append(title, detail);
+  document.body.appendChild(msg);
+  throw new Error('WebGL2 unavailable — game not started');
+}
 
 // Warm the UI font (settings.ui.fontStack / @font-face in style.css) so canvas
 // text sprites — customer requests, pit labels, cash popups — draw in it from
@@ -95,6 +129,18 @@ initMusic();
 // The three area-ambience layers, silent until the per-frame zone check below
 // fades one in.
 initAmbience();
+// Minimizing the tab throttles requestAnimationFrame (freezing the game) but
+// HTMLAudioElements would keep sounding — silence every looping track while
+// hidden and resume them on return (also save right away, since the throttled
+// autosave interval may never fire again if the tab is killed).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    suspendAll();
+    saveGame(state);
+  } else {
+    resumeAll();
+  }
+});
 
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);

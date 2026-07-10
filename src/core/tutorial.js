@@ -51,8 +51,10 @@ import { frontCustomer } from './supermarket.js';
  * The steps, in order. state.tutorial.step indexes into this list.
  *
  * NOTE on the worker-lifecycle trio: firstRestock sits BEFORE firstBreak on
- * purpose. A box holds 25 tires but a break needs 50 jobs, so pit A always
- * runs dry before its worker's first break — and a dry pit stops taking cars,
+ * purpose. A box holds 25 tires and, past pit A's special early first break
+ * (settings.breakThresholds.pitAFirstBreak jobs, which may land before these
+ * steps), every later break needs the full 50 jobs — so while WAITING on the
+ * firstBreak step pit A can run dry first, and a dry pit stops taking cars,
  * which stops jobs, which means the break could never arrive. The restock
  * step must therefore come first (and firstBreak carries its own out-of-tires
  * guidance while waiting — see pendingView).

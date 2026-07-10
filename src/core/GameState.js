@@ -43,7 +43,15 @@ function createPit(index) {
     mechanic: null,
     // This pit mechanic's break clock (see core/breaks.js): a finished repair
     // counts a job; after enough the worker leans at its break spot for a while.
-    break: createBreakState('carMechanic'),
+    // Pit A alone carries one-time FIRST-break overrides (an earlier, shorter
+    // first break — settings.breakThresholds/breakDurations.pitAFirstBreak);
+    // every later cycle — and every other pit, always — uses the shared
+    // carMechanic threshold and the normal upgrade-scaled duration.
+    break: createBreakState(
+      'carMechanic',
+      index === 0 ? settings.breakThresholds.pitAFirstBreak : null,
+      index === 0 ? settings.breakDurations.pitAFirstBreak : null
+    ),
   };
 }
 

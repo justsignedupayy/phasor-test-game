@@ -983,11 +983,22 @@ export const settings = {
     carMechanic: 50,
     marketWorker: 50,
     gasAttendant: 50, // one job = one filled car
+    // Pit A (index 0) ONLY: its mechanic's very FIRST break trips after this
+    // many repairs, so the player meets the break system early. Every break
+    // after that — and every other pit's mechanic, always — uses carMechanic
+    // above (one-time override, see GameState.createPit + core/breaks.js).
+    pitAFirstBreak: 5,
   },
 
   // How long (real seconds) a break lasts.
   breakDurations: {
     base: 300, // 5 min
+    // Pit A (index 0) ONLY: its mechanic's very FIRST break (the early one at
+    // breakThresholds.pitAFirstBreak jobs) lasts this long, flat — a quick
+    // taste of the break system. Every break after that, and every other
+    // worker's always, uses base above scaled by the "Shorter Breaks" level
+    // (one-time override, see GameState.createPit + core/breaks.js).
+    pitAFirstBreak: 30,
   },
 
   // Break-spot layout: each worker walks to its own wall-side spot and leans

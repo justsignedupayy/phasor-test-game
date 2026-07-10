@@ -1,12 +1,14 @@
 import settings from '../config/settings.js';
-import { getMusicVolume, setMusicVolume } from '../platform/audio.js';
+import { getMusicVolume, setMusicVolume, isMuted, setMuted } from '../platform/audio.js';
 
 /**
  * SettingsMenu — a second hanging tab at the top-left, sitting just right of
  * the Upgrades tab and dressed identically (design direction 1c "Tablet
  * handle / tab"), opening a small centered panel styled to match TruckMenu /
- * BreakMenu. For now it holds one control: the music volume slider, applied
- * live through platform/audio.js (which also persists it across sessions).
+ * BreakMenu. It holds the music volume slider plus a global mute toggle
+ * beside it (silences ALL audio — music, ambience and one-shots — restoring
+ * the remembered levels on unmute), both applied live through
+ * platform/audio.js (which also persists them across sessions).
  */
 export class SettingsMenu {
   constructor() {
@@ -170,27 +172,70 @@ export class SettingsMenu {
     labelRow.append(labelText, valueText);
     panel.appendChild(labelRow);
 
+    // The volume row: the slider with the global mute toggle beside it.
+    const sliderRow = document.createElement('div');
+    Object.assign(sliderRow.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+    });
+
     const slider = document.createElement('input');
     slider.type = 'range';
     slider.min = '0';
     slider.max = '100';
     slider.step = '1';
     Object.assign(slider.style, {
-      width: '100%',
+      flex: '1',
+      minWidth: '0',
       margin: '0',
       accentColor: '#8fd3ff',
       cursor: 'pointer',
     });
     slider.addEventListener('input', () => {
-      setMusicVolume(slider.value / 100); // applies live + persists
+      setMusicVolume(slider.value / 100); // applies live (unless muted) + persists
       valueText.textContent = `${slider.value}%`;
     });
-    panel.appendChild(slider);
+
+    // Global mute: one tap silences ALL audio (music, ambience, one-shot
+    // effects — see platform/audio.setMuted); tapping again restores the
+    // remembered levels. Persisted like the volume.
+    const muteBtn = document.createElement('button');
+    Object.assign(muteBtn.style, {
+      flexShrink: '0',
+      width: '32px',
+      height: '32px',
+      borderRadius: '6px',
+      border: 'none',
+      background: '#3a434f',
+      fontSize: '16px',
+      lineHeight: '1',
+      cursor: 'pointer',
+      WebkitTapHighlightColor: 'transparent',
+    });
+    muteBtn.addEventListener('click', () => {
+      setMuted(!isMuted()); // applies instantly + persists
+      this.#refreshMuteButton();
+    });
+
+    sliderRow.append(slider, muteBtn);
+    panel.appendChild(sliderRow);
 
     document.body.appendChild(panel);
     this.panel = panel;
     this.slider = slider;
     this.valueText = valueText;
+    this.muteBtn = muteBtn;
+    this.#refreshMuteButton();
+  }
+
+  // Sync the mute button's icon/tint (and dim the slider) to the live state.
+  #refreshMuteButton() {
+    const muted = isMuted();
+    this.muteBtn.textContent = muted ? '🔇' : '🔊';
+    this.muteBtn.title = muted ? 'Unmute all audio' : 'Mute all audio';
+    this.muteBtn.style.background = muted ? '#5a2f33' : '#3a434f';
+    this.slider.style.opacity = muted ? '0.45' : '1';
   }
 
   toggle() {
@@ -199,10 +244,11 @@ export class SettingsMenu {
 
   open() {
     this.isOpen = true;
-    // Re-read on every open — the persisted value is the source of truth.
+    // Re-read on every open — the persisted values are the source of truth.
     const pct = Math.round(getMusicVolume() * 100);
     this.slider.value = String(pct);
     this.valueText.textContent = `${pct}%`;
+    this.#refreshMuteButton();
     this.panel.style.display = 'flex';
   }
 

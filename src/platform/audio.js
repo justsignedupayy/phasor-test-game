@@ -21,7 +21,7 @@
  * cutting off an in-progress play.
  */
 import settings from '../config/settings.js';
-import { loadMusicVolume, saveMusicVolume } from './storage.js';
+import { loadMusicVolume, saveMusicVolume, loadMuted, saveMuted } from './storage.js';
 
 const ASSET_DIR = '/assets/audio/';
 
@@ -31,6 +31,15 @@ let ambience = null; // { garage, gasStation, market } Audio instances
 let hammerSound = null;
 let moneySound = null;
 let bagSound = null;
+
+// Global mute (Settings panel). While muted every track's volume is forced to
+// 0 and every one-shot is skipped; the REMEMBERED volume levels (musicVolume
+// below + the settings.audio.* constants) are untouched, so unmuting restores
+// them exactly. Persisted like the volume (see storage.loadMuted/saveMuted).
+let muted = loadMuted();
+// The music volume SETTING, kept apart from music.volume so mute can zero the
+// live track without losing the slider's remembered level.
+let musicVolume = loadMusicVolume();
 
 // Autoplay-blocked tracks waiting on the first user gesture, serviced by one
 // shared listener pair (see module doc above).
@@ -64,19 +73,40 @@ function startLooping(src, volume) {
 
 export function initMusic() {
   if (music) return; // idempotent — the track is created once
-  music = startLooping('bgmusic.mp3', loadMusicVolume());
+  music = startLooping('bgmusic.mp3', muted ? 0 : musicVolume);
 }
 
-/** Current music volume in [0, 1] (the persisted value until initMusic runs). */
+/** Current music volume SETTING in [0, 1] — the slider's remembered level,
+ * regardless of whether mute is currently forcing the live track to 0. */
 export function getMusicVolume() {
-  return music ? music.volume : loadMusicVolume();
+  return musicVolume;
 }
 
-/** Set music volume in [0, 1]; applies live and persists across sessions. */
+/** Set music volume in [0, 1]; persists across sessions and applies live
+ * unless muted (the remembered level still updates, heard on unmute). */
 export function setMusicVolume(v) {
-  const clamped = Math.min(1, Math.max(0, v));
-  if (music) music.volume = clamped;
-  saveMusicVolume(clamped);
+  musicVolume = Math.min(1, Math.max(0, v));
+  if (music && !muted) music.volume = musicVolume;
+  saveMusicVolume(musicVolume);
+}
+
+/** Current global-mute state (Settings panel's mute button). */
+export function isMuted() {
+  return muted;
+}
+
+/**
+ * Set the global mute; persists across sessions. Muting silences every track
+ * INSTANTLY (music, ambience, hammer loop — one-shots are skipped at play
+ * time); unmuting restores the music to its remembered volume, the hammer to
+ * its tuned volume, and lets updateAmbience fade the current zone back in.
+ */
+export function setMuted(m) {
+  muted = !!m;
+  saveMuted(muted);
+  if (music) music.volume = muted ? 0 : musicVolume;
+  if (ambience && muted) for (const key of Object.keys(ambience)) ambience[key].volume = 0;
+  if (hammerSound) hammerSound.volume = muted ? 0 : settings.audio.hammerVolume;
 }
 
 /** Starts all three area-ambience layers, silent until updateAmbience fades one in. */
@@ -100,10 +130,12 @@ export function updateAmbience(zone, dt) {
   if (!ambience) return;
   const A = settings.audio;
   const rate = Math.min(1, dt / A.ambienceFadeDuration);
+  // While muted every target is 0, so the per-frame ease can never fade a
+  // zone back in over the instant silence setMuted applied.
   const targets = {
-    garage: zone === 'garage' ? A.garageVolume : 0,
-    gasStation: zone === 'gasStation' ? A.gasStationVolume : 0,
-    market: zone === 'market' ? A.marketVolume : 0,
+    garage: !muted && zone === 'garage' ? A.garageVolume : 0,
+    gasStation: !muted && zone === 'gasStation' ? A.gasStationVolume : 0,
+    market: !muted && zone === 'market' ? A.marketVolume : 0,
   };
   for (const key of Object.keys(targets)) {
     const track = ambience[key];
@@ -116,7 +148,7 @@ export function setHammerActive(active) {
   if (!hammerSound) {
     hammerSound = new Audio(ASSET_DIR + 'hammersound.mp3');
     hammerSound.loop = true;
-    hammerSound.volume = settings.audio.hammerVolume;
+    hammerSound.volume = muted ? 0 : settings.audio.hammerVolume;
   }
   if (active) {
     if (hammerSound.paused) hammerSound.play().catch(() => {});
@@ -127,6 +159,7 @@ export function setHammerActive(active) {
 
 /** One-shot: a discrete completed cash gain (pit/pump collect, or an unlock marker finalizing). */
 export function playMoneySound() {
+  if (muted) return;
   if (!moneySound) {
     moneySound = new Audio(ASSET_DIR + 'moneysound.mp3');
     moneySound.volume = settings.audio.moneyVolume;
@@ -137,6 +170,7 @@ export function playMoneySound() {
 
 /** One-shot: a supermarket customer's checkout completing. */
 export function playBagSound() {
+  if (muted) return;
   if (!bagSound) {
     bagSound = new Audio(ASSET_DIR + 'plasticbag.mp3');
     bagSound.volume = settings.audio.bagVolume;
@@ -152,6 +186,7 @@ export function playBagSound() {
  * would cut off an already-playing door sound instead of layering.
  */
 export function playDoorOpenSound() {
+  if (muted) return;
   const audio = new Audio(ASSET_DIR + 'autdooropen.mp3'); // filename typo is intentional — matches the shipped asset
   audio.volume = settings.audio.doorOpenVolume;
   audio.play().catch(() => {});
@@ -159,6 +194,7 @@ export function playDoorOpenSound() {
 
 /** One-shot: a sliding door closing (see playDoorOpenSound above). */
 export function playDoorCloseSound() {
+  if (muted) return;
   const audio = new Audio(ASSET_DIR + 'autodoorclose.mp3');
   audio.volume = settings.audio.doorCloseVolume;
   audio.play().catch(() => {});

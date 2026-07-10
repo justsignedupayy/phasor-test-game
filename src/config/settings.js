@@ -446,7 +446,9 @@ export const settings = {
     maxHours: 24, // cap how much elapsed time counts, so a long-idle save doesn't grant a huge lump sum
     minSeconds: 60, // ignore anything shorter — avoids a trivial popup on a quick refresh/reload
     efficiency: 0.6, // fudge factor below the theoretical max rate — breaks/empty queues aren't modeled
-    drainDuration: 3, // seconds the Hud's counter takes to drain into the main balance
+    drainDuration: 3, // seconds the granted amount takes to drain into the main balance
+    popupSeconds: 3, // the "While you were away" popup holds fully visible this long...
+    popupFadeSeconds: 0.4, // ...then fades out over this long before removing itself (scene/Hud.js)
   },
 
   // Physical unlock markers: every "create a location / hire a worker" purchase

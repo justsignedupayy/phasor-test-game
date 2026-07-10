@@ -39,10 +39,10 @@ export class Hud {
     this.el = el;
     this._cash = null;
 
-    // Offline-earnings line (scene/main.js startOfflineDrain): a smaller line
-    // under the main cash number that drains down to 0 over settings.offline
-    // .drainDuration seconds, adding that same delta into state.cash as it goes.
-    this.offlineEl = null;
+    // Offline-earnings drain (scene/main.js startOfflineDrain): the granted
+    // amount trickles into state.cash over settings.offline.drainDuration
+    // seconds; the amount itself is announced by a fixed 3-second popup panel
+    // (see #showOfflinePopup) rather than a live counter line.
     this._offlineRemaining = 0;
     this._offlineTotal = 0;
 
@@ -58,16 +58,60 @@ export class Hud {
   startOfflineDrain(amount) {
     this._offlineRemaining = amount;
     this._offlineTotal = amount;
+    this.#showOfflinePopup(amount);
+  }
 
-    const el = document.createElement('div');
-    Object.assign(el.style, {
-      font: `700 clamp(13px, 3.2vw, 18px) ${settings.ui.fontStack}`,
-      color: '#8fd3ff',
-      textShadow: '0 2px 0 rgba(0,0,0,0.5)',
+  // The offline-earnings announcement: a centered panel (dressed like the
+  // TruckMenu/SettingsMenu panels) stating the full amount earned while away.
+  // It holds for exactly settings.offline.popupSeconds, then fades out and
+  // removes itself — purely presentational, the cash itself lands via the
+  // drain in update().
+  #showOfflinePopup(amount) {
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      position: 'fixed',
+      left: '50%',
+      top: '32%',
+      transform: 'translate(-50%, -50%)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '6px',
+      padding: '16px 22px',
+      background: 'rgba(18,22,28,0.92)',
+      border: '1px solid rgba(255,255,255,0.14)',
+      borderRadius: '12px',
+      color: '#e7ecf2',
+      fontFamily: settings.ui.fontStack,
+      textAlign: 'center',
+      pointerEvents: 'none',
+      userSelect: 'none',
+      zIndex: '20',
+      opacity: '1',
+      transition: `opacity ${settings.offline.popupFadeSeconds}s ease-out`,
+    });
+
+    const title = document.createElement('div');
+    title.textContent = 'While you were away';
+    Object.assign(title.style, { fontWeight: '700', fontSize: '15px', color: '#9fb0c0' });
+
+    const value = document.createElement('div');
+    value.innerHTML = `+${moneyIconHtml('0 0.05em 0 0.1em')}${formatMoney(amount)}`;
+    Object.assign(value.style, {
+      fontWeight: '800',
+      fontSize: '26px',
+      color: '#3ad06a',
+      textShadow: '0 2px 0 #06310f',
       whiteSpace: 'nowrap',
     });
-    this.wrap.appendChild(el);
-    this.offlineEl = el;
+
+    panel.append(title, value);
+    document.body.appendChild(panel);
+
+    setTimeout(() => {
+      panel.style.opacity = '0';
+      setTimeout(() => panel.remove(), settings.offline.popupFadeSeconds * 1000);
+    }, settings.offline.popupSeconds * 1000);
   }
 
   // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe save).
@@ -124,13 +168,6 @@ export class Hud {
       this._offlineRemaining -= delta;
       this.state.cash += delta;
       cash = this.state.cash;
-
-      if (this._offlineRemaining <= 0) {
-        this.offlineEl.remove();
-        this.offlineEl = null;
-      } else {
-        this.offlineEl.innerHTML = `Earned while offline: ${moneyIconHtml('0 0.05em 0 0.15em')}${formatMoney(this._offlineRemaining)}`;
-      }
     }
 
     if (cash !== this._cash) {

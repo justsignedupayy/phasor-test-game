@@ -79,6 +79,13 @@ export function playerRoadBoxes(state) {
     const half = laneWidth(P) / 2; // the delivery slab reuses the pit lane width (Garage.#buildDeliveryRoad)
     const x = S.restockBoxPosition.x + S.truck.deliverOffset.x;
     pushBox(boxes, x - half, x + half, -(W.halfZ + extent), dockFarZ);
+    // Seal the open ground STRIP between the delivery road's right edge and
+    // pit A's road — with both road slabs solid only along their own x bands,
+    // this strip had no z floor, so a player stepping out the delivery gate
+    // could walk down it forever. Same z span as the delivery road's solid
+    // part, so the dock (front wall → truck stop) stays walkable and the
+    // delivery-gate crossing is untouched.
+    pushBox(boxes, x + half, P[0].x - pitHalf, -(W.halfZ + extent), dockFarZ);
   }
 
   return boxes;

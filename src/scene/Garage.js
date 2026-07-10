@@ -40,7 +40,6 @@ export class Garage {
     this.group = new THREE.Group();
     this.#buildFloor();
     this.#buildExteriorRoads();
-    this.#buildPitSpots();
     this.#buildWalls();
     this.#buildDoors();
     this.#buildDeliveryRoad();
@@ -65,8 +64,8 @@ export class Garage {
 
     const marketOpen = state.supermarket.unlocked;
 
-    // A door's pillars + lintel (both walls), plus the pit's blue floor spot and
-    // exterior road section, all show once that pit's land is bought.
+    // A door's pillars + lintel (both walls), plus the pit's exterior road
+    // section, all show once that pit's land is bought.
     for (const d of [...this.backDoors, ...this.frontDoors]) {
       const open = state.pits[d.index].roomUnlocked;
       d.pillarL.visible = open;
@@ -93,9 +92,6 @@ export class Garage {
     this.gasGateDoor.pillarL.visible = gasOpen;
     this.gasGateDoor.pillarR.visible = gasOpen;
     this.gasGateDoor.lintel.visible = gasOpen;
-    for (const s of this.pitSpots) {
-      s.spot.visible = state.pits[s.index].roomUnlocked;
-    }
     for (const r of this.roadSections) {
       r.group.visible = state.pits[r.index].roomUnlocked;
     }
@@ -331,21 +327,6 @@ export class Garage {
     group.visible = false;
     this.group.add(group);
     this.deliveryRoad = group;
-  }
-
-  /** A blue, car-sized rectangle painted on the floor at every pit; hidden until
-   * that pit's land is bought. */
-  #buildPitSpots() {
-    const P = settings.pit;
-    const spotMat = new THREE.MeshBasicMaterial({ color: settings.colors.pitSpot });
-    this.pitSpots = P.positions.map((pos, index) => {
-      const spot = new THREE.Mesh(new THREE.PlaneGeometry(P.spotWidth, P.spotDepth), spotMat);
-      spot.rotation.x = -Math.PI / 2;
-      spot.position.set(pos.x, 0.015, pos.z); // above the floor markings to avoid z-fighting
-      spot.visible = false;
-      this.group.add(spot);
-      return { index, spot };
-    });
   }
 
   /** Painted guide lines + a dashed centre line down each pit's car lane; each

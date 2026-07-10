@@ -15,8 +15,8 @@ import { formatMoney } from '../core/format.js';
  *
  *   environment  per-pump striped road (the same road + lane-dash system the
  *                garage roads use: settings.world.road tunables, road/laneStripe
- *                colors) and a pump-spot rectangle — shown once that pump's lot
- *                is opened (roomUnlocked), like Garage.js's per-pit sections.
+ *                colors) — shown once that pump's lot is opened (roomUnlocked),
+ *                like Garage.js's per-pit sections.
  *   furniture    the gas_pump.glb prop (appear-animated like a pit's station),
  *                the tap-affordance highlight ring and the pump number label —
  *                PitView's job, minus the pit-only storage props.
@@ -89,15 +89,6 @@ export class GasStationView {
       dash.position.set(pos.x, 0.014, z);
       env.add(dash);
     }
-
-    // Pump-spot rectangle (the gas mirror of the blue pit spot).
-    const spot = new THREE.Mesh(
-      new THREE.PlaneGeometry(G.spotWidth, G.spotDepth),
-      new THREE.MeshBasicMaterial({ color: c.pitSpot })
-    );
-    spot.rotation.x = -Math.PI / 2;
-    spot.position.set(pos.x, 0.015, pos.z);
-    env.add(spot);
 
     env.visible = false;
     this.sm.add(env);

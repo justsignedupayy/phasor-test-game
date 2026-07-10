@@ -11,7 +11,7 @@ import { spawnCar } from './Car.js';
 import { workerSpeed, requiredTicks, ownedRightX, BAY_ZONE_Z, playerSpeedMultiplier } from './upgrades.js';
 import { updateReputationTimer } from './reputation.js';
 import { resolveSupermarketCollisions, resolveGarageCollisions, pushOutOfRect } from './collision.js';
-import { playerRoadBoxes } from './roads.js';
+import { playerRoadBoxes, pitRampAvoid } from './roads.js';
 import { tickBreak, incrementJobCount } from './breaks.js';
 
 export function tick(state, dt) {
@@ -184,9 +184,66 @@ function updateMechanic(state, pit, dt) {
 }
 
 /**
- * Straight-line step toward `target` at `speed`, then push the mechanic out of every
- * garage prop except its OWN pit's (so it can stand on its own shelf / work spot /
- * break spot) — the same push-out the player gets. Returns true once it reaches the target.
+ * Liang–Barsky test: does segment a→b enter the axis-aligned `box`
+ * ({ xMin, xMax, zMin, zMax }) grown by `r` on every side? (So a body of radius r
+ * that would graze the box counts as a hit.)
+ */
+function segmentHitsBox(a, b, box, r) {
+  const xMin = box.xMin - r;
+  const xMax = box.xMax + r;
+  const zMin = box.zMin - r;
+  const zMax = box.zMax + r;
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  let t0 = 0;
+  let t1 = 1;
+  const edges = [
+    [-dx, a.x - xMin],
+    [dx, xMax - a.x],
+    [-dz, a.z - zMin],
+    [dz, zMax - a.z],
+  ];
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return false; // parallel to this slab and outside it
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+  }
+  return t0 <= t1;
+}
+
+/**
+ * Steer the mechanic AROUND its own pit's +x bridge ramp (roads.pitRampAvoid)
+ * rather than straight through its sloped footprint. When the direct line to
+ * `target` would enter the ramp box, return an intermediate waypoint just east of
+ * the ramp tip — first square out east at the current z (clear of the ramp's
+ * z-band), then run in z once past the tip (an L around the ramp). Returns
+ * `target` unchanged when the path is already clear. The ramp top is a walkable
+ * crossing so it can't be a collision box (that would trap this worker and wall
+ * the player off the bridge); this steering is the pit worker's way to respect it.
+ */
+function avoidRampTarget(pit, pos, target) {
+  const av = pitRampAvoid(pit.index);
+  const safeX = av.xMax + settings.player.radius + 0.1;
+  if (!segmentHitsBox(pos, target, av, settings.player.radius)) return target;
+  if (pos.x < safeX - 0.05) return { x: safeX, z: pos.z };
+  return { x: safeX, z: target.z };
+}
+
+/**
+ * Step toward `target` at `speed`, routing around the pit's own bridge ramp
+ * (avoidRampTarget) rather than cutting through it, then push the mechanic out of
+ * every garage prop except its OWN pit's (so it can stand on its own shelf / work
+ * spot / break spot) — the same push-out the player gets. Arrival is judged
+ * against the REAL target; returns true once it reaches it.
  */
 function moveMechanic(state, pit, m, target, speed, dt) {
   const dx = target.x - m.position.x;
@@ -197,10 +254,14 @@ function moveMechanic(state, pit, m, target, speed, dt) {
     m.position.z = target.z;
     return true;
   }
-  const step = Math.min(dist, speed * dt);
-  m.position.x += (dx / dist) * step;
-  m.position.z += (dz / dist) * step;
-  m.rotation = Math.atan2(dx, dz);
+  const steer = avoidRampTarget(pit, m.position, target);
+  const sx = steer.x - m.position.x;
+  const sz = steer.z - m.position.z;
+  const sdist = Math.hypot(sx, sz) || 1;
+  const step = Math.min(sdist, speed * dt);
+  m.position.x += (sx / sdist) * step;
+  m.position.z += (sz / sdist) * step;
+  m.rotation = Math.atan2(sx, sz);
   resolveGarageCollisions(state, m.position, settings.player.radius, { excludePitIndex: pit.index });
   return false;
 }

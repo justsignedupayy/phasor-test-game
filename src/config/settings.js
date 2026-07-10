@@ -504,8 +504,8 @@ export const settings = {
     shelfCapacity: 10, // max boxes a shelf holds (starts full)
     // ×5 with the spawn rate: repairs (each burning one tire) complete 5× as
     // often, so a box lasts the same wall-clock time as before (~2 minutes).
-    tiresPerBox: 100, // repairs one delivered box enables
-    maxTiresPerPit: 100, // a pit's tire stack caps here (one box worth)
+    tiresPerBox: 25, // repairs one delivered box enables
+    maxTiresPerPit: 25, // a pit's tire stack caps here (one box worth)
     autoRestockBaseCost: 1500, // one-time, garage-wide mechanic auto-restock upgrade
     pickupRadius: 1.9, // how close to a shelf the player must stand to grab a box
     // Placements are offsets from each pit's position (settings.pit.positions[i]).

@@ -190,6 +190,28 @@ export function pitLaneBoxes(i) {
 }
 
 /**
+ * Pit i's worker-side (+x) bridge ramp footprint as an AABB { xMin, xMax, zMin,
+ * zMax }. The ramp's sloped top is a WALKABLE pedestrian crossing — the player
+ * walks up it to cross the lane — so it is deliberately NOT a solid collision box
+ * (pitLaneBoxes only fences its two edge RAILS): a solid footprint would wall the
+ * player off the bridge AND trap the pit's own worker, whose work spot sits in
+ * the pocket between the lane wall and the ramp tip. This box is a NAVIGATION
+ * hint used only by that worker's steering (core/simulation.moveMechanic) so it
+ * routes AROUND its own ramp instead of cutting through the sloped section. Only
+ * the +x ramp is described — every mechanic work/shelf/break spot is on the +x
+ * side of the lane, so the worker never nears the -x ramp.
+ */
+export function pitRampAvoid(i) {
+  const L = settings.pitLane;
+  const B = L.bridge;
+  const p = settings.pit.positions[i];
+  const bridgeZ = laneBridgeZ(p);
+  const xMin = p.x + L.halfWidth;
+  const xMax = p.x + L.halfWidth + B.rampLength;
+  return { xMin, xMax, zMin: bridgeZ - B.width / 2, zMax: bridgeZ + B.width / 2 };
+}
+
+/**
  * Pump i's car-lane walls, the gas-station mirror of pitLaneBoxes: the same
  * strip geometry, spanning the pump road's FULL depth (its slab runs the whole
  * road extent both ways — GasStationView.#buildPump). Emitted by

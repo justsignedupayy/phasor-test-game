@@ -26,8 +26,30 @@ const backend = {
   },
 };
 
+// Latched by wipeSave (the debug Reset): once the save is deliberately
+// cleared, every later saveGame is a no-op. The page is about to reload, and
+// any straggler write in between would silently resurrect the wiped save —
+// location.reload() fires visibilitychange (hidden) DURING its unload phase,
+// which main.js answers with a save-on-hide.
+let saveWiped = false;
+
 export function saveGame(state) {
+  if (saveWiped) return;
   backend.write(JSON.stringify({ saveVersion: SAVE_VERSION, savedAt: Date.now(), state }));
+}
+
+/**
+ * Debug Reset: clear EVERY persisted key (save + audio preferences, matching
+ * the old `localStorage.clear()` behavior) and block all further saveGame
+ * writes until the caller's reload lands on a fresh page.
+ */
+export function wipeSave() {
+  saveWiped = true;
+  try {
+    localStorage.clear();
+  } catch {
+    // storage unavailable — nothing persisted to wipe anyway
+  }
 }
 
 /**

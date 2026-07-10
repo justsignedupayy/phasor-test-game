@@ -1,5 +1,6 @@
 import { formatMoney } from '../core/format.js';
 import settings from '../config/settings.js';
+import { wipeSave } from '../platform/storage.js';
 
 /**
  * Hud.js — minimal DOM overlay. For this slice: a large live cash counter.
@@ -134,7 +135,10 @@ export class Hud {
 
     const resetBtn = this.#debugButton('RESET', '#c0392b');
     resetBtn.addEventListener('click', () => {
-      localStorage.clear();
+      // wipeSave (not a bare localStorage.clear) — it also blocks saveGame,
+      // because reload() fires visibilitychange (hidden) during unload and
+      // main.js's save-on-hide would otherwise re-write the state we just wiped.
+      wipeSave();
       location.reload();
     });
     this.resetButton = resetBtn;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, buildTapHitBox, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
 import { AlertBounce } from './AlertBounce.js';
@@ -43,6 +43,10 @@ export class Mechanic {
     });
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
+
+    // Resting-worker tap raycasting hits this instead of the (thin, animated) model.
+    this.hitBox = buildTapHitBox(cfg.tapHitRadius, cfg.tapHitHeight);
+    this.root.add(this.hitBox);
 
     // The cardboard box carried on an auto-restock haul (shelf → pit), attached to
     // the hand bone so it tracks the carry animation — exactly like the market worker.

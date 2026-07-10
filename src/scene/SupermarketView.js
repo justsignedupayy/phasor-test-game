@@ -147,7 +147,7 @@ export class SupermarketView {
 
   /** Tap raycast against the worker/shelves/checkout/restock pile; null if nothing hit. */
   raycastTap(raycaster) {
-    if (this.worker && raycaster.intersectObject(this.worker.model, true).length > 0) {
+    if (this.worker && raycaster.intersectObject(this.worker.hitBox).length > 0) {
       return { kind: 'worker' };
     }
     for (const shelf of this.shelves) {
@@ -168,7 +168,7 @@ export class SupermarketView {
   raycastRestingWorker(raycaster, state) {
     const w = state.supermarket.worker;
     if (!this.worker || !w || !w.break.onBreak) return false;
-    return raycaster.intersectObject(this.worker.model, true).length > 0;
+    return raycaster.intersectObject(this.worker.hitBox).length > 0;
   }
 
   update(dt, state) {

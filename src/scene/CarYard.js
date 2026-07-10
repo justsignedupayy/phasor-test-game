@@ -72,7 +72,22 @@ export class CarYard {
     for (let i = 0; i < this.pitViews.length; i++) {
       const view = this.pitViews[i];
       if (!view.mechanic || !state.pits[i].break.onBreak) continue;
-      if (raycaster.intersectObject(view.mechanic.model, true).length > 0) return i;
+      if (raycaster.intersectObject(view.mechanic.hitBox).length > 0) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Raycast a WORKING mechanic's own body (not its car): tapping a mechanic
+   * directly is as natural a "yell at it" gesture as tapping its car, and unlike
+   * raycastRestingWorker this doesn't gate on break state — main.js checks
+   * raycastRestingWorker first, so by the time this runs an on-break mechanic
+   * would already have been handled. Returns the pit index, or -1.
+   */
+  raycastMechanic(raycaster) {
+    for (let i = 0; i < this.pitViews.length; i++) {
+      const mechanic = this.pitViews[i].mechanic;
+      if (mechanic && raycaster.intersectObject(mechanic.hitBox).length > 0) return i;
     }
     return -1;
   }

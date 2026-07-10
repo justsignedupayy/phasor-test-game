@@ -54,6 +54,20 @@ export function groundModel(model) {
   model.position.y -= box.min.y;
 }
 
+/**
+ * Builds an invisible cylinder for tap raycasting (yell / resting-worker taps),
+ * meant to be added to a worker's root and used INSTEAD of the rigged body mesh —
+ * the mesh is thin and mid-animation limbs move around, so raycasting it directly
+ * is too easy to miss on a touchscreen; a generous fixed hit target fixes that.
+ * Three.js raycasting ignores `.visible`, so this stays invisible but still hits.
+ */
+export function buildTapHitBox(radius, height) {
+  const hitBox = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 8), new THREE.MeshBasicMaterial());
+  hitBox.visible = false;
+  hitBox.position.y = height / 2;
+  return hitBox;
+}
+
 /** mixer.update(dt), with a warning if dt is ever missing/zero (a sign the caller isn't passing a real frame delta). */
 export function updateMixer(mixer, dt, label) {
   if (!dt) {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { attachToHand, buildActionMap, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
+import { attachToHand, buildActionMap, buildTapHitBox, crossfadeTo, groundModel, leanOffsetDelta, lerpAngle, tintMesh, updateMixer } from './characterAnim.js';
 import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
 import { AlertBounce } from './AlertBounce.js';
@@ -33,6 +33,11 @@ export class MarketWorker {
     });
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
+
+    // Tap raycasting (yell / resting-worker taps) hits this instead of the
+    // (thin, animated) model — see SupermarketView.raycastTap/raycastRestingWorker.
+    this.hitBox = buildTapHitBox(cfg.tapHitRadius, cfg.tapHitHeight);
+    this.root.add(this.hitBox);
 
     // Two independently-toggled hand props, both parented to the hand bone so
     // they track the carry animation:

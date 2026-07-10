@@ -161,7 +161,20 @@ export class GasStationView {
     for (let i = 0; i < this.pumpViews.length; i++) {
       const view = this.pumpViews[i];
       if (!view.attendant || !state.gasStation.pumps[i].break.onBreak) continue;
-      if (raycaster.intersectObject(view.attendant.model, true).length > 0) return i;
+      if (raycaster.intersectObject(view.attendant.hitBox).length > 0) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Raycast a WORKING attendant's own body (not its car) — CarYard.raycastMechanic,
+   * mirrored. Doesn't gate on break state; raycastRestingWorker is checked first
+   * by main.js, so an on-break attendant is already handled by the time this runs.
+   */
+  raycastAttendant(raycaster) {
+    for (let i = 0; i < this.pumpViews.length; i++) {
+      const attendant = this.pumpViews[i].attendant;
+      if (attendant && raycaster.intersectObject(attendant.hitBox).length > 0) return i;
     }
     return -1;
   }

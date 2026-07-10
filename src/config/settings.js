@@ -153,6 +153,13 @@ export const settings = {
     modelScale: 1,
     modelYRotationOffset: 0, // radians, added on top of the movement-facing rotation
     headHeight: 2.3, // STARTING VALUE — tune by eye; shared by the player + every worker (same base model)
+    // Invisible cylinder each worker (Mechanic/MarketWorker) carries for tap
+    // raycasting (yell / resting-worker taps), used INSTEAD of the rigged body
+    // mesh — the mesh is too thin/animated (limbs mid-stride) to reliably tap on
+    // a touchscreen, which was letting taps fall through to the joystick instead
+    // of registering as a worker tap. Three.js raycasting ignores `.visible`.
+    tapHitRadius: 1.4,
+    tapHitHeight: 2.6,
     animationMap: {
       idle: 'idle',
       walk: 'walk',

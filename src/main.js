@@ -148,27 +148,32 @@ async function main() {
     // resting worker wins.
     const restingPit = carYard.raycastRestingWorker(raycaster, state);
     if (restingPit >= 0) {
+      e.stopPropagation(); // don't let Input's window listener also spawn a joystick here
       breakMenu.open(state.pits[restingPit].break, `Worker ${String.fromCharCode(65 + restingPit)}`);
       return;
     }
     if (supermarketView.raycastRestingWorker(raycaster, state)) {
+      e.stopPropagation();
       breakMenu.open(state.supermarket.worker.break, 'Market Worker');
       return;
     }
     const restingPump = gasStationView.raycastRestingWorker(raycaster, state);
     if (restingPump >= 0) {
+      e.stopPropagation();
       breakMenu.open(state.gasStation.pumps[restingPump].break, `Attendant ${restingPump + 1}`);
       return;
     }
 
     const marketHit = supermarketView.raycastTap(raycaster);
     if (marketHit) {
+      e.stopPropagation();
       handleMarketTap(marketHit);
       return;
     }
 
     const i = carYard.raycast(raycaster);
     if (i >= 0) {
+      e.stopPropagation(); // tapping a car/mechanic is an action, not a movement press
       const pit = state.pits[i];
       if (pit.hasMechanic && hurry(state, i)) {
         character.yell();
@@ -182,20 +187,49 @@ async function main() {
       return;
     }
 
+    // Tapping a working mechanic's own body (not its car) is the same "yell"
+    // gesture — the mechanic can stand away from or block the car, and yelling
+    // AT the worker is the intuitive tap target either way.
+    const mi = carYard.raycastMechanic(raycaster);
+    if (mi >= 0) {
+      e.stopPropagation();
+      if (hurry(state, mi)) {
+        character.yell();
+        character.showAngerBubble();
+        carYard.pitViews[mi].mechanic.alertBounce.trigger();
+      }
+      return;
+    }
+
     // Pump cars mirror pit cars: a manned pump's car = remote hurry (from
     // anywhere); an unmanned equipped pump's car = manual fill while standing there.
     const gi = gasStationView.raycast(raycaster);
-    if (gi < 0) return;
-    const pump = state.gasStation.pumps[gi];
+    if (gi >= 0) {
+      e.stopPropagation(); // tapping a pump car/attendant is an action, not a movement press
+      const pump = state.gasStation.pumps[gi];
 
-    if (pump.hasAttendant && hurryPump(state, gi)) {
-      character.yell();
-      character.showAngerBubble();
-      gasStationView.pumpViews[gi].attendant.alertBounce.trigger();
-    } else if (pump.playerPresent && pump.car && !pump.car.fixed) {
-      tapFill(state, gi);
-      character.pumpGas();
-      gasStationView.onTap(gi);
+      if (pump.hasAttendant && hurryPump(state, gi)) {
+        character.yell();
+        character.showAngerBubble();
+        gasStationView.pumpViews[gi].attendant.alertBounce.trigger();
+      } else if (pump.playerPresent && pump.car && !pump.car.fixed) {
+        tapFill(state, gi);
+        character.pumpGas();
+        gasStationView.onTap(gi);
+      }
+      return;
+    }
+
+    // Tapping a working attendant's own body (not its car) — mirrors the
+    // pit-mechanic tap above.
+    const ai = gasStationView.raycastAttendant(raycaster);
+    if (ai >= 0) {
+      e.stopPropagation();
+      if (hurryPump(state, ai)) {
+        character.yell();
+        character.showAngerBubble();
+        gasStationView.pumpViews[ai].attendant.alertBounce.trigger();
+      }
     }
   });
 

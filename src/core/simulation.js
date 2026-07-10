@@ -13,7 +13,7 @@ import { updateReputationTimer } from './reputation.js';
 import { resolveSupermarketCollisions, resolveGarageCollisions, pushOutOfRect } from './collision.js';
 import { playerRoadBoxes, pitRampAvoid } from './roads.js';
 import { tickBreak, incrementJobCount } from './breaks.js';
-import { onManualRepairCompleted, onPitShelfRestocked } from './tutorial.js';
+import { onManualRepairCompleted, onPitShelfRestocked, onPitCashAccrued, onPitHurried } from './tutorial.js';
 
 export function tick(state, dt) {
   // collectedThisTick is a one-tick render signal (the scene pops "+$" / flies
@@ -62,6 +62,7 @@ export function hurry(state, pitIndex) {
   const m = pit.mechanic;
   if (Math.hypot(m.position.x - work.x, m.position.z - work.z) > settings.supermarket.arriveEpsilon) return false;
   pit.hurryTimer = settings.hurry.duration;
+  onPitHurried(state, pitIndex); // tutorial: demonstrates the tap-to-hurry action
   return true;
 }
 
@@ -285,7 +286,13 @@ function applyRepair(state, pit, ticks) {
     car.fixed = true;
     pit.tiresRemaining = Math.max(0, pit.tiresRemaining - 1); // each repair burns a tire
     if (state.hasCashier) state.cash += car.payout;
-    else pit.pendingCash += car.payout;
+    else {
+      pit.pendingCash += car.payout;
+      // Only a hired worker's own repair counts for the tutorial's "worker
+      // banked cash" step — a manual-tap completion before hireMechanic (the
+      // 'repairCars' step) shouldn't retroactively satisfy it.
+      if (pit.hasMechanic) onPitCashAccrued(state, pit.index);
+    }
     pit.car = null; // updateYard refills from the queue (only while tires remain)
     // A finished repair counts a job toward this worker's break (only a hired
     // worker takes breaks — a manual-tap completion with no mechanic doesn't).

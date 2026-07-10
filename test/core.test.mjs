@@ -2336,14 +2336,29 @@ check('the full guided path runs start to finish against live state', () => {
   assert.ok(ledView.text.includes('LED'), 'explains the panel');
   s.player.position = { ...breakSpot };
   tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'firstPendingCash');
+
+  // 5: the worker's first banked cash — hidden until a repair actually pays out
+  tickTutorial(s, 0.016);
+  assert.equal(getTutorialView(s), null, 'nothing to show before any cash has accrued');
+  s.pits[0].pendingCash = 50; // mirrors applyRepair's pit.pendingCash += car.payout
+  tickTutorial(s, 0.016);
+  let v = getTutorialView(s);
+  assert.equal(v.id, 'firstPendingCash');
+  assert.ok(v.text.includes('hurry'), 'explains the tap-to-hurry shout');
+  assert.ok(v.text.includes('collect'), 'explains walking up to collect');
+  const workerSpot = { x: settings.pit.positions[0].x + settings.mechanic.offsetX, z: settings.pit.positions[0].z + settings.mechanic.offsetZ };
+  assert.deepEqual({ x: v.anchor.x, z: v.anchor.z }, workerSpot, 'highlights the worker itself');
+  s.pits[0].pendingCash = 0; // mirrors collectPending banking it on player proximity
+  tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'firstRestock');
 
-  // 5: the first dry pit under the worker — hidden until tires actually run out
+  // 6: the first dry pit under the worker — hidden until tires actually run out
   tickTutorial(s, 0.016);
   assert.equal(getTutorialView(s), null, 'nothing to show while the worker still has tires');
   s.pits[0].tiresRemaining = 0;
   tickTutorial(s, 0.016);
-  let v = getTutorialView(s);
+  v = getTutorialView(s);
   assert.equal(v.id, 'firstRestock');
   assert.ok(v.text.includes('out of tires'), 'urgency framing');
   assert.equal(v.anchor.x, settings.pit.positions[0].x + settings.storage.shelfOffset.x, 'points at the shelf');
@@ -2354,7 +2369,7 @@ check('the full guided path runs start to finish against live state', () => {
   s.pits[0].playerPresent = false;
   assert.equal(currentTutorialStep(s), 'firstBreak');
 
-  // 6: the worker's first break — hidden until it happens, with a dry-pit guard meanwhile
+  // 7: the worker's first break — hidden until it happens, with a dry-pit guard meanwhile
   tickTutorial(s, 0.016);
   assert.equal(getTutorialView(s), null, 'nothing to show while the worker keeps working');
   s.pits[0].tiresRemaining = 0; // the deadlock guard: no tires → no jobs → no break ever
@@ -2372,20 +2387,20 @@ check('the full guided path runs start to finish against live state', () => {
   s.pits[0].break.onBreak = false;
   assert.equal(currentTutorialStep(s), 'viewWorkerUpgrade');
 
-  // 7: view the Garage tab (a tablet anchor; seeing it is enough)
+  // 8: view the Garage tab (a tablet anchor; seeing it is enough)
   const tabletView = getTutorialView(s);
   assert.deepEqual(tabletView.anchor, { kind: 'tablet', tab: 'garage', element: 'workerSpeed:0' });
   notifyGarageTabViewed(s);
   assert.equal(currentTutorialStep(s), 'gainReputation');
 
-  // 8: one reputation gain is required even though rep is untouched so far
+  // 9: one reputation gain is required even though rep is untouched so far
   tickTutorial(s, 0.016);
   assert.deepEqual(getTutorialView(s).anchor, { kind: 'tablet', tab: 'ads', element: 'watchAd' });
   watchAdForReputation(s); // +5% → exactly lot B's 10% gate
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'buyLotB');
 
-  // 9: buy lot B once affordable (the rep gate is met thanks to step 8)
+  // 10: buy lot B once affordable (the rep gate is met thanks to step 9)
   s.cash = 0;
   tickTutorial(s, 0.016);
   assert.ok(getTutorialView(s).text.includes('lot B'), 'the waiting hint names the goal');
@@ -2396,21 +2411,21 @@ check('the full guided path runs start to finish against live state', () => {
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'hireCashier');
 
-  // 10: hire the cashier
+  // 11: hire the cashier
   s.cash = cashierCost(s);
   tickTutorial(s, 0.016);
   buyCashier(s);
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'openMarket');
 
-  // 11: open the supermarket
+  // 12: open the supermarket
   s.cash = supermarketCost(s);
   tickTutorial(s, 0.016);
   buySupermarket(s);
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'serveCustomer');
 
-  // 12: manually serve one customer — the highlight follows the flow's next action
+  // 13: manually serve one customer — the highlight follows the flow's next action
   tickTutorial(s, 0.016);
   assert.ok(getTutorialView(s).text.includes('Wait for a customer'), 'waiting text before anyone arrives');
   const customer = spawnCustomer(s);
@@ -2439,7 +2454,7 @@ check('the full guided path runs start to finish against live state', () => {
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'restockMarket');
 
-  // 13: market restock — box first, then the shelf while carrying
+  // 14: market restock — box first, then the shelf while carrying
   v = getTutorialView(s);
   assert.deepEqual(
     { x: v.anchor.x, z: v.anchor.z },
@@ -2453,7 +2468,7 @@ check('the full guided path runs start to finish against live state', () => {
   notifyMarketShelfRestocked(s);
   assert.equal(currentTutorialStep(s), 'orderTruck');
 
-  // 14: order the truck (the box must be below max for the order to take)
+  // 15: order the truck (the box must be below max for the order to take)
   tickTutorial(s, 0.016);
   assert.deepEqual(getTutorialView(s).anchor, { kind: 'tablet', tab: 'market', element: 'orderTruck' });
   takeRestockUnit(s);
@@ -2461,7 +2476,7 @@ check('the full guided path runs start to finish against live state', () => {
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'truckLed');
 
-  // 15: the truck LED — completed by walking to the corridor panel
+  // 16: the truck LED — completed by walking to the corridor panel
   v = getTutorialView(s);
   assert.ok(v.text.includes('countdown'), 'explains the arrival tracking');
   const W = settings.world;
@@ -2474,7 +2489,7 @@ check('the full guided path runs start to finish against live state', () => {
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'hireMarketWorker');
 
-  // 16: hire the market worker once affordable
+  // 17: hire the market worker once affordable
   s.cash = 0;
   tickTutorial(s, 0.016);
   assert.equal(getTutorialView(s).anchor.kind, 'info', 'earn-hint until affordable');
@@ -2484,7 +2499,7 @@ check('the full guided path runs start to finish against live state', () => {
   hireMarketWorker(s);
   tickTutorial(s, 0.016);
 
-  // 17: the finale popup, then done for good
+  // 18: the finale popup, then done for good
   assert.equal(currentTutorialStep(s), 'finale');
   assert.equal(getTutorialView(s).anchor.kind, 'popup');
   dismissTutorialFinale(s);
@@ -2503,6 +2518,130 @@ check('firstBreak also completes when the break simply runs its course', () => {
   s.pits[0].break.onBreak = false; // the break ended on its own — nothing left to tap
   tickTutorial(s, 0.016);
   assert.equal(currentTutorialStep(s), 'viewWorkerUpgrade');
+});
+
+check('firstPendingCash still latches + advances even when the player is already standing at the pit (same-tick collection)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.cash = 0;
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('firstPendingCash');
+  s.tutorial.shown = false;
+  s.pits[0].playerPresent = true; // worst case: collectPending can bank the cash the SAME tick it's earned
+  let sawHighlight = false;
+  for (let i = 0; i < 1500 && currentTutorialStep(s) === 'firstPendingCash'; i++) {
+    tick(s, 0.016);
+    tickTutorial(s, 0.016);
+    if (getTutorialView(s)?.id === 'firstPendingCash') sawHighlight = true;
+  }
+  assert.ok(sawHighlight, 'onPitCashAccrued latches the step even though pendingCash bounces straight back to 0');
+  assert.equal(currentTutorialStep(s), 'firstRestock', 'the step still advances instead of getting stuck');
+});
+
+check('firstPendingCash also completes via a hurry tap, not just walking up to collect', () => {
+  // The step's own text offers two actions ("tap them to shout hurry... or
+  // walk up to collect"), but only collecting used to clear the step. A
+  // player who taps hurry (the one-tap action, no walking required) and never
+  // returns to the pit got stuck here forever, silently blocking every step
+  // after it (firstRestock, firstBreak, viewWorkerUpgrade, gainReputation, ...).
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.cash = 0;
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('firstPendingCash');
+  s.tutorial.shown = false;
+  s.pits[0].playerPresent = false; // the player wandered off -- never collects
+  let sawHighlight = false;
+  let ticks = 0;
+  while (currentTutorialStep(s) === 'firstPendingCash' && ticks < 3000) {
+    tick(s, 0.016);
+    if (ticks % 200 === 0) hurry(s, 0); // periodically taps hurry instead of walking back
+    tickTutorial(s, 0.016);
+    if (getTutorialView(s)?.id === 'firstPendingCash') sawHighlight = true;
+    ticks++;
+  }
+  assert.ok(sawHighlight, 'the message rendered before the hurry tap completed it');
+  assert.equal(currentTutorialStep(s), 'firstRestock', 'a hurry tap alone advances the step -- no deadlock');
+  assert.ok(s.pits[0].pendingCash > 0, 'the cash itself is still sitting uncollected, as it should be');
+});
+
+check('firstPendingCash: an idle hurry tap from BEFORE the step is visible does not skip it', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.cash = 0;
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('breakLed'); // one step before firstPendingCash
+  s.tutorial.shown = true;
+  hurry(s, 0); // hurry works regardless of tutorial state -- a curious early tap
+  assert.equal(currentTutorialStep(s), 'breakLed', 'an out-of-step hurry tap is a no-op for the tutorial');
+});
+
+check('firstPendingCash does not deadlock when the pit runs fully dry (and its cash gets auto-collected) BEFORE the step is ever reached', () => {
+  // A player who stays near pit A while walking the short distance to the
+  // break LED has playerPresent true the whole time -- every payout the
+  // worker earns along the way gets auto-collected the instant it's earned
+  // (collectPending). If the worker also burns through all 25 tires in that
+  // span (no more repairs possible, ever, until a restock), pendingCash is
+  // back at 0 with nothing left to ever re-trigger a live pendingCash > 0
+  // check by the time 'firstPendingCash' is actually entered.
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.pits[0].playerPresent = true; // auto-collects every payout as it's earned
+
+  let ticks = 0;
+  while (s.pits[0].tiresRemaining > 0 && ticks < 40000) {
+    tick(s, 0.016);
+    ticks++;
+  }
+  assert.equal(s.pits[0].tiresRemaining, 0, 'the pit ran fully dry before the tutorial ever left breakLed');
+  assert.equal(s.pits[0].pendingCash, 0, 'and every payout along the way was already auto-collected');
+
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('breakLed');
+  s.tutorial.shown = false;
+  s.player.position = { ...settings.breaks.breakSpots[0] };
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'firstPendingCash');
+
+  let sawHighlight = false;
+  for (let i = 0; i < 10 && currentTutorialStep(s) === 'firstPendingCash'; i++) {
+    tick(s, 0.016);
+    tickTutorial(s, 0.016);
+    if (getTutorialView(s)?.id === 'firstPendingCash') sawHighlight = true;
+  }
+  assert.ok(sawHighlight, 'pendingCashEverEarned latches the step even with a dry pit and nothing left to collect');
+  assert.equal(currentTutorialStep(s), 'firstRestock', 'the step still advances -- no deadlock');
+});
+
+check('gainReputation does not deadlock when reputation was already maxed BEFORE reaching the step', () => {
+  // The tutorial never gates gameplay (Buy Advertising works from step 1 on),
+  // so a player can reach repCap well before the guided step for it. Both
+  // gain actions refuse once at repCap (reputation.js), so without an escape
+  // hatch "one fresh gain above baseline" could never be satisfied — a
+  // permanent deadlock that also blocks buyLotB and everything after it.
+  const s = createInitialState();
+  s.cash = 1e9;
+  while (buyAdvertising(s)) {} // grind reputation to repCap before the tutorial ever asks for it
+  assert.equal(s.permanentReputation, settings.reputation.repCap);
+
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('gainReputation');
+  s.tutorial.shown = false;
+  s.tutorial.repBaseline = null;
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'buyLotB', 'already-maxed reputation trivially satisfies the step');
+});
+
+check('gainReputation still demands a fresh gain when reputation is below repCap on entry', () => {
+  const s = createInitialState();
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('gainReputation');
+  s.tutorial.shown = false;
+  s.tutorial.repBaseline = null;
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'gainReputation', 'not capped — still waiting for a fresh gain');
+  s.cash = 1e9;
+  buyAdvertising(s);
+  tickTutorial(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'buyLotB');
 });
 
 check('truckLed completes once the delivery already landed, even without the walk', () => {

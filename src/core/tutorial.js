@@ -3,8 +3,8 @@
  *
  * A linear list of steps (TUTORIAL_STEPS) walks a brand-new player through the
  * game's first unlocks: manual repairs → the pit shelf restock → the first
- * mechanic hire → the break LED / first dry pit / first break → the tablet's
- * upgrade rows → reputation → lot B → cashier → supermarket → serving/
+ * mechanic hire → the break LED / first pending cash / first dry pit / first
+ * break → the tablet's upgrade rows → reputation → lot B → cashier → supermarket → serving/
  * restocking/truck (+ its LED) → the market worker hire → a one-time finale
  * popup. The game itself is NEVER gated — every step is pure guidance,
  * completed by watching live state (or an explicit notify* hook for the few
@@ -56,6 +56,7 @@ export const TUTORIAL_STEPS = [
   'restockPit', // carry a box from pit A's shelf back to pit A
   'hireMechanic', // (once affordable) hire pit A's worker at its ground marker
   'breakLed', // walk to pit A's wall LED (jobs-to-break / break countdown)
+  'firstPendingCash', // pit A's worker banks its first pending cash → tap to hurry, walk up to collect
   'firstRestock', // pit A runs dry under the worker → hand-carry a box
   'firstBreak', // the worker's first break → tap them (or let it end)
   'viewWorkerUpgrade', // open the tablet's Garage tab (seeing the Worker Speed row is enough)
@@ -80,6 +81,12 @@ export function createTutorialState() {
     repairsRemaining: settings.tutorial.repairCount, // step 'repairCars': COMPLETED manual repairs left
     repBaseline: null, // permanentReputation captured on entering 'gainReputation'
     finaleTimer: 0, // seconds the finale popup has been up (auto-dismisses)
+    pendingCashArmed: false, // step 'firstPendingCash': true once shown has survived a full frame
+    pendingCashEverEarned: false, // step 'firstPendingCash': latched the FIRST time any completed
+    // repair ever banks pit 0's pendingCash, regardless of the current step — persists even if
+    // the cash gets auto-collected (player standing there) before this step is even reached, so
+    // a pit that runs fully dry in the meantime (no more repairs possible, pendingCash back at 0)
+    // can't erase the only evidence the step's visibility check would otherwise rely on.
   };
 }
 
@@ -111,6 +118,13 @@ function stepVisible(state, id) {
       return state.cash >= supermarketCost(state);
     case 'hireMarketWorker':
       return state.cash >= marketWorkerHireCost(state);
+    case 'firstPendingCash':
+      // pendingCashEverEarned is the real signal (see createTutorialState): a
+      // pit that's ALREADY dry and already collected by the time this step is
+      // reached would otherwise never show pendingCash > 0 again — no tires
+      // left means no more repairs, ever, to re-trigger it. The live
+      // pendingCash check is just a harmless fallback for the common case.
+      return state.tutorial.pendingCashEverEarned || state.pits[0].pendingCash > 0;
     case 'firstRestock':
       return state.pits[0].tiresRemaining <= 0; // waits for the pit to actually run dry
     case 'firstBreak':
@@ -140,6 +154,14 @@ function advance(state) {
 function playerNear(state, p) {
   const pos = state.player.position;
   return Math.hypot(pos.x - p.x, pos.z - p.z) <= settings.tutorial.ledProximity;
+}
+
+/** A pit's work spot beside the car — mirrors simulation.js's `work` point
+ * (hurry/updatePit), so the tutorial highlight sits on the worker itself. */
+function pitWorkerSpot(pitIndex) {
+  const p = settings.pit.positions[pitIndex];
+  const M = settings.mechanic;
+  return { x: p.x + M.offsetX, z: p.z + M.offsetZ };
 }
 
 /**
@@ -180,6 +202,16 @@ export function tickTutorial(state, dt) {
       // Completed by walking up for a look at the panel.
       if (playerNear(state, settings.breaks.breakSpots[0])) advance(state);
       break;
+    case 'firstPendingCash':
+      // Completed once the cash is actually banked (walking up collects it via
+      // collectPending) — a hurry tap alone doesn't clear pendingCash. Arms one
+      // frame after becoming visible: if the player is already standing at the
+      // pit, collectPending can bank the cash in the SAME tick it's earned, and
+      // without this guard the step would latch shown + immediately advance
+      // before the message ever rendered a single frame.
+      if (t.shown && t.pendingCashArmed && state.pits[0].pendingCash <= 0) advance(state);
+      t.pendingCashArmed = t.shown;
+      break;
     case 'firstBreak':
       // Tapping the resting worker advances via notifyBreakMenuOpened; a break
       // that simply ran its course (or was ad-ended) completes the step too —
@@ -188,7 +220,18 @@ export function tickTutorial(state, dt) {
       break;
     case 'gainReputation':
       if (t.repBaseline === null) t.repBaseline = state.permanentReputation;
-      if (state.permanentReputation > t.repBaseline + 1e-9) advance(state);
+      // Reputation only ever rises and both gain actions refuse once at repCap
+      // (see reputation.js), so a player who already maxed it out BEFORE
+      // reaching this step (the tutorial never gates gameplay — Buy Advertising
+      // works from step 1 on) can never satisfy "a fresh gain" — without this
+      // OR the step would deadlock forever, blocking buyLotB and everything
+      // after it too.
+      if (
+        state.permanentReputation > t.repBaseline + 1e-9 ||
+        state.permanentReputation >= settings.reputation.repCap - 1e-9
+      ) {
+        advance(state);
+      }
       break;
     case 'buyLotB':
       if (state.pits[1].roomUnlocked) advance(state);
@@ -242,6 +285,45 @@ export function onManualRepairCompleted(state, pitIndex) {
   if (!t || !t.active || TUTORIAL_STEPS[t.step] !== 'repairCars' || pitIndex !== 0) return;
   t.repairsRemaining = Math.max(0, t.repairsRemaining - 1);
   if (t.repairsRemaining <= 0) advance(state);
+}
+
+/** A completed repair just banked pending cash at pit 0 (called from
+ * simulation.applyRepair the instant pit.pendingCash is incremented, for
+ * EVERY such repair — not just the first, and regardless of the current
+ * tutorial step). Two jobs, for two different races:
+ *  (1) pendingCashEverEarned latches PERMANENTLY the first time this ever
+ *      happens, independent of the current step. Without it, a pit that
+ *      finishes earning + auto-collecting ALL its cash (and runs fully dry —
+ *      no tires left for another repair, ever) before the player even
+ *      reaches 'firstPendingCash' would leave stepVisible's live pendingCash
+ *      check permanently false with nothing left to ever re-trigger this
+ *      hook — a silent, permanent deadlock blocking every step after it.
+ *  (2) shown latches immediately if we're ALREADY on 'firstPendingCash' —
+ *      collectPending can bank that same cash later in the SAME tick if the
+ *      player is already standing at the pit, and by the time tickTutorial
+ *      runs afterward, a live pendingCash check would already see it back at
+ *      0. Setting the latch here, before collectPending gets a chance to
+ *      run, guarantees THIS particular tick isn't silently skipped either. */
+export function onPitCashAccrued(state, pitIndex) {
+  const t = state.tutorial;
+  if (!t || pitIndex !== 0) return;
+  t.pendingCashEverEarned = true;
+  if (currentTutorialStep(state) === 'firstPendingCash') t.shown = true;
+}
+
+/** The player tapped a manned pit's car to remotely hurry the worker
+ * (simulation.hurry, only when the boost actually applied). The step's own
+ * text offers TWO valid actions — tap to hurry, or walk up to collect — but
+ * only walking up ever cleared pendingCash to complete it; a player who taps
+ * hurry (the obvious one-tap action, no walking required) and never returns
+ * to the pit got stuck on this step forever, silently blocking every step
+ * after it. Gated on `shown` so an idle hurry-tap from BEFORE this step ever
+ * became visible (hurry works regardless of tutorial state) can't skip the
+ * message before it renders. */
+export function onPitHurried(state, pitIndex) {
+  const t = state.tutorial;
+  if (!t || currentTutorialStep(state) !== 'firstPendingCash' || pitIndex !== 0) return;
+  if (t.shown) advance(state);
 }
 
 /** The player hand-delivered a box to a pit (simulation.updateStorage's delivery).
@@ -326,6 +408,13 @@ export function getTutorialView(state) {
         id,
         text: "This LED counts your worker's jobs left until their break — and the countdown until they resume while resting. Walk over for a look",
         anchor: world(settings.breaks.breakSpots[0], ledBubbleY),
+      };
+
+    case 'firstPendingCash':
+      return {
+        id,
+        text: 'Your worker earned cash on that repair! Tap them to shout hurry and speed them up, or walk up to collect the pending cash directly',
+        anchor: world(pitWorkerSpot(0)),
       };
 
     case 'firstRestock':

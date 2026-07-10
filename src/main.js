@@ -22,6 +22,8 @@ import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
 import { loadGame, saveGame, getSavedAt } from './platform/storage.js';
+import { initMusic } from './platform/audio.js';
+import { SettingsMenu } from './scene/SettingsMenu.js';
 import { estimateOfflineEarnings } from './core/offlineEarnings.js';
 import { ownedRightX } from './core/upgrades.js';
 import { roomWallBox } from './core/collision.js';
@@ -71,6 +73,10 @@ const input = new Input();
 const hud = new Hud(state);
 if (offlineEarnings > 0) hud.startOfflineDrain(offlineEarnings);
 const menu = new UpgradeMenu(state);
+new SettingsMenu(); // top-left Settings tab (music volume slider)
+// Looping background music at the persisted volume; if autoplay is blocked it
+// starts on the first user gesture instead (see platform/audio.js).
+initMusic();
 
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);

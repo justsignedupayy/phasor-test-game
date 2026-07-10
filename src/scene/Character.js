@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import settings from '../config/settings.js';
 import { laneBridgeElevationAt } from '../core/roads.js';
 import { attachToHand, buildActionMap, crossfadeTo, groundModel, lerpAngle, updateMixer } from './characterAnim.js';
@@ -15,6 +16,15 @@ import { cloneStorageModel } from './StorageModels.js';
  * version exactly (main.js doesn't change how it drives this class).
  */
 const EMOTE_TIME = 0.5; // brief blip for yell/repair before returning to idle/walk
+
+// Occlusion-highlight draw order. The neon silhouette must render AFTER every
+// ordinary occluder (walls/props/floor/NPCs, all at the default 0) so those
+// depths are already in the buffer, but BEFORE the player's own normal meshes so
+// the player's depth is NOT yet present — that way the GreaterDepth test fires
+// only where an EXTERNAL object is in front of the player, never on the player's
+// own self-occluded parts (which would leak neon onto the fully-visible player).
+const HIGHLIGHT_ORDER = 1;
+const PLAYER_ORDER = 2;
 
 // AngerBubble: the boss's one-shot reaction on a remote hurry tap. A comic
 // speech bubble with a grawlix, drawn once to a shared CanvasTexture (same
@@ -78,7 +88,10 @@ export class Character {
     const cfg = settings.character;
 
     this.root = new THREE.Group(); // x/z position + facing
-    this.model = gltf.scene;
+    // A private clone (like the workers get) rather than the shared gltf.scene:
+    // the occlusion-highlight pass adds ghost meshes to this model, and mutating
+    // the shared base would leak those ghosts into every worker cloned from it.
+    this.model = clone(gltf.scene);
     this.model.scale.setScalar(cfg.modelScale);
     this.model.rotation.y = cfg.modelYRotationOffset;
     this.model.traverse((o) => {
@@ -87,12 +100,19 @@ export class Character {
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
 
+    this.#buildOcclusionHighlight();
+
     // The wrench held while repairing, attached to the hand bone so it tracks
     // the repair clip; only shown while that state is active (see update()).
     this.wrench = cloneStorageModel('wrench');
     this.wrench.scale.setScalar(cfg.wrenchOffset.scale);
     this.wrench.visible = false;
     attachToHand(this.model, this.wrench, cfg.wrenchOffset.offset, cfg.wrenchOffset.rotation, 'l');
+    // Draw the wrench with the normal player meshes (after the highlight pass) so
+    // the wrench in hand is never mistaken for an occluder that lights up the body.
+    this.wrench.traverse((o) => {
+      if (o.isMesh) o.renderOrder = PLAYER_ORDER;
+    });
 
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = buildActionMap(this.mixer, gltf.animations, cfg.animationMap);
@@ -103,6 +123,57 @@ export class Character {
     this.emoteState = null; // 'yell' | 'repair' | 'gaspump' while the blip is active
 
     this.angerBubble = null; // active one-shot AngerBubble sprite + its own timer, or null
+  }
+
+  /**
+   * "See-through-wall" occlusion highlight: a neon silhouette of the player that
+   * shows ONLY the parts hidden behind other geometry, so the player never fully
+   * vanishes behind a wall/prop. The occluder itself stays fully opaque.
+   *
+   * Standard depth-func trick, arranged to be self-occlusion-free:
+   *   - a ghost SkinnedMesh per body mesh, SHARING the original geometry +
+   *     skeleton (so it deforms with the same animation, no extra mixer),
+   *   - drawn with depthFunc GreaterDepth + depthWrite off, i.e. only where its
+   *     fragments are BEHIND whatever is already in the depth buffer,
+   *   - via renderOrder (HIGHLIGHT_ORDER < PLAYER_ORDER) it draws after all the
+   *     ordinary occluders but before the player's own normal meshes — so the
+   *     buffer it tests against holds the walls/props but NOT the player itself.
+   *     A visible player (nothing in front) therefore fails the test and stays
+   *     completely normal; only genuinely occluded pixels light up.
+   */
+  #buildOcclusionHighlight() {
+    const ghostMat = new THREE.MeshBasicMaterial({
+      color: settings.character.occlusionHighlight.color,
+      depthTest: true,
+      depthFunc: THREE.GreaterDepth, // pass only where this fragment is behind the buffer
+      depthWrite: false,
+      fog: false,
+      toneMapped: false, // keep the neon colour pure, never dimmed by tone mapping
+    });
+
+    // Collect first, then add — adding children mid-traverse would re-visit them.
+    const meshes = [];
+    this.model.traverse((o) => {
+      if (o.isMesh) {
+        o.renderOrder = PLAYER_ORDER; // the normal player draws AFTER its ghost
+        meshes.push(o);
+      }
+    });
+
+    for (const o of meshes) {
+      const ghost = o.isSkinnedMesh
+        ? new THREE.SkinnedMesh(o.geometry, ghostMat)
+        : new THREE.Mesh(o.geometry, ghostMat);
+      if (o.isSkinnedMesh) {
+        ghost.bind(o.skeleton, o.bindMatrix); // share the live skeleton → deforms identically
+        ghost.bindMode = o.bindMode;
+      }
+      ghost.renderOrder = HIGHLIGHT_ORDER;
+      ghost.castShadow = false;
+      ghost.receiveShadow = false;
+      ghost.frustumCulled = false; // never cull the silhouette independently of its source
+      o.add(ghost); // child at identity local transform → shares the source mesh's world matrix
+    }
   }
 
   /**

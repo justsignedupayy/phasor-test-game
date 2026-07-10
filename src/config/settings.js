@@ -185,6 +185,13 @@ export const settings = {
       resting: 'resting',
     },
     crossfadeDuration: 0.25, // seconds, used for every state transition
+    // Occlusion highlight: when the PLAYER passes behind a wall/prop, its
+    // silhouette is redrawn in this bright neon colour ONLY where it is hidden
+    // (a depth-func GreaterDepth pass — see scene/Character.js), so the player
+    // never fully disappears. Fully-visible portions are untouched. Tunable.
+    occlusionHighlight: {
+      color: 0x00e5ff, // bright neon cyan-blue silhouette shown through occluders
+    },
     workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
     attendantTint: 0x9a5ac9, // purple tint for pump attendants (see scene/GasStationView.js)
     cashierTint: 0x3ad06a, // green tint for the cashier clone (see scene/Cashier.js)

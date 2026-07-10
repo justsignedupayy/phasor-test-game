@@ -1,10 +1,14 @@
 import settings from '../config/settings.js';
 
 /**
- * Input — on-screen virtual joystick, anchored bottom-center.
+ * Input — on-screen virtual joystick with a DYNAMIC, touch-anywhere anchor.
  *
  * Self-contained DOM (inline styles, no external CSS). Works with touch and
- * mouse via Pointer Events. Exposes `.value` as a screen-space vector:
+ * mouse via Pointer Events. The stick is hidden until the player presses inside
+ * the input zone (the game canvas), then springs up centred on that press point
+ * and stays anchored there while dragging; it hides again on release, so the
+ * next press re-anchors it wherever the player touches. Exposes `.value` as a
+ * screen-space vector:
  *   x: right positive, y: UP positive, magnitude 0..1 (0 inside the deadzone).
  * The control layer maps this to world space; Input stays render-only.
  */
@@ -27,12 +31,13 @@ export class Input {
     const base = document.createElement('div');
     Object.assign(base.style, {
       position: 'fixed',
-      left: '50%',
-      // Viewport-relative offset that scales with screen height, clamped to a
-      // sensible minimum, plus the device safe-area inset (iPhone home
-      // indicator). Keeps the stick reachable at the bottom in any orientation.
-      bottom: 'calc(env(safe-area-inset-bottom, 0px) + max(7vh, 64px))',
-      transform: 'translateX(-50%)',
+      // Placed dynamically (left/top) on each press so its centre lands on the
+      // touch point; hidden until then. It's purely visual — the press itself is
+      // captured on the canvas zone, so the ring never intercepts pointer events.
+      left: '0px',
+      top: '0px',
+      display: 'none',
+      pointerEvents: 'none',
       width: `${this.radius * 2}px`,
       height: `${this.radius * 2}px`,
       borderRadius: '50%',
@@ -63,7 +68,10 @@ export class Input {
   }
 
   #bind() {
-    this.base.addEventListener('pointerdown', (e) => this.#start(e));
+    // Listen on the window (not the ring) so a press ANYWHERE in the input zone
+    // can spawn the stick, and a drag can range past it. Move/release are global
+    // so the drag keeps tracking even if the finger leaves the zone.
+    window.addEventListener('pointerdown', (e) => this.#start(e));
     window.addEventListener('pointermove', (e) => this.#move(e));
     window.addEventListener('pointerup', (e) => this.#end(e));
     window.addEventListener('pointercancel', (e) => this.#end(e));
@@ -123,12 +131,27 @@ export class Input {
     this.value.y = y;
   }
 
+  /**
+   * The joystick's usable input zone: a press on the game world (the canvas), not
+   * on a DOM overlay (HUD, upgrade/break/truck menus, popups). Those sit above the
+   * canvas as their own elements, so a press on them never targets the canvas and
+   * never spawns the stick — leaving their taps to their own handlers.
+   */
+  #inZone(e) {
+    return e.target instanceof HTMLCanvasElement;
+  }
+
   #start(e) {
+    if (this._active || !this.#inZone(e)) return;
     this._active = true;
     this._pointerId = e.pointerId;
-    const r = this.base.getBoundingClientRect();
-    this._center.x = r.left + r.width / 2;
-    this._center.y = r.top + r.height / 2;
+    // Anchor the ring centred on the press point and reveal it.
+    this._center.x = e.clientX;
+    this._center.y = e.clientY;
+    this.base.style.left = `${e.clientX - this.radius}px`;
+    this.base.style.top = `${e.clientY - this.radius}px`;
+    this.base.style.display = 'block';
+    this.thumb.style.transform = 'translate(0px, 0px)';
     this.#move(e);
     e.preventDefault();
   }
@@ -162,5 +185,6 @@ export class Input {
     this.value.x = 0;
     this.value.y = 0;
     this.thumb.style.transform = 'translate(0px, 0px)';
+    this.base.style.display = 'none'; // vanish until the next press re-anchors it
   }
 }

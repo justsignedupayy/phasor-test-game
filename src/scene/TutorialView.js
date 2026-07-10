@@ -7,7 +7,7 @@ import { saveGame } from '../platform/storage.js';
 /**
  * TutorialView — renders core/tutorial.js's view model: a pulsing glow ring on
  * the current step's world target (or a CSS glow on a tablet UI element) plus
- * a short instruction bubble beside it, the "earn $X more" info banner for
+ * a short instruction bubble beside it, the "costs $X" info banner for
  * still-gated steps, and the one-time finale popup. Pure render layer: it
  * reads the view model each frame and only ever mutates core through
  * dismissTutorialFinale (the popup tap).
@@ -24,12 +24,18 @@ import { saveGame } from '../platform/storage.js';
  * missed), open on the wrong tab → that tab's button, right tab → the specific
  * row/button — the glow walks the player through opening the right screen
  * without any extra state.
+ *
+ * `unlockMarkers` (scene/UnlockMarkers.js) is read-only here too: its
+ * getPaidAmount(kind, index) feeds core/tutorial.js's getTutorialView so the
+ * "costs $X" banners fall live as a marker's own walk-up-to-pay drain pays it
+ * down, not just showing the frozen sticker cost.
  */
 export class TutorialView {
-  constructor(sceneManager, state, menu) {
+  constructor(sceneManager, state, menu, unlockMarkers) {
     this.sm = sceneManager;
     this.state = state;
     this.menu = menu;
+    this.unlockMarkers = unlockMarkers;
     this.time = 0;
     this.highlighted = null; // DOM element currently carrying .tut-glow
     this.popupEl = null; // the finale card, once shown
@@ -103,7 +109,7 @@ export class TutorialView {
 
   update(dt, state) {
     this.time += dt;
-    const view = getTutorialView(state);
+    const view = getTutorialView(state, (kind, index) => this.unlockMarkers.getPaidAmount(kind, index));
 
     if (!view) {
       this.#hideRing();

@@ -139,6 +139,13 @@ export class UnlockMarkers {
     }
   }
 
+  /** How much of the given marker's cost is already drained (walk-up-to-pay),
+   * keyed the same way #build/update do. Read by TutorialView so the "costs $X"
+   * banner falls live as a marker's own drain pays it down. */
+  getPaidAmount(kind, index) {
+    return this.progress.get(`${kind}:${index ?? ''}`)?.paid ?? 0;
+  }
+
   /**
    * The full cost has drained: refund the total already deducted frame-by-frame,
    * then let buyUnlockMarker do its normal atomic afford-check + deduction +

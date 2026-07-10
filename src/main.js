@@ -150,7 +150,7 @@ async function main() {
   const slidingDoors = new SlidingDoors(sceneManager, () => supermarketView.truck.model);
   // The first-game tutorial overlay: glow ring / UI glow + instruction bubble,
   // driven by core/tutorial.js's view model (resolves tablet targets via `menu`).
-  const tutorialView = new TutorialView(sceneManager, state, menu);
+  const tutorialView = new TutorialView(sceneManager, state, menu, unlockMarkers);
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their

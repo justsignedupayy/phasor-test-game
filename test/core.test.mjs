@@ -2277,7 +2277,7 @@ check('step 2: highlight walks shelf → pit with the carried box; the delivery 
   assert.equal(currentTutorialStep(s), 'hireMechanic');
 });
 
-check('affordability-gated steps show a live "earn $X more" hint, then latch to the highlight', () => {
+check('affordability-gated steps show a "costs $X" hint, then latch to the highlight', () => {
   const s = createInitialState();
   completeRepairStep(s);
   s.player.carryingBox = true;
@@ -2291,11 +2291,8 @@ check('affordability-gated steps show a live "earn $X more" hint, then latch to 
   let v = getTutorialView(s);
   assert.equal(v.pending, true, 'unaffordable → informational hint, not the highlight');
   assert.equal(v.anchor.kind, 'info');
-  assert.ok(v.text.includes(`Earn $${formatMoney(hireCost(s, 0))} more`), 'states the amount still needed');
+  assert.ok(v.text.includes(`Costs $${formatMoney(hireCost(s, 0))}`), 'states the cost');
   assert.ok(v.text.includes('worker'), 'says what it unlocks');
-
-  s.cash = hireCost(s, 0) - 30;
-  assert.ok(getTutorialView(s).text.includes('Earn $30 more'), 'amount updates live as cash grows');
 
   s.cash = hireCost(s, 0);
   tickTutorial(s, 0.016);
@@ -2307,6 +2304,83 @@ check('affordability-gated steps show a live "earn $X more" hint, then latch to 
   s.cash = 0; // e.g. the marker drain took the cash mid-unlock
   tickTutorial(s, 0.016);
   assert.equal(getTutorialView(s).anchor.kind, 'world', 'visibility latches — no flicker when cash dips back down');
+});
+
+check('the "costs $X" banner subtracts a marker\'s own partial payment, not cash', () => {
+  const s = createInitialState();
+  completeRepairStep(s);
+  s.player.carryingBox = true;
+  s.player.carryingBoxPitIndex = 0;
+  s.pits[0].playerPresent = true;
+  tick(s, 0.016);
+  assert.equal(currentTutorialStep(s), 'hireMechanic');
+
+  s.cash = 0;
+  tickTutorial(s, 0.016);
+  const cost = hireCost(s, 0);
+
+  // No payment in flight (default callback): the sticker price shows in full.
+  let v = getTutorialView(s);
+  assert.ok(v.text.includes(`Costs $${formatMoney(cost)}`), 'no getPaid passed → behaves exactly as before');
+
+  // A getPaid that reports a partial payment on the RIGHT marker (hireMechanic
+  // pit 0) subtracts it from the price shown — this is what makes the banner
+  // fall live as a marker's own walk-up-to-pay drain pays it down.
+  const paidSoFar = 40;
+  const getPaid = (kind, index) => (kind === 'hireMechanic' && index === 0 ? paidSoFar : 0);
+  v = getTutorialView(s, getPaid);
+  assert.ok(v.text.includes(`Costs $${formatMoney(cost - paidSoFar)}`), 'subtracts the marker\'s own paid-so-far');
+
+  // A payment reported against a DIFFERENT marker must not leak in.
+  const wrongKindPaid = (kind, index) => (kind === 'hireMechanic' && index === 1 ? 9999 : 0);
+  v = getTutorialView(s, wrongKindPaid);
+  assert.ok(v.text.includes(`Costs $${formatMoney(cost)}`), 'a different index\'s payment is ignored');
+});
+
+check('each affordability step queries getPaid with the correct UnlockMarkers kind/index', () => {
+  // Mirrors core/upgrades.getUnlockMarkers' own kind strings + index (or lack
+  // thereof) for these five markers exactly, so TutorialView's real
+  // unlockMarkers.getPaidAmount(kind, index) call resolves the same "kind:index"
+  // key UnlockMarkers itself uses.
+  const cases = [
+    { step: 'hireMechanic', wantKind: 'hireMechanic', wantIndex: 0, cost: (s) => hireCost(s, 0), setup: (s) => {
+      completeRepairStep(s);
+      s.player.carryingBox = true;
+      s.player.carryingBoxPitIndex = 0;
+      s.pits[0].playerPresent = true;
+      tick(s, 0.016);
+    } },
+    { step: 'buyLotB', wantKind: 'expandRoom', wantIndex: 1, cost: (s) => expandRoomCost(s), setup: (s) => {
+      s.tutorial.step = TUTORIAL_STEPS.indexOf('buyLotB');
+      s.permanentReputation = 1; // clear the reputation gate so only cash is pending
+    } },
+    { step: 'hireCashier', wantKind: 'hireCashier', wantIndex: undefined, cost: (s) => cashierCost(s), setup: (s) => {
+      s.tutorial.step = TUTORIAL_STEPS.indexOf('hireCashier');
+    } },
+    { step: 'openMarket', wantKind: 'openMarket', wantIndex: undefined, cost: (s) => supermarketCost(s), setup: (s) => {
+      s.tutorial.step = TUTORIAL_STEPS.indexOf('openMarket');
+    } },
+    { step: 'hireMarketWorker', wantKind: 'hireMarketWorker', wantIndex: undefined, cost: (s) => marketWorkerHireCost(s), setup: (s) => {
+      s.tutorial.step = TUTORIAL_STEPS.indexOf('hireMarketWorker');
+    } },
+  ];
+
+  for (const { step, wantKind, wantIndex, cost, setup } of cases) {
+    const s = createInitialState();
+    setup(s);
+    assert.equal(currentTutorialStep(s), step, `setup reached ${step}`);
+    s.cash = 0;
+    tickTutorial(s, 0.016);
+
+    const calls = [];
+    const getPaid = (kind, index) => {
+      calls.push([kind, index]);
+      return kind === wantKind && index === wantIndex ? 15 : 0;
+    };
+    const v = getTutorialView(s, getPaid);
+    assert.ok(calls.some(([k, i]) => k === wantKind && i === wantIndex), `${step} queries getPaid('${wantKind}', ${wantIndex})`);
+    assert.ok(v.text.includes(`Costs $${formatMoney(cost(s) - 15)}`), `${step}'s banner reflects the paid-so-far amount`);
+  }
 });
 
 check('the full guided path runs start to finish against live state', () => {

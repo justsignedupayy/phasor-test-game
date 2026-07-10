@@ -12,14 +12,20 @@
  *
  *   tickTutorial(state, dt)   advance visibility latches + state-watched steps;
  *                             called once per frame from main.js AFTER the sims.
- *   getTutorialView(state)    the render view model: { id, text, anchor } or
- *                             null while nothing should show. Anchors are world
+ *   getTutorialView(state, getPaid)  the render view model: { id, text, anchor }
+ *                             or null while nothing should show. getPaid is an
+ *                             optional (kind, index) => number callback (default
+ *                             () => 0) reporting how much of an UnlockMarkers
+ *                             drain-to-pay marker's cost is already paid down —
+ *                             the "costs $X" banners subtract it so the price
+ *                             they show falls live as a walk-up-to-pay drain
+ *                             pays the marker down. Anchors are world
  *                             positions ({ kind:'world', x, z, y? } — y is the
  *                             instruction bubble's height), tablet targets
  *                             ({ kind:'tablet', tab, element }) the scene
  *                             resolves against the UpgradeMenu, an
  *                             informational banner ({ kind:'info' }, the
- *                             "earn $X more" waiting hints — pending:true), or
+ *                             "costs $X" waiting hints — pending:true), or
  *                             the finale popup ({ kind:'popup' }).
  *   notify* / on* hooks       explicit completion signals for player-performed
  *                             actions (manual repair completion, pit/market
@@ -368,12 +374,12 @@ const tablet = (tab, element) => ({ kind: 'tablet', tab, element });
  * sits on the NEXT thing to do — the step itself never changes until its
  * condition completes.
  */
-export function getTutorialView(state) {
+export function getTutorialView(state, getPaid = () => 0) {
   const t = state.tutorial;
   if (!t || !t.active) return null;
 
   const id = TUTORIAL_STEPS[t.step];
-  if (!t.shown && !stepVisible(state, id)) return pendingView(state, id);
+  if (!t.shown && !stepVisible(state, id)) return pendingView(state, id, getPaid);
 
   const P = settings.pit.positions;
   const U = settings.unlockMarkers;
@@ -505,27 +511,30 @@ export function getTutorialView(state) {
 
 /**
  * What a still-gated step shows while waiting: the affordability steps show a
- * live "earn $X more" info banner (pending:true, no highlight — the amount
- * shrinks as cash grows and the real highlight takes over once affordable);
- * firstBreak shows restock guidance if the pit runs dry while waiting (no
- * tires → no jobs → the break would never come — see TUTORIAL_STEPS' note);
- * everything else shows nothing.
+ * live "costs $X" info banner (pending:true, no highlight — the price falls
+ * as a marker's own walk-up-to-pay drain pays it down, and the real highlight
+ * takes over once affordable). getPaid(kind, index) reports how much of THAT
+ * marker's cost is already drained via UnlockMarkers, subtracted from the
+ * cost so the banner always shows the true remaining price, not the sticker
+ * cost. firstBreak shows restock guidance if the pit runs dry while waiting
+ * (no tires → no jobs → the break would never come — see TUTORIAL_STEPS'
+ * note); everything else shows nothing.
  */
-function pendingView(state, id) {
+function pendingView(state, id, getPaid) {
   const info = (text) => ({ id, pending: true, text, anchor: { kind: 'info' } });
-  const needed = (cost) => formatMoney(Math.max(0, Math.ceil(cost - state.cash)));
+  const remaining = (cost, kind, index) => formatMoney(Math.max(0, cost - getPaid(kind, index)));
   switch (id) {
     case 'hireMechanic':
-      return info(`Earn $${needed(hireCost(state, 0))} more to hire your first worker`);
+      return info(`Costs $${remaining(hireCost(state, 0), 'hireMechanic', 0)} to hire your first worker`);
     case 'buyLotB':
       if (!pitReputationMet(state, 1)) return info('Raise your reputation to unlock lot B');
-      return info(`Earn $${needed(expandRoomCost(state))} more to buy lot B`);
+      return info(`Costs $${remaining(expandRoomCost(state), 'expandRoom', 1)} to buy lot B`);
     case 'hireCashier':
-      return info(`Earn $${needed(cashierCost(state))} more to hire the cashier`);
+      return info(`Costs $${remaining(cashierCost(state), 'hireCashier')} to hire the cashier`);
     case 'openMarket':
-      return info(`Earn $${needed(supermarketCost(state))} more to open the supermarket`);
+      return info(`Costs $${remaining(supermarketCost(state), 'openMarket')} to open the supermarket`);
     case 'hireMarketWorker':
-      return info(`Earn $${needed(marketWorkerHireCost(state))} more to hire the market worker`);
+      return info(`Costs $${remaining(marketWorkerHireCost(state), 'hireMarketWorker')} to hire the market worker`);
     case 'firstBreak':
       if (state.pits[0].tiresRemaining <= 0) {
         // Still pending (the step completes on the break, not this restock),

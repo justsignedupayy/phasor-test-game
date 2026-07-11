@@ -636,7 +636,7 @@ export class Garage {
   /**
    * Place a pool of wall segments to span [-halfX, rightX] minus each unlocked
    * door gap. marketDoorXs is this wall's own market door x's (both live on the
-   * back wall now — pass [] for the front wall, which no longer has one).
+   * back wall — pass [] for the front wall, which has none).
    */
   #layoutSegmentedWall(segments, wallZ, rightX, state, marketDoorXs) {
     const W = settings.world;

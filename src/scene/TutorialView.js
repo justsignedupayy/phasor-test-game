@@ -130,10 +130,9 @@ export class TutorialView {
     }
 
     // While the upgrade tablet is OPEN, world/info guidance is noise layered
-    // over it (it covered the tab labels on short landscape screens — see
-    // DEVICE_AUDIT.md). The menu is self-explanatory while up; the bubble
-    // returns the frame it closes. Tablet-anchored steps still render — they
-    // guide the player INSIDE the open menu.
+    // over it. The menu is self-explanatory while up; the bubble returns the
+    // frame it closes. Tablet-anchored steps still render — they guide the
+    // player INSIDE the open menu.
     const menuBlocksBubble = this.menu.isOpen && view.anchor.kind !== 'tablet';
 
     if (view.anchor.kind === 'info') {

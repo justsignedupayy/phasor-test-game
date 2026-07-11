@@ -61,7 +61,7 @@ export const settings = {
       dirtTint: 0xd9c9ab,
       brickWidth: 1.1, // one brick's world-unit length along the wall
       brickHeight: 0.42, // one course's world-unit height (~7 courses on a 3-high wall)
-      brickColor: 0xbfa38a, // warm sandy brick, close kin to the old off-white walls
+      brickColor: 0xbfa38a, // warm sandy brick
       mortarColor: 0xd6d0c6, // light grey joints, a touch brighter than the bricks
       brickBumpScale: 0.5,
     },
@@ -133,7 +133,7 @@ export const settings = {
     near: 0.1,
     far: 200,
     followLerp: 5, // how fast the camera eases toward the player each second (higher = snappier)
-    // Aspect clamps (see scene/SceneManager.#onResize + DEVICE_AUDIT.md).
+    // Aspect clamps (see scene/SceneManager.#onResize).
     // Portrait: contain-fit lets the vertical span grow as 1/aspect — at a
     // 0.45-aspect phone that's 96 ground-units of mostly grass against a
     // 20-unit-deep room. Cap the stretch; below the clamp aspect the view
@@ -147,8 +147,6 @@ export const settings = {
     // room interior (−z) so the reduced depth budget frames the building
     // rather than symmetric grass. Constant offset on the eased target — the
     // follow lerp converges on it, so it can never fight bounds or jitter.
-    // (Started at 3; at 3 the spawn-adjacent pit A car fell inside the
-    // tutorial arrow's edge margin on 360w portrait — 2 keeps it framed.)
     portraitZBias: 2, // STARTING VALUE — tune by eye (world units, aspect < 1 only)
     // Ultrawide: past this aspect the horizontal span stops growing (world
     // units across = viewSize × this) and the view zooms in vertically to
@@ -176,9 +174,8 @@ export const settings = {
     headHeight: 2.3, // STARTING VALUE — tune by eye; shared by the player + every worker (same base model)
     // Invisible cylinder each worker (Mechanic/MarketWorker) carries for tap
     // raycasting (yell / resting-worker taps), used INSTEAD of the rigged body
-    // mesh — the mesh is too thin/animated (limbs mid-stride) to reliably tap on
-    // a touchscreen, which was letting taps fall through to the joystick instead
-    // of registering as a worker tap. Three.js raycasting ignores `.visible`.
+    // mesh — the mesh is too thin/animated (limbs mid-stride) to reliably tap
+    // on a touchscreen. Three.js raycasting ignores `.visible`.
     tapHitRadius: 1.4,
     tapHitHeight: 2.6,
     animationMap: {
@@ -220,7 +217,7 @@ export const settings = {
     occlusionHighlight: {
       color: 0x00e5ff, // bright neon cyan-blue silhouette shown through occluders
     },
-    workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic" (was mechBody)
+    workerTint: 0xe07b39, // multiplies worker clone materials so they read as "the mechanic"
     attendantTint: 0x9a5ac9, // purple tint for pump attendants (see scene/GasStationView.js)
     cashierTint: 0x3ad06a, // green tint for the cashier clone (see scene/Cashier.js)
     marketWorkerTint: 0x4a9fd8, // the supermarket worker clone (see scene/MarketWorker.js)
@@ -288,7 +285,7 @@ export const settings = {
   // so a standard 3-damage car ≈ 37.5 ticks. A pit's required ticks shrink with its
   // fixing-time upgrade (car.baseTicks × pit.fixTimeFactor).
   repair: {
-    ticksPerPart: 12.5, // 5 × 2.5 (flat 2.5× fixing-time raise) — 3-damage car → 37.5 ticks
+    ticksPerPart: 12.5, // 3-damage car → 37.5 ticks
     tapTicks: 5, // ticks added per manual repair tap (≈ a worker's base rate)
   },
 
@@ -297,26 +294,22 @@ export const settings = {
   // (pit 0 = rusty … pit 4 = luxury; see simulation.spawnToMatchingPit) and is
   // discarded if that pit can't take it.
   //
-  // 5× TRAFFIC REBALANCE: interval ÷5 (5 → 1) for 5× the visual traffic, with
-  // per-car payout ÷5 and worker/attendant rates ×5 (plus driveDuration,
-  // tiresPerBox and breakThresholds scaled to match) so cars flow 5× faster at
-  // 1/5 the value each — $/min and the whole progression pace are unchanged.
+  // Pacing: high traffic, low per-car value — cars flow fast (interval 1s) at
+  // small payouts each, with worker rates, driveDuration, tire stock and
+  // breakThresholds all scaled to that flow.
   spawn: {
     interval: 1, // seconds between spawns — paces the whole repair economy
     maxQueuePerPit: 10, // max cars waiting per pit's own queue
-    basePayoutPerPart: 8, // 4 × 2 (flat 2× payout raise); payout = basePayoutPerPart × numParts (3-damage car = $24)
+    basePayoutPerPart: 8, // payout = basePayoutPerPart × numParts (3-damage car = $24)
   },
 
   // Two-stage room unlock + the per-pit upgrades. All costs are geometric
   // (cost = baseCost × costGrowth^level); see upgrades.js for the level used.
   //
-  // Balance anchors: an average rusty car pays ~$9.60 every ~4s of pit-0 work
-  // (the 5×-traffic rebalance kept $/min flat; the later flat 4× payout raise
-  // and 3× cost raise moved both sides together; then a flat 2× payout raise
-  // paired with a 2.5× fixing-time raise); each new income stream
-  // (pit land + equipment + mechanic) costs roughly a few minutes of the income
-  // that came before it; the gas tier is priced against the full-garage income it
-  // is gated behind (see upgrades.gas below).
+  // Balance anchors: an average rusty car pays ~$9.60 every ~4s of pit-0 work;
+  // each new income stream (pit land + equipment + mechanic) costs roughly a
+  // few minutes of the income that came before it; the gas tier is priced
+  // against the full-garage income it is gated behind (see upgrades.gas below).
   upgrades: {
     // Stage 1: add empty floor space (reveals the next lot).
     expandRoom: {
@@ -338,8 +331,8 @@ export const settings = {
       baseCost: 150,
       costGrowth: 1.6,
       maxLevel: 8,
-      baseRate: 5 / 1.5, // ticks/sec at level 0 → a 37.5-tick car takes ~11.25s (1.5× slower than before)
-      ratePerLevel: 2.5 / 1.5, // +ticks/sec per level (1.5× slower than before)
+      baseRate: 5 / 1.5, // ticks/sec at level 0 → a 37.5-tick car takes ~11.25s
+      ratePerLevel: 2.5 / 1.5, // +ticks/sec per level
     },
     // Per-pit fixing time: lowers the fix-time factor (≤1), shrinking required ticks.
     fixingTime: {
@@ -409,8 +402,8 @@ export const settings = {
         baseCost: 750,
         costGrowth: 1.6,
         maxLevel: 8,
-        baseRate: 5 / 1.5, // 1.5× slower than before (mirrors the pit workerSpeed)
-        ratePerLevel: 2.5 / 1.5, // 1.5× slower than before
+        baseRate: 5 / 1.5, // mirrors the pit workerSpeed
+        ratePerLevel: 2.5 / 1.5,
       },
     },
   },
@@ -545,8 +538,8 @@ export const settings = {
     },
     labelHeight: 2.8, // world-space height the instruction bubble anchors above a world target
     // Min px the bubble's bottom edge keeps above the player's head on screen
-    // when the two horizontally overlap — on narrow portrait the bubble
-    // otherwise parks right on top of the character at spawn (DEVICE_AUDIT.md).
+    // when the two horizontally overlap (narrow portrait would otherwise park
+    // the bubble on top of the character at spawn).
     bubblePlayerClearance: 12, // STARTING VALUE — tune by eye (px)
   },
 
@@ -556,7 +549,7 @@ export const settings = {
   // no bills ever appear. Bill count shown ≈ pendingCash / cashPerBill (capped).
   money: {
     cashPerBill: 15, // pending dollars represented by each visible bill at a pit
-    maxBills: 40, // cap on bills shown stacked at one pit (raised 5× from 8 so big piles read)
+    maxBills: 40, // cap on bills shown stacked at one pit
     billSpacing: 0.05, // y gap between stacked bills
     billScale: 0.5, // scale Money.glb down to fit scene
     flyDuration: 0.4, // seconds for bills to fly to the player on collection
@@ -570,10 +563,7 @@ export const settings = {
   // its own shelf and refill the tire stack itself.
   storage: {
     shelfCapacity: 10, // max boxes a shelf holds (starts full)
-    // ×5 with the spawn rate: repairs (each burning one tire) complete 5× as
-    // often, so a box lasts the same wall-clock time as before (~2 minutes).
-    tiresPerBox: 25, // repairs one delivered box enables
-    maxTiresPerPit: 25, // a pit's tire stack caps here (one box worth)
+    maxTiresPerPit: 25, // a pit's tire stack caps here (one box worth; each repair burns one tire — a box lasts ~2 minutes)
     autoRestockBaseCost: 1500, // one-time, garage-wide mechanic auto-restock upgrade
     pickupRadius: 1.9, // how close to a shelf the player must stand to grab a box
     // Placements are offsets from each pit's position (settings.pit.positions[i]).
@@ -660,11 +650,6 @@ export const settings = {
     // pit exit doors) is for the restock TRUCK only — it pulls up to that gate
     // from the exterior road, drops stock into the dock box just outside the
     // wall, and reverses out; never customers. STARTING VALUES — tune by eye.
-    //
-    // Shelf x-offsets from marketX are doubled (±6, was ±3) to double the
-    // market's total floor footprint (width x depth) — world.halfX was grown
-    // to make room. Depth (z) is left as-is: it's already close to the room's
-    // existing front/back walls, shared with the car system's doorZ/exitDoorZ.
     marketX: -38, // entry door's x, clear of every pit lot
     marketExitX: -44, // exit door's x — same (back) wall as entry, to its left; lines up near the checkout
     // Both customer openings extend OUTWARD from the back wall as walled
@@ -753,17 +738,16 @@ export const settings = {
     // standing on the checkout centre. Added to checkoutPosition in core/supermarket.js.
     workerCheckoutOffset: { x: 1.5, z: 0 },
     workerIdleSpot: { x: -38, z: -2 },
-    // The "Hire the market worker" unlock marker's OWN spot (it used to share
-    // workerIdleSpot): open floor east of centre, clear of the customer entry
-    // lane (x -38), exit lane (x -44), the shelf row (z -9) and the checkout
-    // queue (z 7.6). The worker still SPAWNS/idles at workerIdleSpot. Tune by eye.
+    // The "Hire the market worker" unlock marker's OWN spot: open floor east of
+    // centre, clear of the customer entry lane (x -38), exit lane (x -44), the
+    // shelf row (z -9) and the checkout queue (z 7.6). The worker still
+    // SPAWNS/idles at workerIdleSpot. Tune by eye.
     hireWorkerMarkerSpot: { x: -35, z: 2 },
     // queueAnchor (slot 0, nearest the checkout) sits right beside the counter, at
     // the same z; queueStep runs along x toward the entry door (there's only ~2.5
     // units of floor between the checkout and the left wall, not enough room for the
     // line if it stepped further back in z instead — see Garage.js's left
-    // wall at x = -world.halfX). It used to be anchored at the door's x (z-stepped),
-    // which stranded the line far from the checkout it was meant to lead into.
+    // wall at x = -world.halfX).
     // queueSlotPosition (core/supermarket.js) derives every slot from these two, so
     // maxCustomerQueue can change without touching layout: the 6-slot line runs
     // x -42.1 → -35.1 (up to about the entry door), clear of pit 0's lane.
@@ -845,10 +829,7 @@ export const settings = {
     // % in the Upgrades menu (0.10 = 10%). Pit 0 starts owned, so its 0 is moot.
     unlockReputation: [0, 0.1, 0.3, 0.5, 0.7],
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out)
-    // Decorative blue "pit stop" rectangle painted on the floor at each pit
-    // position (approx car-sized; tune without touching scene code).
-    spotWidth: 2.4,
-    spotDepth: 4.4,
+    spotDepth: 4.4, // car-spot depth (z) at each pit — the lane stripes leave a gap this long there
     // Cars drive straight THROUGH the garage (decreasing z the whole time):
     // in through a BACK-wall door (z = +halfZ) at the pit's x, and, once fixed,
     // out through a FRONT-wall door (z = -halfZ) at the same x.
@@ -884,9 +865,7 @@ export const settings = {
     // exceed that — 2.4 mirrors settings.pit.radius, raised for the same reason.
     radius: 2.4,
     driveDuration: 0.7, // seconds for any car drive tween (in/advance/out), mirrors pit
-    // Decorative pump-spot rectangle painted on the road at each pump (like pitSpot).
-    spotWidth: 2.4,
-    spotDepth: 4.4,
+    spotDepth: 4.4, // car-spot depth (z) at each pump — the road stripes leave a gap this long there (mirrors pit)
     doorZ: 11.5, // queue anchor: mirrors pit.doorZ so gas queues line up with pit queues
     exitDoorZ: -11.5, // mirrors pit.exitDoorZ
     queueSlotDepth: 5.0, // each waiting car steps this much further out (toward +z)
@@ -927,7 +906,7 @@ export const settings = {
     // fillTicks = baseTicks × tier.ticksMult; payout = basePayout × tier.payoutMult
     // (same tier scaling as repairs, own base numbers). STARTING VALUES.
     fill: {
-      baseTicks: 20, // 8 × 2.5 (flat 2.5× fixing-time raise, mirrors repair.ticksPerPart)
+      baseTicks: 20, // mirrors repair.ticksPerPart's scale
       basePayout: 19.2, // 9.6 × 2 (flat 2× payout raise, mirrors spawn.basePayoutPerPart)
     },
     // Automatic spawning, mirroring settings.spawn: each pump owns its own queue.
@@ -966,7 +945,7 @@ export const settings = {
   // lifted by laneBridgeElevationAt while on the structure (visual only —
   // core positions stay 2D). STARTING VALUES, tune by eye.
   pitLane: {
-    halfWidth: 1.2, // lane half-extent in x — the invisible walls' faces; just covers the car/pump spot (spotWidth / 2)
+    halfWidth: 1.2, // lane half-extent in x — the invisible walls' faces; just covers a parked car
     bridge: {
       zOffset: -2.4, // deck centre z relative to the lane's HIRE MARKER (negative = past it, away from the pit/pump)
       width: 2.0, // deck depth (z); also the gap carved through the lane walls
@@ -1002,9 +981,8 @@ export const settings = {
   // How many jobs each worker completes before it earns a break (see
   // core/breaks.js). A car mechanic's job = one finished repair; the market
   // worker's job = one checked-out customer. Each worker tracks its own count.
-  // Car-servicing thresholds are ×5 with the spawn rate (jobs complete 5× as
-  // often, so breaks-per-hour stay unchanged); the market worker's is untouched
-  // because customer traffic (customerSpawnInterval) didn't change.
+  // Car-servicing thresholds are sized to the fast spawn rate so breaks-per-hour
+  // stay reasonable; the market worker's follows its slower customer traffic.
   breakThresholds: {
     carMechanic: 50,
     marketWorker: 50,
@@ -1038,7 +1016,7 @@ export const settings = {
     breakSpotFacing: 0, // radians the resting mechanic faces at its spot
     // Attendant break spot: offset from the pump centre — right next to the
     // pump, past the attendant's work spot (attendant.offsetX ≈ 2.1) and clear
-    // of the car spot (spotWidth/2 = 1.2). Same facing as a mechanic's.
+    // of the car lane (pitLane.halfWidth = 1.2). Same facing as a mechanic's.
     pumpBreakSpotOffset: { x: 3.4, z: -1.5 },
     // Market worker break spot: a fixed spot just left of the restock door, inside the room.
     marketBreakSpot: { x: -47, z: -3 },
@@ -1105,10 +1083,8 @@ export const settings = {
     fontStack: "'Montserrat', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
     // Below this viewport width (px) the screen's top-center falls inside the
     // fixed-size Upgrades/Settings tab row, so the HUD cash counter drops one
-    // row down instead of rendering hidden underneath it (see scene/Hud.js +
-    // DEVICE_AUDIT.md — measured −139px overlap at 360w, already −7.5px at 667w).
-    // (Started at 740; raised to 860 because a max-font "999.9K" balance still
-    // clipped the Settings tab at 768w — the audit's long-balance probe.)
+    // row down instead of rendering underneath it (see scene/Hud.js). Sized so
+    // a max-font "999.9K" balance clears the Settings tab.
     narrowBreakpoint: 860, // STARTING VALUE — tune by eye (px)
     narrowCashDrop: 52, // STARTING VALUE — tune by eye (px the cash row drops: tab-row height + margin)
     // Below this viewport width the upgrade tablet's tab pills shrink one step
@@ -1130,7 +1106,6 @@ export const settings = {
     road: 0x4a4a4a, // asphalt outside each gate + the exterior entry/exit roads
     roadLine: 0xf5e642, // yellow divider line between adjacent pit bays
     laneStripe: 0xffffff, // white guide paint on the garage floor + exterior lane dashes
-    pitSpot: 0x2255cc, // blue decorative pit-stop rectangle painted at each pit
     label: '#ffe08a', // pit/worker label text (CSS color string for the sprite)
     // supermarket checkout counter
     deskWood: 0x6b4a2f,

@@ -39,9 +39,8 @@ let bagSound = null;
 // them exactly. Persisted like the volume (see storage.loadMuted/saveMuted).
 let muted = loadMuted();
 // The HOST's mute (Playgama's audio_state_changed / isAudioEnabled), layered
-// on top of the user's: RUNTIME-ONLY, never persisted. Routing it through
-// setMuted used to write the platform's transient boot/reload mute into the
-// device preference — one reload left the game permanently silent.
+// on top of the user's: RUNTIME-ONLY, never persisted — a transient platform
+// mute must not overwrite the player's own preference.
 let platformMuted = false;
 // The music volume SETTING, kept apart from music.volume so mute can zero the
 // live track without losing the slider's remembered level.
@@ -86,9 +85,8 @@ function ensureGestureUnlock() {
   gestureListenerBound = true;
   // pointerup, NOT pointerdown: a touch pointerdown grants no user activation
   // (browsers grant it at pointerup/touchend for touch, pointerdown only for
-  // mouse), so an unlock on pointerdown fires with play() still blocked — on
-  // phones the old one-shot handler then dropped the whole queue: silence from
-  // first launch. Capture phase, because the canvas action-tap handlers in
+  // mouse), so play() inside a pointerdown handler is still autoplay-blocked
+  // on phones. Capture phase, because the canvas action-tap handlers in
   // main.js stopPropagation() (tapping a car — the tutorial's very first
   // instruction), which a bubble listener on window never sees.
   const resume = () => {
@@ -165,9 +163,8 @@ export function setMuted(m) {
 /**
  * Set the PLATFORM's mute (Bridge audio_state_changed / boot isAudioEnabled).
  * Same instant silencing as setMuted, but runtime-only: the host muting the
- * game must never rewrite the player's own persisted preference (a transient
- * reload-time mute used to stick forever). The user's mute survives
- * underneath — a platform unmute never unmutes a player who chose mute.
+ * game never rewrites the player's own persisted preference. The user's mute
+ * survives underneath — a platform unmute never unmutes a player who chose mute.
  */
 export function setPlatformMuted(m) {
   platformMuted = !!m;
@@ -226,9 +223,7 @@ export function suspendAll() {
 /** Resume the tracks suspendAll paused (page visible again). Mute state needs
  * no special casing — muted tracks play at volume 0. A play() the browser
  * rejects (autoplay policy re-applied on tab return, or a track never started)
- * re-enters the shared gesture-unlock queue so the next tap restores it —
- * swallowing the rejection would leave the track paused until the next
- * manual unpause. */
+ * re-enters the shared gesture-unlock queue so the next tap restores it. */
 export function resumeAll() {
   const tracks = [music, ...(ambience ? Object.values(ambience) : [])];
   for (const audio of tracks) {

@@ -7,7 +7,7 @@ import settings from '../config/settings.js';
  * exactly once at startup, same one-load-then-clone pattern as
  * preloadCarModels(). Keyed by the logical name from settings.models. Call (and
  * await) preloadStorageModels() before constructing any PitView / CarriedBox,
- * then read a base scene with getStorageModel(key) and clone it per instance.
+ * then clone per instance via cloneStorageModel(key).
  */
 const models = new Map(); // key -> THREE.Object3D base scene to clone
 let promise = null;
@@ -50,7 +50,7 @@ function placeholderBox() {
 }
 
 /** The preloaded base scene for a key (settings.models.*); clone it per instance. */
-export function getStorageModel(key) {
+function getStorageModel(key) {
   const base = models.get(key);
   if (!base) {
     throw new Error(`getStorageModel: "${key}" not loaded — call preloadStorageModels() first`);

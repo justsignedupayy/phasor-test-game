@@ -11,9 +11,6 @@ import { cloneStorageModel } from './StorageModels.js';
  * drives position/facing plus an AnimationMixer crossfading between
  * idle/walk/repair/yell clips. No skeletal logic of its own — it just owns one
  * mixer + action set built from the model's own clips.
- *
- * Built so this.root's position/rotation API matches the old primitive
- * version exactly (main.js doesn't change how it drives this class).
  */
 const EMOTE_TIME = 0.5; // brief blip for yell/repair before returning to idle/walk
 

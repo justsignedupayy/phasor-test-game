@@ -461,9 +461,8 @@ function updatePlayer(state, dt) {
  * Each openable wall is treated as a two-sided SLAB (inner face at ±half, outer
  * face a wallThickness beyond): off-gate, a mover is held off whichever face it
  * is on — the side is read against the slab's mid-plane, unambiguous because a
- * per-frame step is far smaller than slab + radius. This blocks inside→outside
- * and outside→inside identically; the old "already past the wall plane"
- * allowance read the POST-move position, which let an outside mover that
+ * per-frame step is far smaller than slab + radius. Reading the side from the
+ * PRE-move position matters: a post-move read would let an outside mover that
  * crossed the plane in one step register as inside and get pulled through.
  */
 function clampToBounds(state, pos) {

@@ -265,7 +265,7 @@ export class UpgradeMenu {
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, {
-      // 44px touch-target floor (was 36 — measured under-size in DEVICE_AUDIT.md)
+      // 44px touch-target floor
       width: '44px',
       height: '44px',
       borderRadius: '50%',
@@ -336,10 +336,9 @@ export class UpgradeMenu {
       ['player', 'Player', 'Player'],
       ['ads', 'Advertising', 'Ads'],
     ];
-    // The bar scrolls horizontally when the 5 pills don't fit (≤430px portrait
-    // clipped Player/Advertising into unreachability — DEVICE_AUDIT.md ship
-    // blocker). Wrapper hosts the right-edge fade that signals "more tabs →";
-    // the fade sits OUTSIDE the scroller so it doesn't scroll away.
+    // The bar scrolls horizontally if the 5 pills ever don't fit. Wrapper
+    // hosts the right-edge fade that signals "more tabs →"; the fade sits
+    // OUTSIDE the scroller so it doesn't scroll away.
     const barWrap = document.createElement('div');
     Object.assign(barWrap.style, {
       position: 'relative',
@@ -400,8 +399,7 @@ export class UpgradeMenu {
     parent.appendChild(barWrap);
 
     // Pill density: below settings.ui.menuTabBreakpoint the pills tighten in
-    // measured steps until all five fit without horizontal scrolling (~360px
-    // portrait left Player/Advertising reachable only by sliding). Font and
+    // measured steps until all five fit without horizontal scrolling. Font and
     // padding shrink first; the two long labels abbreviate ("Gas Station"→
     // "Gas", "Advertising"→"Ads") only in the last steps, when shrinking alone
     // can't fit five. Measured against the bar's real overflow, so it lands on

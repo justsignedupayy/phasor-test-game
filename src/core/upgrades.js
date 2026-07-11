@@ -97,11 +97,11 @@ export function hireCost(state, pitIndex) {
   return geoCost(U.mechanic, pitIndex);
 }
 
-export function workerSpeedCost(state, pit) {
+function workerSpeedCost(state, pit) {
   return geoCost(U.workerSpeed, pit.workerSpeedLevel);
 }
 
-export function fixingTimeCost(state, pit) {
+function fixingTimeCost(state, pit) {
   return geoCost(U.fixingTime, pit.fixingTimeLevel);
 }
 
@@ -121,16 +121,16 @@ export function gasEquipmentCost(state, pumpIndex) {
   return geoCost(U.gas.equipment, pumpIndex);
 }
 
-export function attendantHireCost(state, pumpIndex) {
+function attendantHireCost(state, pumpIndex) {
   return geoCost(U.gas.attendant, pumpIndex);
 }
 
-export function attendantSpeedCost(state, pump) {
+function attendantSpeedCost(state, pump) {
   return geoCost(U.gas.workerSpeed, pump.workerSpeedLevel);
 }
 
 /** This worker type's owned "Shorter Breaks" level (state.breakLevels). */
-export function breakLevel(state, kind) {
+function breakLevel(state, kind) {
   return state.breakLevels[kind];
 }
 
@@ -266,7 +266,7 @@ export function buyFixingTime(state, pitIndex) {
  * Garage complete = every pit's land bought + equipped, a mechanic hired on all
  * five, and every pit's Worker Speed + Fixing Time at max level. Market complete
  * = supermarket open, its worker hired AND trained, and Faster Deliveries maxed.
- * Break-room upgrades are worker comfort, not production, and don't gate.
+ * "Shorter Breaks" upgrades are worker comfort, not production, and don't gate.
  */
 export function gasStationPrereqs(state) {
   const missing = [];
@@ -460,10 +460,10 @@ export function buyTruckFrequency(state) {
 // in the phone menu: a white ground circle + cost label at the spot the purchase
 // creates (rendered by scene/UnlockMarkers.js, tunables in
 // settings.unlockMarkers). This view model lists the currently-available
-// markers; buyUnlockMarker routes a tapped marker to the exact buy function the
-// old menu row called, so costs and gates (reputation thresholds, gas prereqs,
-// cash) are untouched — only the trigger moved. Tuning upgrades (speed, fixing
-// time, breaks, training, deliveries, advertising) stay in the menu below.
+// markers; buyUnlockMarker routes a tapped marker to the matching buy function,
+// so costs and gates (reputation thresholds, gas prereqs, cash) all apply.
+// Tuning upgrades (speed, fixing time, breaks, training, deliveries,
+// advertising) stay in the menu below.
 
 export function getUnlockMarkers(state) {
   const M = settings.unlockMarkers;

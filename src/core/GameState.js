@@ -149,8 +149,8 @@ export class GameState {
 
     // Auto-restock: a one-time, garage-wide upgrade (see upgrades.js buyAutoRestock).
     // While owned, each pit's hired mechanic fetches a box from its own shelf and
-    // refills its tire stack itself when it runs dry — the player no longer has to
-    // hand-carry boxes (see simulation.updateMechanic). Replaces the old conveyor.
+    // refills its tire stack itself when it runs dry — no player hand-carry
+    // needed (see simulation.updateMechanic).
     this.autoRestock = false;
 
     // "Shorter Breaks" upgrade levels, one per worker TYPE (0..maxLevel; each

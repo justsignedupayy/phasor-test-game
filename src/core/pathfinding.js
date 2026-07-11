@@ -7,7 +7,7 @@
  * world walls — i.e. standard A* obstacle inflation, so a path planned on cell
  * CENTRES still keeps the NPC's body clear of every corner.
  *
- *   buildGrid(settings)            build the grid (exported for tests/tuning).
+ *   buildGrid(settings)            build the grid.
  *   findPath(grid, fromXZ, toXZ)   A* (Euclidean heuristic, 8-connected, no corner
  *                                   cutting). Returns {x,z} waypoints from start to
  *                                   target, [] if already in the target cell, or
@@ -27,7 +27,7 @@ const NPC_RADIUS = settings.player.radius;
  * state (the room's right/fence wall, which moves as pits unlock) — passed in by
  * rebuildGrid so this stays a pure function of its arguments.
  */
-export function buildGrid(s, extraBoxes = []) {
+function buildGrid(s, extraBoxes = []) {
   const W = s.world;
   const M = s.supermarket;
   const cellSize = s.pathfinding.cellSize;

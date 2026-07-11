@@ -174,15 +174,12 @@ const bridgeReady = await initBridge({
     applyPauseState();
   },
   onMuteChange: (m) => {
-    // Runtime-only: the platform's mute layers over the user's persisted one
-    // (setPlatformMuted, never setMuted — persisting the host's transient
-    // reload/boot mute once left the game silent on every later launch).
+    // Runtime-only: the platform's mute layers over the user's persisted one.
     setPlatformMuted(m);
-    // Platforms deliver the audio re-enable AFTER the tab is already visible
-    // again, so the visibilitychange resume above ran while isPlatformMuted()
-    // was still true and skipped resumeAll — the tracks suspendAll paused
-    // would stay paused forever (a mute flip only touches volumes). Restart
-    // them here, under the same visibility/pause guards.
+    // Platforms can deliver the audio re-enable AFTER the tab is already
+    // visible again — the visibilitychange resume then ran while
+    // isPlatformMuted() was still true and skipped resumeAll, and a mute flip
+    // only touches volumes. Restart playback here, same guards.
     if (!m && !document.hidden && !paused) resumeAll();
   },
 });

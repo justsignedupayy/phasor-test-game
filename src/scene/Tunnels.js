@@ -68,10 +68,8 @@ export class Tunnels {
     // Roof spanning the opening (+ both side walls), capping the mouth.
     addBox(width + 2 * t, t, depth, 0, height + t / 2, zMid, this.frameMat);
     // Dark back wall closing the far (+z) end so the mouth reads as a dark recess.
-    // It sits JUST BEHIND the frame (z:[depth, depth+t]) rather than inside it: the
-    // side walls + roof end at z=depth, so an overlapping back wall used to share
-    // their z=depth / y=height+t faces and z-fight (a black flicker on the camera
-    // side). Butted behind, it caps the end without intersecting anything.
+    // Butted JUST BEHIND the frame (z:[depth, depth+t]) rather than inside it —
+    // sharing the side walls' z=depth / y=height+t faces would z-fight.
     addBox(width + 2 * t, height + t, t, 0, (height + t) / 2, depth + t / 2, this.interiorMat);
 
     g.position.set(mouth.x, T.yOffset, mouth.z);

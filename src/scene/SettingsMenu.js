@@ -140,7 +140,7 @@ export class SettingsMenu {
       position: 'absolute',
       right: '6px',
       top: '6px',
-      // 44px touch-target floor (was 26 — see DEVICE_AUDIT.md item 5)
+      // 44px touch-target floor
       width: '44px',
       height: '44px',
       borderRadius: '10px',
@@ -205,7 +205,7 @@ export class SettingsMenu {
     const muteBtn = document.createElement('button');
     Object.assign(muteBtn.style, {
       flexShrink: '0',
-      // 44px touch-target floor (was 32 — see DEVICE_AUDIT.md item 5)
+      // 44px touch-target floor
       width: '44px',
       height: '44px',
       borderRadius: '8px',

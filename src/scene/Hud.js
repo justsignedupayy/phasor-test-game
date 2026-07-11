@@ -15,8 +15,7 @@ export class Hud {
     Object.assign(wrap.style, {
       position: 'fixed',
       // `top` is owned by #placeCash below: on narrow screens the centered
-      // cash would overlap the fixed-width Upgrades/Settings tab row
-      // (measured at phone-portrait widths, see DEVICE_AUDIT.md), so below
+      // cash would overlap the fixed-width Upgrades/Settings tab row, so below
       // settings.ui.narrowBreakpoint it drops one row down instead.
       left: '50%',
       transform: 'translateX(-50%)',
@@ -72,9 +71,8 @@ export class Hud {
   #placeCash() {
     const drop = window.innerWidth < settings.ui.narrowBreakpoint ? settings.ui.narrowCashDrop : 0;
     this.wrap.style.top = `calc(env(safe-area-inset-top, 0px) + ${14 + drop}px)`;
-    // The dev-only debug row sits at the dropped cash row's height (68 vs 66px
-    // — Quick Cash covered the counter at 360w), so it drops by the same amount
-    // and stays one row below the cash wherever the cash goes.
+    // The dev-only debug row drops by the same amount, staying one row below
+    // the cash wherever the cash goes.
     if (this.debugRow) {
       this.debugRow.style.top = `calc(env(safe-area-inset-top, 0px) + ${68 + drop}px)`;
     }

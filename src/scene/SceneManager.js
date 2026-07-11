@@ -72,14 +72,13 @@ export class SceneManager {
   }
 
   #addLights() {
-    // Sky/ground hemisphere instead of a flat ambient, and kept LOWER than the
-    // old ambient so the key light carries more of the exposure — surfaces get
-    // visible directional shading (and readable shadows) instead of uniform
-    // brightness, which flattened everything.
+    // Sky/ground hemisphere instead of a flat ambient, kept low so the key
+    // light carries more of the exposure — surfaces get visible directional
+    // shading (and readable shadows) instead of uniform brightness.
     this.scene.add(new THREE.HemisphereLight(0xfff5e0, 0xa89c85, 1.15));
 
-    // Key light: stronger and at a slightly lower sun angle than before, so
-    // ground bump/texture detail catches raking light and shadows read.
+    // Key light: strong, at a fairly low sun angle so ground bump/texture
+    // detail catches raking light and shadows read.
     const dir = new THREE.DirectionalLight(0xfff0cc, 2.9);
     this.dirOffset = new THREE.Vector3(12, 16, 8); // key direction; follow() keeps it relative to the view
     dir.position.copy(this.dirOffset);
@@ -133,7 +132,7 @@ export class SceneManager {
     // • Portrait anchors the horizontal span at viewSize; height grows with
     //   1/aspect UP TO portraitMaxStretch — past it (tall phones) the view
     //   zooms in (narrower than viewSize across) instead of stacking ever more
-    //   empty grass above/below the 20-unit-deep room. See DEVICE_AUDIT.md.
+    //   empty grass above/below the 20-unit-deep room.
     if (aspect >= 1) {
       const grow = Math.min(aspect, settings.camera.maxAspectGrow);
       const hHalf = half * grow;

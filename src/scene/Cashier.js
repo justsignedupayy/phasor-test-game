@@ -34,7 +34,7 @@ export class Cashier {
     this.root.position.set(settings.cashier.x, 0, settings.cashier.z);
     this.root.rotation.y = settings.cashier.rotation;
 
-    // The cash register (replaces the old desk/computer prop) lives at its OWN
+    // The cash register lives at its OWN
     // world position/rotation/scale (settings.supermarket.cashRegister*), not
     // parented to the rotated cashier root, so it can be placed independently.
     // Its collision box (gated on hasCashier) is added in core/collision.js.

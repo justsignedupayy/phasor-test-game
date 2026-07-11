@@ -297,8 +297,7 @@ function drawMarkerLabel(canvas, numberText, m) {
 
   // Cost line: the money icon (and, while locked, the lock icon before it)
   // drawn immediately before the number, the icon(s) + number centered
-  // together as one group — the same combined-and-centered layout the old
-  // `🔒 $1,234` text had, with drawn icons standing in for its literal glyphs.
+  // together as one group.
   const fontSize = 84;
   ctx.font = `800 ${fontSize}px ${settings.ui.fontStack}`;
   ctx.textBaseline = 'middle';

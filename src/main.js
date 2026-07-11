@@ -31,7 +31,7 @@ import {
   playBagSound,
   suspendAll,
   resumeAll,
-  setMuted,
+  setPlatformMuted,
   reloadAudioSettings,
 } from './platform/audio.js';
 import { configureAdPause } from './platform/ads.js';
@@ -174,12 +174,15 @@ const bridgeReady = await initBridge({
     applyPauseState();
   },
   onMuteChange: (m) => {
-    setMuted(m); // platform mute/unmute drives the real (persisted) mute
+    // Runtime-only: the platform's mute layers over the user's persisted one
+    // (setPlatformMuted, never setMuted — persisting the host's transient
+    // reload/boot mute once left the game silent on every later launch).
+    setPlatformMuted(m);
     // Platforms deliver the audio re-enable AFTER the tab is already visible
     // again, so the visibilitychange resume above ran while isPlatformMuted()
     // was still true and skipped resumeAll — the tracks suspendAll paused
-    // would stay paused forever (setMuted only touches volumes). Restart them
-    // here, under the same visibility/pause guards.
+    // would stay paused forever (a mute flip only touches volumes). Restart
+    // them here, under the same visibility/pause guards.
     if (!m && !document.hidden && !paused) resumeAll();
   },
 });
@@ -191,9 +194,8 @@ if (bridgeReady) {
     // them from the real store before any track starts.
     reloadAudioSettings();
   }
-  // Initial platform audio state (events only fire on later changes). Applied
-  // after the backend swap so setMuted persists to the right store.
-  if (isPlatformMuted()) setMuted(true);
+  // Initial platform audio state (events only fire on later changes).
+  if (isPlatformMuted()) setPlatformMuted(true);
 }
 // The rewarded-ad flow pauses the game underneath the ad and restores after.
 configureAdPause({

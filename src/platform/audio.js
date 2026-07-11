@@ -7,9 +7,10 @@
  * silently (volume 0) until updateAmbience fades the current zone's track up
  * and the others down each frame — a continuous crossfade with no restart.
  * If the browser's autoplay policy blocks any of these four looping tracks,
- * playback is retried on the first user gesture instead (pointerdown/keydown)
- * — ONE shared listener pair services all of them, so a gesture that arrives
- * before every track has failed still catches the rest.
+ * playback is retried on user gestures instead (pointerup/keydown) — ONE
+ * shared listener pair services all of them, and each track stays queued
+ * until its play() actually succeeds, so a gesture the browser still refuses
+ * (or one that only partially unlocks) is retried on the next.
  *
  * The remaining triggered sounds (hammer/money/bag) are only ever started
  * from a later game action, by which point the page already has a user
@@ -37,9 +38,30 @@ let bagSound = null;
 // below + the settings.audio.* constants) are untouched, so unmuting restores
 // them exactly. Persisted like the volume (see storage.loadMuted/saveMuted).
 let muted = loadMuted();
+// The HOST's mute (Playgama's audio_state_changed / isAudioEnabled), layered
+// on top of the user's: RUNTIME-ONLY, never persisted. Routing it through
+// setMuted used to write the platform's transient boot/reload mute into the
+// device preference — one reload left the game permanently silent.
+let platformMuted = false;
 // The music volume SETTING, kept apart from music.volume so mute can zero the
 // live track without losing the slider's remembered level.
 let musicVolume = loadMusicVolume();
+
+/** True while ANY mute source is active — every volume application and
+ * one-shot guard checks this, not `muted` alone. */
+function isSilenced() {
+  return muted || platformMuted;
+}
+
+/** Force every live track's volume to the current mute state (music/hammer
+ * restore their remembered levels on unmute; ambience fades back in via
+ * updateAmbience's per-frame targets). */
+function applyMuteState() {
+  const s = isSilenced();
+  if (music) music.volume = s ? 0 : musicVolume;
+  if (ambience && s) for (const key of Object.keys(ambience)) ambience[key].volume = 0;
+  if (hammerSound) hammerSound.volume = s ? 0 : settings.audio.hammerVolume;
+}
 
 /**
  * Re-read the persisted mute/volume prefs. The two module-scope reads above
@@ -51,28 +73,44 @@ let musicVolume = loadMusicVolume();
 export function reloadAudioSettings() {
   muted = loadMuted();
   musicVolume = loadMusicVolume();
-  if (music) music.volume = muted ? 0 : musicVolume;
-  if (hammerSound) hammerSound.volume = muted ? 0 : settings.audio.hammerVolume;
-  if (ambience && muted) for (const key of Object.keys(ambience)) ambience[key].volume = 0;
+  applyMuteState();
 }
 
-// Autoplay-blocked tracks waiting on the first user gesture, serviced by one
-// shared listener pair (see module doc above).
+// Autoplay-blocked tracks waiting on a user gesture, serviced by one shared
+// listener pair (see module doc above).
 const pendingAutoplay = [];
 let gestureListenerBound = false;
 
 function ensureGestureUnlock() {
   if (gestureListenerBound) return;
   gestureListenerBound = true;
+  // pointerup, NOT pointerdown: a touch pointerdown grants no user activation
+  // (browsers grant it at pointerup/touchend for touch, pointerdown only for
+  // mouse), so an unlock on pointerdown fires with play() still blocked — on
+  // phones the old one-shot handler then dropped the whole queue: silence from
+  // first launch. Capture phase, because the canvas action-tap handlers in
+  // main.js stopPropagation() (tapping a car — the tutorial's very first
+  // instruction), which a bubble listener on window never sees.
   const resume = () => {
-    window.removeEventListener('pointerdown', resume);
-    window.removeEventListener('keydown', resume);
-    gestureListenerBound = false; // re-arm: resumeAll may queue blocked tracks again later
-    for (const audio of pendingAutoplay) audio.play().catch(() => {}); // still blocked somehow — stay silent
-    pendingAutoplay.length = 0;
+    if (pendingAutoplay.length === 0) {
+      // Everything unlocked on an earlier gesture — this listener's work is done.
+      gestureListenerBound = false;
+      window.removeEventListener('pointerup', resume, true);
+      window.removeEventListener('keydown', resume, true);
+      return;
+    }
+    for (const audio of [...pendingAutoplay]) {
+      audio.play().then(
+        () => {
+          const i = pendingAutoplay.indexOf(audio);
+          if (i !== -1) pendingAutoplay.splice(i, 1);
+        },
+        () => {} // still blocked — stay queued and retry on the next gesture
+      );
+    }
   };
-  window.addEventListener('pointerdown', resume);
-  window.addEventListener('keydown', resume);
+  window.addEventListener('pointerup', resume, true);
+  window.addEventListener('keydown', resume, true);
 }
 
 /** Starts a looping track immediately; on autoplay failure, retries on the shared gesture unlock. */
@@ -89,7 +127,7 @@ function startLooping(src, volume) {
 
 export function initMusic() {
   if (music) return; // idempotent — the track is created once
-  music = startLooping('bgmusic.mp3', muted ? 0 : musicVolume);
+  music = startLooping('bgmusic.mp3', isSilenced() ? 0 : musicVolume);
 }
 
 /** Current music volume SETTING in [0, 1] — the slider's remembered level,
@@ -102,7 +140,7 @@ export function getMusicVolume() {
  * unless muted (the remembered level still updates, heard on unmute). */
 export function setMusicVolume(v) {
   musicVolume = Math.min(1, Math.max(0, v));
-  if (music && !muted) music.volume = musicVolume;
+  if (music && !isSilenced()) music.volume = musicVolume;
   saveMusicVolume(musicVolume);
 }
 
@@ -112,17 +150,28 @@ export function isMuted() {
 }
 
 /**
- * Set the global mute; persists across sessions. Muting silences every track
- * INSTANTLY (music, ambience, hammer loop — one-shots are skipped at play
- * time); unmuting restores the music to its remembered volume, the hammer to
- * its tuned volume, and lets updateAmbience fade the current zone back in.
+ * Set the USER's global mute (Settings panel); persists across sessions.
+ * Muting silences every track INSTANTLY (music, ambience, hammer loop —
+ * one-shots are skipped at play time); unmuting restores the music to its
+ * remembered volume, the hammer to its tuned volume, and lets updateAmbience
+ * fade the current zone back in.
  */
 export function setMuted(m) {
   muted = !!m;
   saveMuted(muted);
-  if (music) music.volume = muted ? 0 : musicVolume;
-  if (ambience && muted) for (const key of Object.keys(ambience)) ambience[key].volume = 0;
-  if (hammerSound) hammerSound.volume = muted ? 0 : settings.audio.hammerVolume;
+  applyMuteState();
+}
+
+/**
+ * Set the PLATFORM's mute (Bridge audio_state_changed / boot isAudioEnabled).
+ * Same instant silencing as setMuted, but runtime-only: the host muting the
+ * game must never rewrite the player's own persisted preference (a transient
+ * reload-time mute used to stick forever). The user's mute survives
+ * underneath — a platform unmute never unmutes a player who chose mute.
+ */
+export function setPlatformMuted(m) {
+  platformMuted = !!m;
+  applyMuteState();
 }
 
 /** Starts all three area-ambience layers, silent until updateAmbience fades one in. */
@@ -148,10 +197,11 @@ export function updateAmbience(zone, dt) {
   const rate = Math.min(1, dt / A.ambienceFadeDuration);
   // While muted every target is 0, so the per-frame ease can never fade a
   // zone back in over the instant silence setMuted applied.
+  const silenced = isSilenced();
   const targets = {
-    garage: !muted && zone === 'garage' ? A.garageVolume : 0,
-    gasStation: !muted && zone === 'gasStation' ? A.gasStationVolume : 0,
-    market: !muted && zone === 'market' ? A.marketVolume : 0,
+    garage: !silenced && zone === 'garage' ? A.garageVolume : 0,
+    gasStation: !silenced && zone === 'gasStation' ? A.gasStationVolume : 0,
+    market: !silenced && zone === 'market' ? A.marketVolume : 0,
   };
   for (const key of Object.keys(targets)) {
     const track = ambience[key];
@@ -195,7 +245,7 @@ export function setHammerActive(active) {
   if (!hammerSound) {
     hammerSound = new Audio(ASSET_DIR + 'hammersound.mp3');
     hammerSound.loop = true;
-    hammerSound.volume = muted ? 0 : settings.audio.hammerVolume;
+    hammerSound.volume = isSilenced() ? 0 : settings.audio.hammerVolume;
   }
   if (active) {
     if (hammerSound.paused) hammerSound.play().catch(() => {});
@@ -206,7 +256,7 @@ export function setHammerActive(active) {
 
 /** One-shot: a discrete completed cash gain (pit/pump collect, or an unlock marker finalizing). */
 export function playMoneySound() {
-  if (muted) return;
+  if (isSilenced()) return;
   if (!moneySound) {
     moneySound = new Audio(ASSET_DIR + 'moneysound.mp3');
     moneySound.volume = settings.audio.moneyVolume;
@@ -217,7 +267,7 @@ export function playMoneySound() {
 
 /** One-shot: a supermarket customer's checkout completing. */
 export function playBagSound() {
-  if (muted) return;
+  if (isSilenced()) return;
   if (!bagSound) {
     bagSound = new Audio(ASSET_DIR + 'plasticbag.mp3');
     bagSound.volume = settings.audio.bagVolume;
@@ -233,7 +283,7 @@ export function playBagSound() {
  * would cut off an already-playing door sound instead of layering.
  */
 export function playDoorOpenSound() {
-  if (muted) return;
+  if (isSilenced()) return;
   const audio = new Audio(ASSET_DIR + 'autdooropen.mp3'); // filename typo is intentional — matches the shipped asset
   audio.volume = settings.audio.doorOpenVolume;
   audio.play().catch(() => {});
@@ -241,7 +291,7 @@ export function playDoorOpenSound() {
 
 /** One-shot: a sliding door closing (see playDoorOpenSound above). */
 export function playDoorCloseSound() {
-  if (muted) return;
+  if (isSilenced()) return;
   const audio = new Audio(ASSET_DIR + 'autodoorclose.mp3');
   audio.volume = settings.audio.doorCloseVolume;
   audio.play().catch(() => {});

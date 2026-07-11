@@ -77,10 +77,10 @@ function loadScript() {
  * failure — the caller then just stays on the local implementations.
  *
  * onPauseChange(isPaused) — platform pause/resume (tab hidden, ad opened…).
- * onMuteChange(isMuted)   — platform audio off/on. NOT called for the initial
- * state: events only fire on changes, and applying the initial value must
- * wait until the storage backend swap (else setMuted's persist would write to
- * the wrong store) — main.js reads isPlatformMuted() for that instead.
+ * onMuteChange(isMuted)   — platform audio off/on, applied as a RUNTIME-ONLY
+ * mute layer (audio.setPlatformMuted), never persisted. NOT called for the
+ * initial state: events only fire on changes — main.js reads
+ * isPlatformMuted() for that instead.
  */
 export async function initBridge({ onPauseChange, onMuteChange } = {}) {
   try {

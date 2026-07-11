@@ -129,19 +129,33 @@ export class TutorialView {
       return;
     }
 
+    // While the upgrade tablet is OPEN, world/info guidance is noise layered
+    // over it (it covered the tab labels on short landscape screens — see
+    // DEVICE_AUDIT.md). The menu is self-explanatory while up; the bubble
+    // returns the frame it closes. Tablet-anchored steps still render — they
+    // guide the player INSIDE the open menu.
+    const menuBlocksBubble = this.menu.isOpen && view.anchor.kind !== 'tablet';
+
     if (view.anchor.kind === 'info') {
       // The waiting banner ("Earn $X more to …"): no highlight anywhere, just
       // a live line of text top-centre, under the cash counter.
       this.#hideRing();
       this.#hideArrow();
       this.#setHighlight(null);
-      this.#showBubble(view.text, window.innerWidth / 2, 78, 'translate(-50%, 0)');
+      if (menuBlocksBubble) this.#hideBubble();
+      else this.#showBubble(view.text, window.innerWidth / 2, 78, 'translate(-50%, 0)');
       return;
     }
 
     if (view.anchor.kind === 'world') {
       this.#setHighlight(null);
-      this.#placeWorldAnchor(view.anchor, view.text);
+      if (menuBlocksBubble) {
+        this.#hideRing();
+        this.#hideArrow();
+        this.#hideBubble();
+      } else {
+        this.#placeWorldAnchor(view.anchor, view.text, state);
+      }
       return;
     }
 
@@ -163,7 +177,7 @@ export class TutorialView {
    * the bubble tucked inward beside it so the player knows what they're
    * walking toward.
    */
-  #placeWorldAnchor(anchor, text) {
+  #placeWorldAnchor(anchor, text, state) {
     const A = settings.tutorial.arrow;
     const dom = this.sm.renderer.domElement;
     const rect = dom.getBoundingClientRect();
@@ -181,7 +195,27 @@ export class TutorialView {
         this.sm.camera,
         dom
       );
-      this.#showBubble(text, bp.x, bp.y, 'translate(-50%, -100%)');
+      // Clamp horizontally so an edge-of-view anchor (common at portrait's
+      // tighter zoom) can't hang half the card off screen — same 145px
+      // half-width clamp the off-screen/tablet branches already use.
+      const bx = Math.min(Math.max(bp.x, 145), window.innerWidth - 145);
+      // Keep the bubble off the player: on narrow portrait the anchor sits
+      // close enough to the spawn that the card parks on the character. If
+      // the two overlap horizontally, raise the bubble so its bottom clears
+      // the player's head by settings.tutorial.bubblePlayerClearance px.
+      let by = bp.y;
+      const pp = state?.player?.position;
+      if (pp) {
+        const head = worldToScreen(
+          { x: pp.x, y: settings.character.headHeight, z: pp.z },
+          this.sm.camera,
+          dom
+        );
+        const overlapX = Math.abs(bx - head.x) < 145; // half the bubble's 270px maxWidth
+        const minBottom = head.y - settings.tutorial.bubblePlayerClearance;
+        if (overlapX && by > minBottom) by = Math.max(minBottom, rect.top + 40);
+      }
+      this.#showBubble(text, bx, by, 'translate(-50%, -100%)');
       return;
     }
 

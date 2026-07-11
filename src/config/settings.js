@@ -133,6 +133,23 @@ export const settings = {
     near: 0.1,
     far: 200,
     followLerp: 5, // how fast the camera eases toward the player each second (higher = snappier)
+    // Aspect clamps (see scene/SceneManager.#onResize + DEVICE_AUDIT.md).
+    // Portrait: contain-fit lets the vertical span grow as 1/aspect — at a
+    // 0.45-aspect phone that's 96 ground-units of mostly grass against a
+    // 20-unit-deep room. Cap the stretch; below the clamp aspect the view
+    // zooms in (shows less across) instead of piling on empty depth.
+    portraitMaxStretch: 1.6, // STARTING VALUE — tune by eye (max vertical frustum = viewSize × this)
+    // Portrait-only: shift the camera FOLLOW target this many units toward the
+    // room interior (−z) so the reduced depth budget frames the building
+    // rather than symmetric grass. Constant offset on the eased target — the
+    // follow lerp converges on it, so it can never fight bounds or jitter.
+    // (Started at 3; at 3 the spawn-adjacent pit A car fell inside the
+    // tutorial arrow's edge margin on 360w portrait — 2 keeps it framed.)
+    portraitZBias: 2, // STARTING VALUE — tune by eye (world units, aspect < 1 only)
+    // Ultrawide: past this aspect the horizontal span stops growing (world
+    // units across = viewSize × this) and the view zooms in vertically to
+    // keep the frustum matching the screen — no distortion, no black bars.
+    maxAspectGrow: 2.0, // STARTING VALUE — tune by eye
   },
 
   // The rigged glTF character (player + every worker clone it). modelScale and
@@ -523,6 +540,10 @@ export const settings = {
       pulseScale: 0.1, // ± fraction of scale swing per pulse
     },
     labelHeight: 2.8, // world-space height the instruction bubble anchors above a world target
+    // Min px the bubble's bottom edge keeps above the player's head on screen
+    // when the two horizontally overlap — on narrow portrait the bubble
+    // otherwise parks right on top of the character at spawn (DEVICE_AUDIT.md).
+    bubblePlayerClearance: 12, // STARTING VALUE — tune by eye (px)
   },
 
   // Pay from finished cars waits at its own pit as a small stack of bills (see
@@ -1078,6 +1099,17 @@ export const settings = {
     // Black weight, so UI hierarchy comes from SIZE, not from font-weight
     // (existing font-weight styles stay harmless — they all map to this face).
     fontStack: "'Montserrat', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+    // Below this viewport width (px) the screen's top-center falls inside the
+    // fixed-size Upgrades/Settings tab row, so the HUD cash counter drops one
+    // row down instead of rendering hidden underneath it (see scene/Hud.js +
+    // DEVICE_AUDIT.md — measured −139px overlap at 360w, already −7.5px at 667w).
+    // (Started at 740; raised to 860 because a max-font "999.9K" balance still
+    // clipped the Settings tab at 768w — the audit's long-balance probe.)
+    narrowBreakpoint: 860, // STARTING VALUE — tune by eye (px)
+    narrowCashDrop: 52, // STARTING VALUE — tune by eye (px the cash row drops: tab-row height + margin)
+    // Below this viewport width the upgrade tablet's tab pills shrink one step
+    // (padding/font) so more of the 5 fit before horizontal scrolling kicks in.
+    menuTabBreakpoint: 480, // STARTING VALUE — tune by eye (px)
   },
 
   colors: {

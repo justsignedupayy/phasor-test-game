@@ -14,7 +14,11 @@ export class Hud {
     const wrap = document.createElement('div');
     Object.assign(wrap.style, {
       position: 'fixed',
-      top: 'calc(env(safe-area-inset-top, 0px) + 14px)',
+      // `top` is owned by #placeCash below: on narrow screens the centered
+      // cash would sit UNDER the fixed-width Upgrades/Settings tab row
+      // (z-index 15 vs 17 — measured fully hidden at phone-portrait widths,
+      // see DEVICE_AUDIT.md), so below settings.ui.narrowBreakpoint it drops
+      // one row down instead.
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'flex',
@@ -50,9 +54,21 @@ export class Hud {
     document.body.appendChild(wrap);
     this.wrap = wrap;
 
+    this.#placeCash();
+    // Re-place live on resize/rotation — a phone rotating landscape↔portrait
+    // must move the cash row without a reload.
+    window.addEventListener('resize', () => this.#placeCash());
+
     this.#buildDebugButtons();
 
     this.update(0);
+  }
+
+  /** Cash row position: top-center, except below settings.ui.narrowBreakpoint
+   * where it drops narrowCashDrop px so it clears the top-left tab row. */
+  #placeCash() {
+    const drop = window.innerWidth < settings.ui.narrowBreakpoint ? settings.ui.narrowCashDrop : 0;
+    this.wrap.style.top = `calc(env(safe-area-inset-top, 0px) + ${14 + drop}px)`;
   }
 
   /** Start draining `amount` into the main cash number over settings.offline.drainDuration seconds. */

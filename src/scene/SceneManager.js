@@ -46,6 +46,13 @@ export class SceneManager {
    */
   follow(x, z, dt) {
     const d = settings.camera.distance;
+    // Portrait framing bias: aim a few units into the room (−z) so the
+    // clamped, shallower portrait view spends its depth on the building, not
+    // on symmetric grass. Applied to the DESIRED target before the ease —
+    // it's a constant offset the lerp converges on (the player position is
+    // already world-clamped in core, and the camera target itself is never
+    // clamped), so there is nothing for it to fight at the world edges.
+    if (this.isPortrait) z -= settings.camera.portraitZBias;
     if (!this.camTarget) this.camTarget = new THREE.Vector3(x, 0, z); // snap on first frame
     const k = Math.min(1, settings.camera.followLerp * dt);
     this.camTarget.x += (x - this.camTarget.x) * k;
@@ -114,21 +121,35 @@ export class SceneManager {
     const h = this.container.clientHeight || window.innerHeight;
     const aspect = w / h;
     const half = settings.camera.viewSize / 2;
-    // "Contain" fit: viewSize is the span of whichever axis is the binding
-    // constraint. Landscape anchors the vertical span (width grows with aspect,
-    // as before). Portrait anchors the same span horizontally so the wide
-    // isometric world still fits across a narrow screen (height grows instead),
-    // rather than cropping the leftmost pits off the side.
+    // Portrait flag feeds follow()'s z-bias below; keep it in sync with the fit.
+    this.isPortrait = aspect < 1;
+    // "Contain" fit with a clamp at each aspect extreme (both frustum ratios
+    // always equal the screen's, so the canvas is filled edge-to-edge with no
+    // distortion and no black bars at ANY aspect):
+    // • Landscape anchors the vertical span at viewSize; width grows with
+    //   aspect UP TO maxAspectGrow — past it (ultrawide) the width freezes at
+    //   viewSize × maxAspectGrow and the vertical span shrinks instead (a
+    //   mild zoom-in), so a 21:9 screen stops turning the world into an island.
+    // • Portrait anchors the horizontal span at viewSize; height grows with
+    //   1/aspect UP TO portraitMaxStretch — past it (tall phones) the view
+    //   zooms in (narrower than viewSize across) instead of stacking ever more
+    //   empty grass above/below the 20-unit-deep room. See DEVICE_AUDIT.md.
     if (aspect >= 1) {
-      this.camera.left = -half * aspect;
-      this.camera.right = half * aspect;
-      this.camera.top = half;
-      this.camera.bottom = -half;
+      const grow = Math.min(aspect, settings.camera.maxAspectGrow);
+      const hHalf = half * grow;
+      const vHalf = hHalf / aspect; // = half while under the clamp (grow === aspect)
+      this.camera.left = -hHalf;
+      this.camera.right = hHalf;
+      this.camera.top = vHalf;
+      this.camera.bottom = -vHalf;
     } else {
-      this.camera.left = -half;
-      this.camera.right = half;
-      this.camera.top = half / aspect;
-      this.camera.bottom = -half / aspect;
+      const stretch = Math.min(1 / aspect, settings.camera.portraitMaxStretch);
+      const vHalf = half * stretch;
+      const hHalf = vHalf * aspect; // = half while under the clamp (stretch === 1/aspect)
+      this.camera.left = -hHalf;
+      this.camera.right = hHalf;
+      this.camera.top = vHalf;
+      this.camera.bottom = -vHalf;
     }
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);

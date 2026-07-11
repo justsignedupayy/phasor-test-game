@@ -1,0 +1,1579 @@
+[
+  {
+    "label": "android-small-portrait-360x800@3",
+    "cfg": {
+      "w": 360,
+      "h": 800,
+      "dpr": 3,
+      "name": "android-small",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.45,
+      "worldW": 18,
+      "worldH": 40,
+      "groundDepth": 69.3,
+      "pitsVisible": 2,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 40.8
+    },
+    "hud": {
+      "viewport": {
+        "vw": 360,
+        "vh": 800
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 302,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 154.5,
+          "y": 66,
+          "w": 51,
+          "h": 35
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 360,
+          "h": 800
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": -139.2,
+        "cash_to_pause": 96.5,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 48,
+        "w": 340,
+        "h": 704
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "android-small-landscape-800x360@3",
+    "cfg": {
+      "w": 800,
+      "h": 360,
+      "dpr": 3,
+      "name": "android-small",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 2.222,
+      "worldW": 50,
+      "worldH": 22.5,
+      "groundDepth": 39,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "height",
+      "pitsFromSpawn": 2,
+      "playablePct": 49.6
+    },
+    "hud": {
+      "viewport": {
+        "vw": 800,
+        "vh": 360
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 742,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 350.4,
+          "y": 66,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 800,
+          "h": 360
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 56.7,
+        "cash_to_pause": 292.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 21.6,
+        "w": 780,
+        "h": 316.8
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "iphone-se-portrait-375x667@2",
+    "cfg": {
+      "w": 375,
+      "h": 667,
+      "dpr": 2,
+      "name": "iphone-se",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.562,
+      "worldW": 22.5,
+      "worldH": 40,
+      "groundDepth": 69.3,
+      "pitsVisible": 3,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 40.8
+    },
+    "hud": {
+      "viewport": {
+        "vw": 375,
+        "vh": 667
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 317,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 160.9,
+          "y": 66,
+          "w": 53.2,
+          "h": 37
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 375,
+          "h": 667
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": -132.8,
+        "cash_to_pause": 102.9,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 40,
+        "w": 355,
+        "h": 587
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "iphone-se-landscape-667x375@2",
+    "cfg": {
+      "w": 667,
+      "h": 375,
+      "dpr": 2,
+      "name": "iphone-se",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 1.779,
+      "worldW": 44.5,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 51.1
+    },
+    "hud": {
+      "viewport": {
+        "vw": 667,
+        "vh": 375
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 609,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 286.2,
+          "y": 66,
+          "w": 94.6,
+          "h": 65
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 667,
+          "h": 375
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": -7.5,
+        "cash_to_pause": 228.2,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 22.5,
+        "w": 647,
+        "h": 330
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "iphone-15-portrait-393x852@3",
+    "cfg": {
+      "w": 393,
+      "h": 852,
+      "dpr": 3,
+      "name": "iphone-15",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.461,
+      "worldW": 18.5,
+      "worldH": 40,
+      "groundDepth": 69.3,
+      "pitsVisible": 2,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 40.8
+    },
+    "hud": {
+      "viewport": {
+        "vw": 393,
+        "vh": 852
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 335,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 168.6,
+          "y": 66,
+          "w": 55.7,
+          "h": 38
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 393,
+          "h": 852
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": -125.1,
+        "cash_to_pause": 110.7,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 51.1,
+        "w": 373,
+        "h": 749.8
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "iphone-15-landscape-852x393@3",
+    "cfg": {
+      "w": 852,
+      "h": 393,
+      "dpr": 3,
+      "name": "iphone-15",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 2.168,
+      "worldW": 50,
+      "worldH": 23.1,
+      "groundDepth": 39.9,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "height",
+      "pitsFromSpawn": 2,
+      "playablePct": 49.1
+    },
+    "hud": {
+      "viewport": {
+        "vw": 852,
+        "vh": 393
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 794,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 376.4,
+          "y": 66,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 852,
+          "h": 393
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 82.7,
+        "cash_to_pause": 318.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 23.6,
+        "w": 832,
+        "h": 345.8
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "phone-large-portrait-430x932@3",
+    "cfg": {
+      "w": 430,
+      "h": 932,
+      "dpr": 3,
+      "name": "phone-large",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.461,
+      "worldW": 18.5,
+      "worldH": 40,
+      "groundDepth": 69.3,
+      "pitsVisible": 2,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 40.8
+    },
+    "hud": {
+      "viewport": {
+        "vw": 430,
+        "vh": 932
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 372,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 184.5,
+          "y": 66,
+          "w": 61,
+          "h": 42
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 430,
+          "h": 932
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": -109.2,
+        "cash_to_pause": 126.5,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 55.9,
+        "w": 410,
+        "h": 820.2
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "phone-large-landscape-932x430@3",
+    "cfg": {
+      "w": 932,
+      "h": 430,
+      "dpr": 3,
+      "name": "phone-large",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 2.167,
+      "worldW": 50,
+      "worldH": 23.1,
+      "groundDepth": 40,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "height",
+      "pitsFromSpawn": 2,
+      "playablePct": 49.1
+    },
+    "hud": {
+      "viewport": {
+        "vw": 932,
+        "vh": 430
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 874,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 416.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 932,
+          "h": 430
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 122.7,
+        "cash_to_pause": 358.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 25.8,
+        "w": 912,
+        "h": 378.4
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "ipad-mini-portrait-768x1024@2",
+    "cfg": {
+      "w": 768,
+      "h": 1024,
+      "dpr": 2,
+      "name": "ipad-mini",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.75,
+      "worldW": 25,
+      "worldH": 33.3,
+      "groundDepth": 57.7,
+      "pitsVisible": 3,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 48.8
+    },
+    "hud": {
+      "viewport": {
+        "vw": 768,
+        "vh": 1024
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 710,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 334.4,
+          "y": 66,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 768,
+          "h": 1024
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 40.7,
+        "cash_to_pause": 276.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 92,
+        "w": 748,
+        "h": 840
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "ipad-mini-landscape-1024x768@2",
+    "cfg": {
+      "w": 1024,
+      "h": 768,
+      "dpr": 2,
+      "name": "ipad-mini",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 1.333,
+      "worldW": 33.3,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 4,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 58.6
+    },
+    "hud": {
+      "viewport": {
+        "vw": 1024,
+        "vh": 768
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 966,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 462.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 768
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 168.7,
+        "cash_to_pause": 404.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 46.1,
+        "w": 1004,
+        "h": 675.8
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "ipad-10-9-portrait-820x1180@2",
+    "cfg": {
+      "w": 820,
+      "h": 1180,
+      "dpr": 2,
+      "name": "ipad-10-9",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.695,
+      "worldW": 25,
+      "worldH": 36,
+      "groundDepth": 62.3,
+      "pitsVisible": 3,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 45.3
+    },
+    "hud": {
+      "viewport": {
+        "vw": 820,
+        "vh": 1180
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 762,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 360.4,
+          "y": 66,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 820,
+          "h": 1180
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 66.7,
+        "cash_to_pause": 302.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 170,
+        "w": 800,
+        "h": 840
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "ipad-10-9-landscape-1180x820@2",
+    "cfg": {
+      "w": 1180,
+      "h": 820,
+      "dpr": 2,
+      "name": "ipad-10-9",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 1.439,
+      "worldW": 36,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 4,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 57
+    },
+    "hud": {
+      "viewport": {
+        "vw": 1180,
+        "vh": 820
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 1122,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 540.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 1180,
+          "h": 820
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 246.7,
+        "cash_to_pause": 482.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 120,
+        "y": 49.2,
+        "w": 1050,
+        "h": 721.6
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "android-tablet-portrait-800x1280@1.5",
+    "cfg": {
+      "w": 800,
+      "h": 1280,
+      "dpr": 1.5,
+      "name": "android-tablet",
+      "orient": "portrait",
+      "touch": true
+    },
+    "math": {
+      "aspect": 0.625,
+      "worldW": 25,
+      "worldH": 40,
+      "groundDepth": 69.3,
+      "pitsVisible": 3,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 2,
+      "playablePct": 40.7
+    },
+    "hud": {
+      "viewport": {
+        "vw": 800,
+        "vh": 1280
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 742,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 350.4,
+          "y": 66,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 800,
+          "h": 1280
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 56.7,
+        "cash_to_pause": 292.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 10,
+        "y": 220,
+        "w": 780,
+        "h": 840
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "android-tablet-landscape-1280x800@1.5",
+    "cfg": {
+      "w": 1280,
+      "h": 800,
+      "dpr": 1.5,
+      "name": "android-tablet",
+      "orient": "landscape",
+      "touch": true
+    },
+    "math": {
+      "aspect": 1.6,
+      "worldW": 40,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 54.3
+    },
+    "hud": {
+      "viewport": {
+        "vw": 1280,
+        "vh": 800
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 1222,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 590.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 800
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 296.7,
+        "cash_to_pause": 532.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 220,
+        "y": 48,
+        "w": 1050,
+        "h": 704
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "laptop-1280-landscape-1280x800@1",
+    "cfg": {
+      "w": 1280,
+      "h": 800,
+      "dpr": 1,
+      "name": "laptop-1280",
+      "orient": "landscape",
+      "touch": false
+    },
+    "math": {
+      "aspect": 1.6,
+      "worldW": 40,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 54.3
+    },
+    "hud": {
+      "viewport": {
+        "vw": 1280,
+        "vh": 800
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 1222,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 590.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 800
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 296.7,
+        "cash_to_pause": 532.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 220,
+        "y": 48,
+        "w": 1050,
+        "h": 704
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "macbook-1440-landscape-1440x900@2",
+    "cfg": {
+      "w": 1440,
+      "h": 900,
+      "dpr": 2,
+      "name": "macbook-1440",
+      "orient": "landscape",
+      "touch": false
+    },
+    "math": {
+      "aspect": 1.6,
+      "worldW": 40,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 54.3
+    },
+    "hud": {
+      "viewport": {
+        "vw": 1440,
+        "vh": 900
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 1382,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 670.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 1440,
+          "h": 900
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 376.7,
+        "cash_to_pause": 612.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 380,
+        "y": 54,
+        "w": 1050,
+        "h": 792
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "desktop-1080p-landscape-1920x1080@1",
+    "cfg": {
+      "w": 1920,
+      "h": 1080,
+      "dpr": 1,
+      "name": "desktop-1080p",
+      "orient": "landscape",
+      "touch": false
+    },
+    "math": {
+      "aspect": 1.778,
+      "worldW": 44.4,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 51.1
+    },
+    "hud": {
+      "viewport": {
+        "vw": 1920,
+        "vh": 1080
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 1862,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 910.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 616.7,
+        "cash_to_pause": 852.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 860,
+        "y": 120,
+        "w": 1050,
+        "h": 840
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "desktop-1440p-landscape-2560x1440@1",
+    "cfg": {
+      "w": 2560,
+      "h": 1440,
+      "dpr": 1,
+      "name": "desktop-1440p",
+      "orient": "landscape",
+      "touch": false
+    },
+    "math": {
+      "aspect": 1.778,
+      "worldW": 44.4,
+      "worldH": 25,
+      "groundDepth": 43.3,
+      "pitsVisible": 5,
+      "pitsBindingAxis": "width",
+      "pitsFromSpawn": 3,
+      "playablePct": 51.1
+    },
+    "hud": {
+      "viewport": {
+        "vw": 2560,
+        "vh": 1440
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 2502,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 1230.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 2560,
+          "h": 1440
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 936.7,
+        "cash_to_pause": 1172.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 1500,
+        "y": 300,
+        "w": 1050,
+        "h": 840
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  },
+  {
+    "label": "ultrawide-landscape-3440x1440@1",
+    "cfg": {
+      "w": 3440,
+      "h": 1440,
+      "dpr": 1,
+      "name": "ultrawide",
+      "orient": "landscape",
+      "touch": false
+    },
+    "math": {
+      "aspect": 2.389,
+      "worldW": 50,
+      "worldH": 20.9,
+      "groundDepth": 36.3,
+      "pitsVisible": 4,
+      "pitsBindingAxis": "height",
+      "pitsFromSpawn": 2,
+      "playablePct": 51.1
+    },
+    "hud": {
+      "viewport": {
+        "vw": 3440,
+        "vh": 1440
+      },
+      "boxes": {
+        "upgradesTab": {
+          "x": 22,
+          "y": 0,
+          "w": 139,
+          "h": 47
+        },
+        "settingsTab": {
+          "x": 164,
+          "y": 0,
+          "w": 129.7,
+          "h": 47
+        },
+        "pauseBtn": {
+          "x": 3382,
+          "y": 14,
+          "w": 44,
+          "h": 44
+        },
+        "cash": {
+          "x": 1670.4,
+          "y": 14,
+          "w": 99.2,
+          "h": 68
+        },
+        "canvas": {
+          "x": 0,
+          "y": 0,
+          "w": 3440,
+          "h": 1440
+        }
+      },
+      "gaps": {
+        "upgrades_to_settings": 3,
+        "settings_to_cash": 1376.7,
+        "cash_to_pause": 1612.4,
+        "pause_to_right_edge": 14
+      },
+      "cashOverlapsHud": false,
+      "cashOverlapsHudLong": false,
+      "canvasFillsViewport": true
+    },
+    "menu": {
+      "tabsReachable": true,
+      "open": true,
+      "panel": {
+        "x": 2380,
+        "y": 300,
+        "w": 1050,
+        "h": 840
+      },
+      "onScreen": true,
+      "minButtonPx": 44,
+      "minFontPx": 12,
+      "buttonCount": 7
+    },
+    "errors": []
+  }
+]

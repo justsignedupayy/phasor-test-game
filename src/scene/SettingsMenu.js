@@ -138,11 +138,12 @@ export class SettingsMenu {
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, {
       position: 'absolute',
-      right: '10px',
-      top: '10px',
-      width: '26px',
-      height: '26px',
-      borderRadius: '6px',
+      right: '6px',
+      top: '6px',
+      // 44px touch-target floor (was 26 — see DEVICE_AUDIT.md item 5)
+      width: '44px',
+      height: '44px',
+      borderRadius: '10px',
       border: 'none',
       background: '#3a434f',
       color: '#e7ecf2',
@@ -189,6 +190,7 @@ export class SettingsMenu {
       flex: '1',
       minWidth: '0',
       margin: '0',
+      height: '44px', // touch-target floor: track stays thin, hit area grows
       accentColor: '#8fd3ff',
       cursor: 'pointer',
     });
@@ -203,9 +205,10 @@ export class SettingsMenu {
     const muteBtn = document.createElement('button');
     Object.assign(muteBtn.style, {
       flexShrink: '0',
-      width: '32px',
-      height: '32px',
-      borderRadius: '6px',
+      // 44px touch-target floor (was 32 — see DEVICE_AUDIT.md item 5)
+      width: '44px',
+      height: '44px',
+      borderRadius: '8px',
       border: 'none',
       background: '#3a434f',
       fontSize: '16px',

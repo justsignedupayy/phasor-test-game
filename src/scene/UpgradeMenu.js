@@ -265,8 +265,9 @@ export class UpgradeMenu {
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, {
-      width: '36px',
-      height: '36px',
+      // 44px touch-target floor (was 36 — measured under-size in DEVICE_AUDIT.md)
+      width: '44px',
+      height: '44px',
       borderRadius: '50%',
       border: 'none',
       background: 'linear-gradient(180deg,#252d38,#1a212a)',
@@ -333,25 +334,56 @@ export class UpgradeMenu {
       ['player', 'Player'],
       ['ads', 'Advertising'],
     ];
+    // The bar scrolls horizontally when the 5 pills don't fit (≤430px portrait
+    // clipped Player/Advertising into unreachability — DEVICE_AUDIT.md ship
+    // blocker). Wrapper hosts the right-edge fade that signals "more tabs →";
+    // the fade sits OUTSIDE the scroller so it doesn't scroll away.
+    const barWrap = document.createElement('div');
+    Object.assign(barWrap.style, {
+      position: 'relative',
+      flexShrink: '0',
+      zIndex: '6',
+    });
     const bar = document.createElement('div');
+    bar.className = 'um-tabbar'; // hides the webkit scrollbar (see injectMenuStylesheet)
     Object.assign(bar.style, {
       display: 'flex',
       gap: '9px',
       padding: '0 24px 12px',
-      flexShrink: '0',
-      position: 'relative',
-      zIndex: '6',
+      overflowX: 'auto',
+      WebkitOverflowScrolling: 'touch',
+      scrollbarWidth: 'none', // Firefox
     });
+    const fade = document.createElement('div');
+    Object.assign(fade.style, {
+      position: 'absolute',
+      top: '0',
+      bottom: '12px', // matches the bar's bottom padding — fade covers pill height only
+      right: '0',
+      width: '52px',
+      borderRadius: '0 0 0 16px',
+      background: 'linear-gradient(90deg, rgba(13,16,21,0) 0%, rgba(13,16,21,0.92) 78%)',
+      pointerEvents: 'none',
+      opacity: '0',
+      transition: 'opacity 120ms ease-out',
+    });
+    const updateFade = () => {
+      const more = bar.scrollWidth - bar.clientWidth - bar.scrollLeft > 4;
+      fade.style.opacity = more ? '1' : '0';
+    };
+    bar.addEventListener('scroll', updateFade, { passive: true });
+
     this.tabButtons = new Map();
     for (const [key, label] of TABS) {
       const b = document.createElement('button');
       b.textContent = label;
       Object.assign(b.style, {
-        flex: '1',
-        padding: '12px 8px',
+        // grow to share spare width on wide screens, but NEVER shrink — a
+        // shrinking pill clips its own label; overflow scrolls instead.
+        flex: '1 0 auto',
+        minHeight: '44px', // touch-target floor
         borderRadius: '16px',
         border: 'none',
-        fontSize: '14px',
         fontFamily: 'inherit',
         cursor: 'pointer',
         whiteSpace: 'nowrap',
@@ -360,7 +392,24 @@ export class UpgradeMenu {
       bar.appendChild(b);
       this.tabButtons.set(key, b);
     }
-    parent.appendChild(bar);
+    barWrap.append(bar, fade);
+    parent.appendChild(barWrap);
+
+    // Pill density: one step smaller below settings.ui.menuTabBreakpoint so
+    // ~4 pills fit naturally before scrolling. Re-applied on resize/rotation.
+    const applySizing = () => {
+      const compact = window.innerWidth < settings.ui.menuTabBreakpoint;
+      for (const b of this.tabButtons.values()) {
+        b.style.padding = compact ? '10px 10px' : '12px 8px';
+        b.style.fontSize = compact ? '13px' : '14px';
+      }
+      updateFade();
+    };
+    applySizing();
+    window.addEventListener('resize', applySizing);
+    // Fade state depends on layout that settles after display flips to flex.
+    this._updateTabFade = updateFade;
+
     this.#styleTabs();
   }
 
@@ -382,6 +431,7 @@ export class UpgradeMenu {
     this.isOpen = true;
     this.panel.style.display = 'flex';
     this.update(this.state);
+    this._updateTabFade?.(); // scrollWidth only becomes real once display isn't 'none'
   }
 
   close() {
@@ -543,6 +593,7 @@ export class UpgradeMenu {
     Object.assign(b.style, {
       width: '100%',
       padding: '11px 12px',
+      minHeight: '44px', // touch-target floor
       borderRadius: '13px',
       border: 'none',
       fontWeight: '800',
@@ -778,6 +829,7 @@ const CARD_CHROME = {
 function styleCostButton(btn, dimmed) {
   Object.assign(btn.style, {
     padding: '9px 17px',
+    minHeight: '44px', // touch-target floor
     borderRadius: '13px',
     fontSize: '14px',
     fontWeight: '800',
@@ -794,8 +846,11 @@ function styleCostButton(btn, dimmed) {
 function styleBadge(btn, color, background) {
   Object.assign(btn.style, {
     padding: '8px 14px',
+    // Same 44px floor as the cost button this element toggles with, so a row
+    // never changes height when LOCKED flips to a live BUY.
+    minHeight: '44px',
     borderRadius: '13px',
-    fontSize: '11px',
+    fontSize: '12px',
     fontWeight: '900',
     letterSpacing: '0.8px',
     color,
@@ -889,7 +944,7 @@ function buildStatusBar() {
 
   const net = document.createElement('span');
   net.textContent = '5G';
-  Object.assign(net.style, { color: '#c7d2dc', fontSize: '11px', fontWeight: '800', letterSpacing: '0.3px' });
+  Object.assign(net.style, { color: '#c7d2dc', fontSize: '12px', fontWeight: '800', letterSpacing: '0.3px' });
 
   const battery = document.createElement('div');
   Object.assign(battery.style, { display: 'flex', alignItems: 'center', gap: '2px' });
@@ -924,6 +979,7 @@ function injectMenuStylesheet() {
   const style = document.createElement('style');
   style.textContent = `
     .um-cost:not(:disabled):active { transform: translateY(2px); filter: brightness(0.95); }
+    .um-tabbar::-webkit-scrollbar { display: none; }
     .um-content::-webkit-scrollbar { width: 8px; }
     .um-content::-webkit-scrollbar-thumb { background: rgba(199,210,220,0.18); border-radius: 4px; }
     .um-content::-webkit-scrollbar-track { background: transparent; }

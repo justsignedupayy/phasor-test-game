@@ -144,8 +144,10 @@ export class SceneManager {
       this.camera.bottom = -vHalf;
     } else {
       const stretch = Math.min(1 / aspect, settings.camera.portraitMaxStretch);
-      const vHalf = half * stretch;
-      const hHalf = vHalf * aspect; // = half while under the clamp (stretch === 1/aspect)
+      // portraitZoom scales BOTH halves, so the aspect fit is preserved — the
+      // whole portrait frame just moves in closer (see settings.camera).
+      const vHalf = (half * stretch) / settings.camera.portraitZoom;
+      const hHalf = vHalf * aspect; // = half/zoom while under the clamp (stretch === 1/aspect)
       this.camera.left = -hHalf;
       this.camera.right = hHalf;
       this.camera.top = vHalf;

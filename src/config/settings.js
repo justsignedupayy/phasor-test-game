@@ -139,6 +139,10 @@ export const settings = {
     // 20-unit-deep room. Cap the stretch; below the clamp aspect the view
     // zooms in (shows less across) instead of piling on empty depth.
     portraitMaxStretch: 1.6, // STARTING VALUE — tune by eye (max vertical frustum = viewSize × this)
+    // Portrait-only zoom-in ON TOP of the stretch-clamped fit: both frustum
+    // halves divide by this, so the room reads this factor larger/closer at
+    // aspect < 1. 1 = off. Landscape is untouched.
+    portraitZoom: 1.4, // STARTING VALUE — tune by eye
     // Portrait-only: shift the camera FOLLOW target this many units toward the
     // room interior (−z) so the reduced depth budget frames the building
     // rather than symmetric grass. Constant offset on the eased target — the
@@ -601,7 +605,7 @@ export const settings = {
     garageShelfCollisionHalf: { x: 1.03, z: 0.41 },
     //   Tires.glb footprint ≈ 1.76 (x) × 1.14 (z); its mesh sits ~0.3 toward +x
     //   of the placement origin, so nudge tireOffset (not this) if it reads off-centre.
-    tireCollisionHalf: { x: 0.88, z: 0.57 },
+    tireCollisionHalf: { x: 0.6, z: 0.4 },
   },
 
   // The supermarket: a one-time unlock that turns the left lobby into a shop,

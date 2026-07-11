@@ -67,6 +67,7 @@ function ensureGestureUnlock() {
   const resume = () => {
     window.removeEventListener('pointerdown', resume);
     window.removeEventListener('keydown', resume);
+    gestureListenerBound = false; // re-arm: resumeAll may queue blocked tracks again later
     for (const audio of pendingAutoplay) audio.play().catch(() => {}); // still blocked somehow — stay silent
     pendingAutoplay.length = 0;
   };
@@ -173,12 +174,20 @@ export function suspendAll() {
 }
 
 /** Resume the tracks suspendAll paused (page visible again). Mute state needs
- * no special casing — muted tracks play at volume 0. A track that was never
- * started (autoplay still blocked) just fails quietly and stays on the shared
- * gesture-unlock path. */
+ * no special casing — muted tracks play at volume 0. A play() the browser
+ * rejects (autoplay policy re-applied on tab return, or a track never started)
+ * re-enters the shared gesture-unlock queue so the next tap restores it —
+ * swallowing the rejection would leave the track paused until the next
+ * manual unpause. */
 export function resumeAll() {
-  if (music) music.play().catch(() => {});
-  if (ambience) for (const key of Object.keys(ambience)) ambience[key].play().catch(() => {});
+  const tracks = [music, ...(ambience ? Object.values(ambience) : [])];
+  for (const audio of tracks) {
+    if (!audio) continue;
+    audio.play().catch(() => {
+      if (!pendingAutoplay.includes(audio)) pendingAutoplay.push(audio);
+      ensureGestureUnlock();
+    });
+  }
 }
 
 /** Loop/stop the repair-hammering sound (player or any pit mechanic actively repairing). */

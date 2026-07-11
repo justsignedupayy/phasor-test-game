@@ -327,12 +327,14 @@ export class UpgradeMenu {
   // The five category tabs, left to right; exactly one is active and only its
   // rows are built (see #rebuild + structureSignature).
   #buildTabs(parent) {
+    // key, full label, short label (used only by the tightest compact steps
+    // below, when font/padding reduction alone can't fit all five pills).
     const TABS = [
-      ['garage', 'Garage'],
-      ['market', 'Market'],
-      ['gas', 'Gas Station'],
-      ['player', 'Player'],
-      ['ads', 'Advertising'],
+      ['garage', 'Garage', 'Garage'],
+      ['market', 'Market', 'Market'],
+      ['gas', 'Gas Station', 'Gas'],
+      ['player', 'Player', 'Player'],
+      ['ads', 'Advertising', 'Ads'],
     ];
     // The bar scrolls horizontally when the 5 pills don't fit (≤430px portrait
     // clipped Player/Advertising into unreachability — DEVICE_AUDIT.md ship
@@ -374,6 +376,8 @@ export class UpgradeMenu {
     bar.addEventListener('scroll', updateFade, { passive: true });
 
     this.tabButtons = new Map();
+    const fullLabels = new Map(TABS.map(([key, label]) => [key, label]));
+    const shortLabels = new Map(TABS.map(([key, , short]) => [key, short]));
     for (const [key, label] of TABS) {
       const b = document.createElement('button');
       b.textContent = label;
@@ -395,20 +399,49 @@ export class UpgradeMenu {
     barWrap.append(bar, fade);
     parent.appendChild(barWrap);
 
-    // Pill density: one step smaller below settings.ui.menuTabBreakpoint so
-    // ~4 pills fit naturally before scrolling. Re-applied on resize/rotation.
+    // Pill density: below settings.ui.menuTabBreakpoint the pills tighten in
+    // measured steps until all five fit without horizontal scrolling (~360px
+    // portrait left Player/Advertising reachable only by sliding). Font and
+    // padding shrink first; the two long labels abbreviate ("Gas Station"→
+    // "Gas", "Advertising"→"Ads") only in the last steps, when shrinking alone
+    // can't fit five. Measured against the bar's real overflow, so it lands on
+    // the loosest step that fits each device. If even the tightest step
+    // overflows, the scroll + fade affordance still applies.
+    const COMPACT_STEPS = [
+      { font: 13, padX: 10, gap: 9, barPadX: 24, short: false },
+      { font: 12, padX: 8, gap: 7, barPadX: 16, short: false },
+      { font: 12, padX: 8, gap: 7, barPadX: 16, short: true },
+      { font: 11, padX: 6, gap: 6, barPadX: 12, short: true },
+    ];
+    const WIDE = { font: 14, padX: 8, gap: 9, barPadX: 24, short: false };
+    const applyStep = (s) => {
+      bar.style.gap = `${s.gap}px`;
+      bar.style.padding = `0 ${s.barPadX}px 12px`;
+      for (const [key, b] of this.tabButtons) {
+        b.style.padding = s === WIDE ? `12px ${s.padX}px` : `10px ${s.padX}px`;
+        b.style.fontSize = `${s.font}px`;
+        b.textContent = (s.short ? shortLabels : fullLabels).get(key);
+      }
+    };
+    // Re-applied on resize/rotation AND on open(): while the panel is
+    // display:none the bar measures 0/0, so a resize that happens closed
+    // settles on the first compact step — open() re-measures for real.
     const applySizing = () => {
-      const compact = window.innerWidth < settings.ui.menuTabBreakpoint;
-      for (const b of this.tabButtons.values()) {
-        b.style.padding = compact ? '10px 10px' : '12px 8px';
-        b.style.fontSize = compact ? '13px' : '14px';
+      if (window.innerWidth >= settings.ui.menuTabBreakpoint) {
+        applyStep(WIDE);
+      } else {
+        for (const step of COMPACT_STEPS) {
+          applyStep(step);
+          if (bar.scrollWidth <= bar.clientWidth + 1) break; // fits — keep the loosest step that does
+        }
       }
       updateFade();
     };
     applySizing();
     window.addEventListener('resize', applySizing);
-    // Fade state depends on layout that settles after display flips to flex.
-    this._updateTabFade = updateFade;
+    // Also re-run from open(): fit and fade depend on layout that only
+    // settles after the panel's display flips to flex.
+    this._applyTabSizing = applySizing;
 
     this.#styleTabs();
   }
@@ -431,7 +464,7 @@ export class UpgradeMenu {
     this.isOpen = true;
     this.panel.style.display = 'flex';
     this.update(this.state);
-    this._updateTabFade?.(); // scrollWidth only becomes real once display isn't 'none'
+    this._applyTabSizing?.(); // re-measure pill fit (and fade) now that scrollWidth is real
   }
 
   close() {

@@ -173,7 +173,15 @@ const bridgeReady = await initBridge({
     platformPaused = isPaused;
     applyPauseState();
   },
-  onMuteChange: (m) => setMuted(m), // platform mute/unmute drives the real (persisted) mute
+  onMuteChange: (m) => {
+    setMuted(m); // platform mute/unmute drives the real (persisted) mute
+    // Platforms deliver the audio re-enable AFTER the tab is already visible
+    // again, so the visibilitychange resume above ran while isPlatformMuted()
+    // was still true and skipped resumeAll — the tracks suspendAll paused
+    // would stay paused forever (setMuted only touches volumes). Restart them
+    // here, under the same visibility/pause guards.
+    if (!m && !document.hidden && !paused) resumeAll();
+  },
 });
 if (bridgeReady) {
   const bridgeBackend = await createBridgeStorageBackend(PERSISTED_KEYS);

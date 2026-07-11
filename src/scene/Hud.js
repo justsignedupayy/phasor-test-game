@@ -15,10 +15,9 @@ export class Hud {
     Object.assign(wrap.style, {
       position: 'fixed',
       // `top` is owned by #placeCash below: on narrow screens the centered
-      // cash would sit UNDER the fixed-width Upgrades/Settings tab row
-      // (z-index 15 vs 17 — measured fully hidden at phone-portrait widths,
-      // see DEVICE_AUDIT.md), so below settings.ui.narrowBreakpoint it drops
-      // one row down instead.
+      // cash would overlap the fixed-width Upgrades/Settings tab row
+      // (measured at phone-portrait widths, see DEVICE_AUDIT.md), so below
+      // settings.ui.narrowBreakpoint it drops one row down instead.
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'flex',
@@ -28,7 +27,11 @@ export class Hud {
       maxWidth: '100vw',
       pointerEvents: 'none',
       userSelect: 'none',
-      zIndex: '15',
+      // Above every piece of fixed top chrome (tab row / pause / debug row,
+      // all 17) so the cash counter is never hidden underneath a button at
+      // narrow widths — pointerEvents:none keeps those buttons clickable
+      // through it. Still under popups (20) and the pause overlay (30).
+      zIndex: '18',
     });
 
     const el = document.createElement('div');
@@ -69,6 +72,12 @@ export class Hud {
   #placeCash() {
     const drop = window.innerWidth < settings.ui.narrowBreakpoint ? settings.ui.narrowCashDrop : 0;
     this.wrap.style.top = `calc(env(safe-area-inset-top, 0px) + ${14 + drop}px)`;
+    // The dev-only debug row sits at the dropped cash row's height (68 vs 66px
+    // — Quick Cash covered the counter at 360w), so it drops by the same amount
+    // and stays one row below the cash wherever the cash goes.
+    if (this.debugRow) {
+      this.debugRow.style.top = `calc(env(safe-area-inset-top, 0px) + ${68 + drop}px)`;
+    }
   }
 
   /** Start draining `amount` into the main cash number over settings.offline.drainDuration seconds. */
@@ -141,7 +150,8 @@ export class Hud {
     Object.assign(row.style, {
       position: 'fixed',
       right: '14px',
-      top: 'calc(env(safe-area-inset-top, 0px) + 68px)', // clears the 44px pause button
+      // `top` is owned by #placeCash: 68px clears the 44px pause button, plus
+      // the same narrow-width drop as the cash row so the two never overlap.
       display: 'flex',
       gap: '8px',
       zIndex: '17',
@@ -165,6 +175,8 @@ export class Hud {
 
     row.append(cashBtn, resetBtn);
     document.body.appendChild(row);
+    this.debugRow = row;
+    this.#placeCash(); // set the row's initial top (created after the first placement ran)
   }
 
   #debugButton(text, background) {

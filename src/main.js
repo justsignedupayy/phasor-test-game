@@ -21,7 +21,7 @@ import { GroundField } from './scene/GroundField.js';
 import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
-import { loadGame, saveGame, getSavedAt } from './platform/storage.js';
+import { loadGame, saveGame, getSavedAt, setStorageBackend, PERSISTED_KEYS } from './platform/storage.js';
 import {
   initMusic,
   initAmbience,
@@ -31,7 +31,11 @@ import {
   playBagSound,
   suspendAll,
   resumeAll,
+  setMuted,
+  reloadAudioSettings,
 } from './platform/audio.js';
+import { configureAdPause } from './platform/ads.js';
+import { initBridge, sendGameReady, isPlatformMuted, createBridgeStorageBackend } from '#bridge';
 import { SettingsMenu } from './scene/SettingsMenu.js';
 import { PauseControl } from './scene/PauseButton.js';
 import { estimateOfflineEarnings } from './core/offlineEarnings.js';
@@ -105,11 +109,102 @@ if (document.fonts?.load) {
   document.fonts.load("900 34px 'Montserrat'").catch(() => {});
 }
 
+// Pause switch — setPaused is the single sink every pause source feeds. While
+// paused, the frame loop early-outs before input/sims/view updates (the scene
+// keeps rendering, frozen), every looping track is silenced, and the state is
+// saved — a pause is a natural save point and the pre-ad point. Three
+// independent sources OR into it via applyPauseState, so no source can
+// accidentally cancel another's pause (e.g. a platform resume never undoes
+// the player's own pause, and vice versa):
+//   userPaused     — the pause button / overlay (PauseControl)
+//   platformPaused — Playgama Bridge's platform pause command
+//   adPaused       — a rewarded ad in flight (see platform/ads.js)
+let paused = false;
+let pauseControl = null; // constructed in main() once the game is playable
+let userPaused = false;
+let platformPaused = false;
+let adPaused = false;
+let gameStateReady = false; // `state` is created below, after the Bridge boot —
+// a platform pause arriving in that gap must not touch it yet
+
+function applyPauseState() {
+  setPaused(userPaused || platformPaused || adPaused);
+}
+
+function setPaused(v) {
+  if (paused === v) return;
+  paused = v;
+  if (paused) {
+    suspendAll();
+    if (gameStateReady) saveGame(state);
+  } else if (!document.hidden && !isPlatformMuted()) {
+    // Only restart audio when actually visible — resuming while hidden would
+    // undo the minimize-silence below — and never over a platform mute.
+    resumeAll();
+  }
+  pauseControl?.sync(paused);
+}
+
+// Minimizing the tab throttles requestAnimationFrame (freezing the game) but
+// HTMLAudioElements would keep sounding — silence every looping track while
+// hidden and resume them on return (also save right away, since the throttled
+// autosave interval may never fire again if the tab is killed). A game that is
+// PAUSED stays silent on return — pause outranks visibility — and so does a
+// platform mute: resumeAll never runs while the platform has audio disabled
+// (Bridge's audio event flips the real mute via setMuted, and this guard
+// keeps a local visibility-resume from racing it).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    suspendAll();
+    if (gameStateReady) saveGame(state);
+  } else if (!paused && !isPlatformMuted()) {
+    resumeAll();
+  }
+});
+
+// --- Playgama Bridge boot -----------------------------------------------
+// Must finish BEFORE loadGame() below: on a Bridge platform the persisted
+// save lives in Bridge storage, which is hydrated here and swapped in as
+// storage.js's backend. If anything fails (offline dev, YouTube build's
+// bridge.off.js, unsupported host) bridgeReady is false and the game runs on
+// its local implementations exactly as before.
+const bridgeReady = await initBridge({
+  onPauseChange: (isPaused) => {
+    platformPaused = isPaused;
+    applyPauseState();
+  },
+  onMuteChange: (m) => setMuted(m), // platform mute/unmute drives the real (persisted) mute
+});
+if (bridgeReady) {
+  const bridgeBackend = await createBridgeStorageBackend(PERSISTED_KEYS);
+  if (bridgeBackend) {
+    setStorageBackend(bridgeBackend);
+    // audio.js read its prefs at import time, from localStorage — re-read
+    // them from the real store before any track starts.
+    reloadAudioSettings();
+  }
+  // Initial platform audio state (events only fire on later changes). Applied
+  // after the backend swap so setMuted persists to the right store.
+  if (isPlatformMuted()) setMuted(true);
+}
+// The rewarded-ad flow pauses the game underneath the ad and restores after.
+configureAdPause({
+  pause: () => {
+    adPaused = true;
+    applyPauseState();
+  },
+  resume: () => {
+    adPaused = false;
+    applyPauseState();
+  },
+});
+
 // Core state (Three-free) and render layer. Resume a save if one exists; if it
 // is one (not a fresh state) and carries a savedAt, estimate what was earned
 // while away — handed to the Hud below once it exists (Hud owns draining it in).
 const loadedState = loadGame();
 const state = loadedState ?? createInitialState();
+gameStateReady = true; // setPaused / visibility saves may touch `state` from here on
 const savedAt = loadedState ? getSavedAt() : null;
 const offlineEarnings = savedAt ? estimateOfflineEarnings(state, Date.now() - savedAt) : 0;
 seedIdCounter(state); // keep newly spawned ids past whatever the save already used
@@ -130,42 +225,6 @@ initMusic();
 // The three area-ambience layers, silent until the per-frame zone check below
 // fades one in.
 initAmbience();
-// Pause switch — the pause button today, and the single hook a platform pause
-// (the Bridge ad flow, an external pause command) plugs into later. While
-// paused, the frame loop early-outs before input/sims/view updates (the scene
-// keeps rendering, frozen), every looping track is silenced, and the state is
-// saved — a pause is a natural save point and the pre-ad point later.
-// Module-scoped so the visibilitychange handler below can respect it.
-let paused = false;
-let pauseControl = null; // constructed in main() once the game is playable
-function setPaused(v) {
-  if (paused === v) return;
-  paused = v;
-  if (paused) {
-    suspendAll();
-    saveGame(state);
-  } else if (!document.hidden) {
-    // Only restart audio when actually visible — resuming while hidden would
-    // undo the minimize-silence below.
-    resumeAll();
-  }
-  pauseControl?.sync(paused);
-}
-
-// Minimizing the tab throttles requestAnimationFrame (freezing the game) but
-// HTMLAudioElements would keep sounding — silence every looping track while
-// hidden and resume them on return (also save right away, since the throttled
-// autosave interval may never fire again if the tab is killed). A game that is
-// PAUSED stays silent on return: pause outranks visibility.
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    suspendAll();
-    saveGame(state);
-  } else if (!paused) {
-    resumeAll();
-  }
-});
-
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
 // Wall-mounted LED panels over every worker's break-lean spot (jobs-to-break /
@@ -199,6 +258,9 @@ async function main() {
   await preloadStorageModels();
   await preloadIcons();
   loadingEl.remove();
+  // Mandatory Playgama signal, sent the moment the player can actually
+  // interact (overlay gone, first playable frame imminent) — never earlier.
+  sendGameReady();
 
   const character = new Character(gltf);
   sceneManager.add(character.root);
@@ -222,8 +284,12 @@ async function main() {
   // driven by core/tutorial.js's view model (resolves tablet targets via `menu`).
   const tutorialView = new TutorialView(sceneManager, state, menu, unlockMarkers);
   // Pause button + full-screen "Paused" overlay; created only now, so the
-  // loading sequence can never be paused into a stuck state.
-  pauseControl = new PauseControl(setPaused);
+  // loading sequence can never be paused into a stuck state. It drives ONLY
+  // the user flag — a resume tap can't cancel a platform or ad pause.
+  pauseControl = new PauseControl((v) => {
+    userPaused = v;
+    applyPauseState();
+  });
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
   // Canvas taps only (the joystick and DOM menu are separate overlays, so their

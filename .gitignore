@@ -10,6 +10,7 @@ lerna-debug.log*
 # Dependencies & build output
 node_modules
 dist
+dist-youtube
 dist-ssr
 *.local
 

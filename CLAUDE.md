@@ -6,10 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install
-npm run dev      # Vite dev server at http://localhost:8080 (vite/config.dev.mjs)
-npm run build    # production build -> /dist (terser-minified, vite/config.prod.mjs)
-npm test         # node test/core.test.mjs — core logic only, no Three.js needed
+npm run dev            # Vite dev server at http://localhost:8080 (vite/config.dev.mjs)
+npm run build          # Playgama build -> /dist (terser-minified, vite/config.prod.mjs)
+npm run build:youtube  # Bridge-free build -> /dist-youtube (vite/config.youtube.mjs)
+npm test               # node test/core.test.mjs — core logic only, no Three.js needed
 ```
+
+Two build targets, split at the `#bridge` Vite alias (their only difference):
+`npm run build` resolves it to `src/platform/bridge.js` — the Playgama Bridge
+wrapper, which injects Playgama's CDN script at boot (there is NO npm package;
+the CDN script is their official plain-JS integration) and backs rewarded ads
++ saves with Bridge, falling back to the local implementations if init fails.
+`npm run build:youtube` resolves it to `src/platform/bridge.off.js` (inert
+no-ops), so that bundle keeps stub ads + localStorage saves and makes **zero
+external calls** — YouTube Playables' hard rule. Never import those two files
+directly; always go through `#bridge`. Dev uses the real bridge.js.
 
 There is no lint step and no test framework. `test/core.test.mjs` is a single
 zero-dependency Node script with a hand-rolled `check(name, fn)` helper. To run
@@ -63,9 +74,18 @@ src/
 │   │                     attendants (tinted Mechanic clones), car queues/tweens.
 │   ├── StorageModels.js / CarriedBox.js / PitMoney.js  prop glbs (load-once + clone).
 │   └── Hud.js / UpgradeMenu.js / BreakMenu.js / TruckMenu.js / popup.js  DOM UI overlays.
-├── platform/            swappable host integrations (isolated for the Playgama port):
-│   ├── storage.js        save/load behind a `backend` abstraction (localStorage today).
-│   └── ads.js            showRewardedAd — stubbed to succeed immediately.
+├── platform/            swappable host integrations:
+│   ├── bridge.js         the ONE module that knows Playgama Bridge exists (CDN
+│   │                     script inject + initialize, game_ready, platform
+│   │                     pause/audio events, storage hydration). Reached only
+│   │                     via the `#bridge` alias; bridge.off.js is its inert
+│   │                     twin for the YouTube build (see Commands above).
+│   ├── storage.js        save/load behind an injectable `backend` (localStorage
+│   │                     default; main.js swaps in the Bridge backend at boot).
+│   │                     Never imports Bridge itself — stays Node-testable.
+│   └── ads.js            showRewardedAd — real Bridge rewarded flow (pauses the
+│   │                     game, rewards ONLY on the 'rewarded' state) when
+│   │                     Bridge is up; otherwise the original instant-success stub.
 └── main.js              bootstrap + requestAnimationFrame loop.
 ```
 

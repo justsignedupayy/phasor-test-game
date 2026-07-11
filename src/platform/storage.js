@@ -1,30 +1,53 @@
 /**
- * storage.js — save/load persistence behind a small backend abstraction, so
- * step 8 can swap in Playgama's storage by changing only `backend` below.
- * Default backend: localStorage. The save payload carries a saveVersion so a
- * future format change can migrate or safely discard old saves.
+ * storage.js — save/load persistence behind a small backend abstraction.
+ * Default backend: localStorage; at boot main.js may swap in a Bridge-backed
+ * one via setStorageBackend (built by #bridge's createBridgeStorageBackend —
+ * this file deliberately never imports Bridge so it stays Node-testable).
+ * The save payload carries a saveVersion so a future format change can
+ * migrate or safely discard old saves.
  */
 const SAVE_KEY = 'garageIdleSave';
 const MUSIC_VOLUME_KEY = 'garageIdleMusicVolume'; // own key: device preference, survives SAVE_VERSION bumps
 const MUTED_KEY = 'garageIdleMuted'; // own key like the volume: device preference, survives SAVE_VERSION bumps
 export const SAVE_VERSION = 20; // v20: tutorial 'firstBreak' moved BEFORE 'firstRestock' (it now showcases pit A's special early first break) + state.tutorial.firstBreakEverStarted latch, swapping those step indices; v19: tutorial gained a 'firstPendingCash' step between breakLed and firstRestock, shifting every later step index; v18: tutorial reworked — repairsRemaining now counts COMPLETED manual repairs (was per-tap repairTapsRemaining) and four steps were inserted (breakLed/firstRestock/firstBreak/truckLed), shifting every step index; v17: mandatory first-game tutorial state (state.tutorial — see core/tutorial.js); v16: save payload now carries savedAt (Date.now() at save time), read by getSavedAt() for the offline-earnings estimate on next load; v15: Watch Ad now grants PERMANENT +rep with a cooldown (state.adCooldownRemaining replaces the removed temporary state.repBoostRemaining); v14: per-worker-type "Shorter Breaks" levels (state.breakLevels) + one-time Player Speed purchase (state.playerSpeedBought); v13: order-based truck (supermarket.truckOrdered; truckTimer now counts a placed order's wait, not an automatic arrival clock); v12: gas station starts fully locked + per-pump attendant break state (pump.break); v11: gas station (state.gasStation: pumps/attendants/spawnTimer); v10: conveyor replaced by mechanic auto-restock (state.autoRestock + per-pit core mechanic; removed hasConveyor/conveyorTimer/conveyorBounds); v9: restock box moved to the front-wall delivery dock (saved restockBoxPosition); v8: supermarket restock box (limited units) + delivery truck (timer/upgrade); v7: per-worker break state (pit.break / worker.break); v6: supermarket (shelves/customers/worker); v5: per-pit tires/shelf + conveyor + carried box; v4: pendingCash + cashier; v3: 5 pits
 
-const backend = {
-  read(key = SAVE_KEY) {
+/** Every key this module persists — a swapped-in backend must hydrate all of
+ * them up front, because read() below is synchronous (boot-time loads can't
+ * await). */
+export const PERSISTED_KEYS = [SAVE_KEY, MUSIC_VOLUME_KEY, MUTED_KEY];
+
+const localBackend = {
+  read(key) {
     try {
       return localStorage.getItem(key);
     } catch {
       return null; // storage unavailable (private mode, disabled, etc.)
     }
   },
-  write(raw, key = SAVE_KEY) {
+  write(raw, key) {
     try {
       localStorage.setItem(key, raw);
     } catch {
       // storage unavailable or quota exceeded — drop the save silently
     }
   },
+  wipe() {
+    try {
+      localStorage.clear();
+    } catch {
+      // storage unavailable — nothing persisted to wipe anyway
+    }
+  },
 };
+
+let backend = localBackend;
+
+/** Swap the persistence backend (main.js, after a successful Bridge storage
+ * hydration). Shape: { read(key)->string|null, write(raw, key), wipe() } —
+ * read must be synchronous over pre-hydrated data. */
+export function setStorageBackend(b) {
+  backend = b;
+}
 
 // Latched by wipeSave (the debug Reset): once the save is deliberately
 // cleared, every later saveGame is a no-op. The page is about to reload, and
@@ -35,7 +58,7 @@ let saveWiped = false;
 
 export function saveGame(state) {
   if (saveWiped) return;
-  backend.write(JSON.stringify({ saveVersion: SAVE_VERSION, savedAt: Date.now(), state }));
+  backend.write(JSON.stringify({ saveVersion: SAVE_VERSION, savedAt: Date.now(), state }), SAVE_KEY);
 }
 
 /**
@@ -45,11 +68,7 @@ export function saveGame(state) {
  */
 export function wipeSave() {
   saveWiped = true;
-  try {
-    localStorage.clear();
-  } catch {
-    // storage unavailable — nothing persisted to wipe anyway
-  }
+  backend.wipe();
 }
 
 /**
@@ -91,7 +110,7 @@ export function migratePayload(payload) {
 }
 
 function readValidPayload() {
-  const raw = backend.read();
+  const raw = backend.read(SAVE_KEY);
   if (!raw) return null;
 
   let payload;

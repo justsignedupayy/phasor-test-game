@@ -41,6 +41,21 @@ let muted = loadMuted();
 // live track without losing the slider's remembered level.
 let musicVolume = loadMusicVolume();
 
+/**
+ * Re-read the persisted mute/volume prefs. The two module-scope reads above
+ * run at import time — BEFORE main.js's boot can swap in the Bridge storage
+ * backend — so on a Bridge platform they'd see localStorage, not the real
+ * store. main.js calls this right after a successful backend swap (still
+ * before initMusic/initAmbience, but apply to any live tracks defensively).
+ */
+export function reloadAudioSettings() {
+  muted = loadMuted();
+  musicVolume = loadMusicVolume();
+  if (music) music.volume = muted ? 0 : musicVolume;
+  if (hammerSound) hammerSound.volume = muted ? 0 : settings.audio.hammerVolume;
+  if (ambience && muted) for (const key of Object.keys(ambience)) ambience[key].volume = 0;
+}
+
 // Autoplay-blocked tracks waiting on the first user gesture, serviced by one
 // shared listener pair (see module doc above).
 const pendingAutoplay = [];

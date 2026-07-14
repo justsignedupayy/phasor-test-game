@@ -1,6 +1,7 @@
 import settings from '../config/settings.js';
 import { createBreakState } from './breaks.js';
 import { createTutorialState } from './tutorial.js';
+import { createHintsState } from './hints.js';
 
 function createPit(index) {
   return {
@@ -120,6 +121,8 @@ export class GameState {
     this.gasStation = createGasStationState();
 
     this.tutorial = createTutorialState();
+
+    this.hints = createHintsState();
   }
 }
 

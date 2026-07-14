@@ -3,7 +3,7 @@ const MUSIC_VOLUME_KEY = 'garageIdleMusicVolume'; // own key: device preference,
 const MUTED_KEY = 'garageIdleMuted'; // own key like the volume: device preference, survives SAVE_VERSION bumps
 const CANARY_KEY = 'garageIdleCanary'; // planted every boot; only a full wipe removes it (see reconcilePlatformReset)
 // Bump on any save-shape change AND register a MIGRATIONS step for the old version — no path = save discarded.
-export const SAVE_VERSION = 21;
+export const SAVE_VERSION = 22;
 
 // A swapped-in backend must hydrate every key up front: read() is synchronous.
 export const PERSISTED_KEYS = [SAVE_KEY, MUSIC_VOLUME_KEY, MUTED_KEY, CANARY_KEY];
@@ -86,6 +86,11 @@ const MIGRATIONS = {
     // v21 adds the "Longer Shifts" break-threshold upgrade levels
     const s = payload.state;
     if (s) s.breakThresholdLevels = s.breakThresholdLevels ?? { carMechanic: 0, marketWorker: 0, gasAttendant: 0 };
+  },
+  21: (payload) => {
+    // v22 adds the standalone one-time hints (core/hints.js)
+    const s = payload.state;
+    if (s) s.hints = s.hints ?? { breakRepairLive: false, breakRepairShown: false };
   },
 };
 

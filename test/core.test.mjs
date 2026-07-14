@@ -103,6 +103,7 @@ import {
   orderTruck,
   truckDeliveryTime,
 } from '../src/core/supermarket.js';
+import { tickHints, getHintView } from '../src/core/hints.js';
 import settings from '../src/config/settings.js';
 
 let passed = 0;
@@ -1531,6 +1532,128 @@ check('the market worker accrues a break per checkout and eventually rests', () 
     guard += 1;
   }
   assert.equal(s.supermarket.worker.break.onBreak, true, 'market worker eventually takes a break');
+});
+
+// --- standalone hints (core/hints.js) ----------------------------------------
+console.log('\ncore standalone hints');
+
+check('initial state: the break-repair hint is fresh and hidden', () => {
+  const s = createInitialState();
+  assert.deepEqual(s.hints, { breakRepairLive: false, breakRepairShown: false });
+  assert.equal(getHintView(s), null);
+});
+
+check("the special early first break (pit A's 5-rep/30s override) never fires the hint", () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  const b = s.pits[0].break;
+  b.onBreak = true; // the special first break: its firstDuration override is still armed
+  assert.ok(b.firstDuration != null, 'precondition: the override is still unspent');
+  tickHints(s);
+  assert.equal(s.hints.breakRepairLive, false);
+  assert.equal(getHintView(s), null);
+});
+
+check("the FIRST NORMAL break fires the hint, anchored at pit A's break spot", () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  const b = s.pits[0].break;
+  b.onBreak = true;
+  endBreak(b); // the special first break came and went — its override is spent
+  tickHints(s);
+  assert.equal(s.hints.breakRepairShown, false, 'the special break never consumed the hint');
+
+  b.onBreak = true; // the first NORMAL break
+  tickHints(s);
+  assert.equal(s.hints.breakRepairLive, true);
+  const view = getHintView(s);
+  assert.ok(view, 'hint view is up');
+  assert.equal(view.id, 'breakRepairHint');
+  assert.ok(/repair/i.test(view.text), 'explains the player can repair manually');
+  const spot = settings.breaks.breakSpots[0];
+  assert.deepEqual({ x: view.anchor.x, z: view.anchor.z }, spot, 'highlights the resting mechanic');
+});
+
+check('the hint latches once its break ends and never repeats — even on later breaks', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  const b = s.pits[0].break;
+  b.onBreak = true;
+  endBreak(b); // special break spent
+  b.onBreak = true; // first normal break
+  tickHints(s);
+  assert.ok(getHintView(s));
+
+  endBreak(b); // that break ends
+  tickHints(s);
+  assert.equal(s.hints.breakRepairShown, true, 'persisted as shown');
+  assert.equal(s.hints.breakRepairLive, false);
+  assert.equal(getHintView(s), null);
+
+  b.onBreak = true; // any later break
+  tickHints(s);
+  assert.equal(getHintView(s), null, 'one-time only');
+  assert.equal(s.hints.breakRepairShown, true);
+});
+
+check('the hint lifecycle never touches tutorial state (fully independent)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.tutorial.step = TUTORIAL_STEPS.indexOf('firstPendingCash'); // an arbitrary mid-tutorial step
+  const before = JSON.stringify(s.tutorial);
+
+  const b = s.pits[0].break;
+  b.onBreak = true; // special break
+  tickHints(s);
+  endBreak(b);
+  b.onBreak = true; // first normal break: hint up
+  tickHints(s);
+  assert.ok(getHintView(s));
+  endBreak(b); // hint spent
+  tickHints(s);
+
+  assert.equal(JSON.stringify(s.tutorial), before, 'tutorial state is byte-identical');
+});
+
+check('live flow: the special break passes quietly, the next REAL break trips the hint', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  s.hasCashier = true;
+  s.permanentReputation = 0; // rusty cars → pit 0
+  hireMechanic(s, 0);
+  buyAutoRestock(s); // the mechanic refills its own tires across the long run
+
+  const b = s.pits[0].break;
+  let guard = 0;
+  while (!b.onBreak && guard++ < 200000) {
+    tick(s, 0.05);
+    tickHints(s);
+  }
+  assert.equal(b.onBreak, true, 'the special first break arrives');
+  assert.ok(b.firstDuration != null, 'it is the special break (override still armed)');
+  assert.equal(s.hints.breakRepairLive, false, 'no hint during the special break');
+
+  guard = 0;
+  while (b.onBreak && guard++ < 2000) {
+    tick(s, 0.5); // ride out the 30s special break
+    tickHints(s);
+  }
+  assert.equal(b.onBreak, false, 'special break over');
+  assert.equal(s.hints.breakRepairShown, false, 'hint still unspent');
+
+  b.jobCount = breakThreshold(b, s) - 1; // one more finished car trips the NORMAL break
+  guard = 0;
+  while (!b.onBreak && guard++ < 200000) {
+    tick(s, 0.05);
+    tickHints(s);
+  }
+  assert.equal(b.onBreak, true, 'the first normal break arrives');
+  assert.equal(s.hints.breakRepairLive, true, 'hint fires on the real normal break');
+  assert.ok(getHintView(s));
 });
 
 // --- gas station -------------------------------------------------------------
@@ -2985,6 +3108,13 @@ check('v20→v21 backfills breakThresholdLevels at level 0 for every worker type
   const out = migratePayload({ saveVersion: 20, state: { cash: 7 } });
   assert.equal(out.saveVersion, SAVE_VERSION);
   assert.deepEqual(out.state.breakThresholdLevels, { carMechanic: 0, marketWorker: 0, gasAttendant: 0 });
+  assert.equal(out.state.cash, 7, 'the rest of the save is untouched');
+});
+
+check('v21→v22 backfills the standalone hints as fresh (never shown)', () => {
+  const out = migratePayload({ saveVersion: 21, state: { cash: 7 } });
+  assert.equal(out.saveVersion, SAVE_VERSION);
+  assert.deepEqual(out.state.hints, { breakRepairLive: false, breakRepairShown: false });
   assert.equal(out.state.cash, 7, 'the rest of the save is untouched');
 });
 

@@ -73,6 +73,8 @@ import {
   notifyBreakMenuOpened,
 } from './core/tutorial.js';
 import { TutorialView } from './scene/TutorialView.js';
+import { tickHints } from './core/hints.js';
+import { HintView } from './scene/HintView.js';
 
 const container = document.getElementById('app');
 
@@ -240,6 +242,7 @@ async function main() {
   const unlockMarkers = new UnlockMarkers(sceneManager);
   const slidingDoors = new SlidingDoors(sceneManager, () => supermarketView.truck.model);
   const tutorialView = new TutorialView(sceneManager, state, menu, unlockMarkers);
+  const hintView = new HintView(sceneManager, menu);
   pauseControl = new PauseControl((v) => {
     userPaused = v;
     applyPauseState();
@@ -396,6 +399,7 @@ async function main() {
     tickGasStation(state, dt); // gas pumps: spawning + queue→pumps + attendants' auto-fill
     if (menu.isOpen && menu.activeTab === 'garage') notifyGarageTabViewed(state);
     tickTutorial(state, dt);
+    tickHints(state); // standalone one-time hints, independent of the tutorial's steps
 
     updateAmbience(ambienceZoneForX(state.player.position.x), dt);
 
@@ -462,6 +466,7 @@ async function main() {
     hud.update(state.cash, dt);
     menu.update(state);
     tutorialView.update(dt, state);
+    hintView.update(dt, state);
 
     sceneManager.follow(state.player.position.x, state.player.position.z, dt);
     sceneManager.render();

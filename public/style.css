@@ -3,7 +3,10 @@
    file so nothing ever falls back to the system sans once loaded. */
 @font-face {
     font-family: 'Montserrat';
-    src: url('/assets/fonts/montserrat.black.ttf') format('truetype');
+    /* Relative to this stylesheet, NOT root-absolute — the Playgama build is
+       served from a CDN subdirectory where '/assets/…' would 404 (same rule as
+       src/platform/assetUrl.js). */
+    src: url('assets/fonts/montserrat.black.ttf') format('truetype');
     font-weight: 100 900;
     font-style: normal;
     font-display: swap;
@@ -37,4 +40,12 @@ body {
 
 #app canvas {
     display: block;
+    /* Belt-and-braces for embedded hosts: the renderer also sizes the canvas
+       via inline px styles from the measured container, and when the
+       measurement is right these are identical. If an embed ever feeds the
+       game a stale/wrong size, !important beats the inline style and keeps
+       the canvas covering the container (worst case slightly soft/stretched)
+       instead of leaving a fixed box with empty space around it. */
+    width: 100% !important;
+    height: 100% !important;
 }

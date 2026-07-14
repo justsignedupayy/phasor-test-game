@@ -1,17 +1,5 @@
 import * as THREE from 'three';
 
-/**
- * AlertBounce — a red exclamation-mark sprite popped above a worker's head on
- * a remote hurry tap. Persistent per-instance (Mechanic/MarketWorker each own
- * one, exactly like their ZzzEffect): trigger() shows it and starts a fresh
- * settling vertical bounce, or just restarts the bounce if one is already
- * playing/holding. After a short grace period with no new trigger it fades
- * out and hides itself, ready to be triggered again later.
- *
- * The exclamation-mark texture is a module-level singleton, drawn once and
- * shared by every instance — same pattern as ZzzEffect's "Z" texture.
- */
-
 const BOUNCE_AMPLITUDE = 0.22; // world units of vertical bounce amplitude
 const BOUNCE_FREQ = 16; // rad/s — oscillation speed of the settling bounce
 const BOUNCE_DECAY = 9; // exponential decay rate of the bounce envelope
@@ -24,7 +12,6 @@ const STROKE = '#8a0f0f';
 
 let sharedTexture = null;
 
-/** Build (once) a red exclamation mark: rounded stem capsule over a dot. */
 function getAlertTexture() {
   if (sharedTexture) return sharedTexture;
   const size = 64;
@@ -71,7 +58,6 @@ export class AlertBounce {
     this.fading = false;
   }
 
-  /** Show (or re-show) the alert and (re)start its settling bounce from the top. */
   trigger() {
     this.root.visible = true;
     this.sprite.material.opacity = 1;

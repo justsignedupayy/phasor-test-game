@@ -10,15 +10,6 @@ import { deliverStock, truckDeliveryTime } from '../core/supermarket.js';
 import { getProductImage } from './productImages.js';
 import { LedDisplay, formatMmSs } from './BreakDisplay.js';
 
-/**
- * SupermarketView — the whole shop's render layer: 4 shelves (shelf_end.glb /
- * freezers_standing.glb) with a live stock label, a checkout counter + Bag.glb
- * (shown only once a finished order is placed there), the outside restock
- * pile, every customer NPC, and the market worker once hired. No game logic;
- * everything here mirrors state.supermarket. Tap targets (shelf/checkout/
- * restock pile) are exposed via raycastTap() for main.js to dispatch into
- * core/supermarket.js, same split as CarYard.raycast() + PitView's rings.
- */
 const RING_PULSE_HZ = 5; // matches PitView's highlight pulse
 
 export class SupermarketView {
@@ -89,7 +80,6 @@ export class SupermarketView {
     this.sm.add(this.checkoutRing);
   }
 
-  /** A small decorative pile (infinite, never depletes) at the exterior restock spot. */
   #buildRestockPile() {
     const M = settings.supermarket;
     const pos = M.restockBoxPosition;
@@ -107,20 +97,10 @@ export class SupermarketView {
       return box;
     });
 
-    // The live "X/4" stock readout lives on the wall-mounted delivery LED
-    // (#buildTruckDisplay); no floating label over the box is needed.
     this.restockRing = makeRing(pos.x, pos.z);
     this.sm.add(this.restockRing);
   }
 
-  /**
-   * The delivery-status LED panel: the break panels' wall fixture (LedDisplay)
-   * reused on the LEFT wall of the delivery corridor, halfway down it, at the
-   * break panels' mounting height, facing into the corridor (+x). Green LEDs
-   * (settings.supermarket.truck.display) so it reads as delivery info, not a
-   * break clock. Content is set in update(): restock stock "units/max" while
-   * idle, the mm:ss countdown while a truck order is pending.
-   */
   #buildTruckDisplay() {
     const W = settings.world;
     const S = settings.supermarket;
@@ -137,7 +117,6 @@ export class SupermarketView {
     this.sm.add(this.truckDisplay.group);
   }
 
-  /** The box the PLAYER (manual restocking) carries from the pile to a shelf. */
   #buildCarriedBox() {
     this.carriedBox = cloneStorageModel('box');
     this.carriedBox.scale.setScalar(settings.storage.boxScale);
@@ -145,7 +124,6 @@ export class SupermarketView {
     this.sm.add(this.carriedBox);
   }
 
-  /** Tap raycast against the worker/shelves/checkout/restock pile; null if nothing hit. */
   raycastTap(raycaster) {
     if (this.worker && raycaster.intersectObject(this.worker.hitBox).length > 0) {
       return { kind: 'worker' };
@@ -164,7 +142,6 @@ export class SupermarketView {
     return null;
   }
 
-  /** True if the market worker's model was hit AND the worker is on break. */
   raycastRestingWorker(raycaster, state) {
     const w = state.supermarket.worker;
     if (!this.worker || !w || !w.break.onBreak) return false;
@@ -181,8 +158,6 @@ export class SupermarketView {
       if (!unlocked) continue;
       const stateShelf = S.shelves[shelf.index];
       const stockText = `${stateShelf.stock}/${settings.supermarket.shelfCapacity}`;
-      // The photo-loaded flag is part of the cache key so the label re-draws
-      // once, swapping the letter fallback for the image when it arrives.
       const key = `${stateShelf.productType}|${stockText}|${getProductImage(stateShelf.productType) ? 1 : 0}`;
       if (key !== shelf.labelText) {
         shelf.labelText = key;
@@ -193,17 +168,10 @@ export class SupermarketView {
     this.checkoutCounter.visible = unlocked;
     this.bag.visible = unlocked && !!S.checkoutBag;
     for (const box of this.pileBoxes) box.visible = unlocked;
-    // The pile mesh stays decorative; its "X/maxUnits" stock readout is shown on
-    // the wall-mounted delivery LED (truckDisplay) below, not a floating label.
 
-    // Delivery truck: core flags an arrival; play the drive-in (which tops up the
-    // box via deliverStock at touchdown), then the drive-out. Single reused instance.
     if (S.truckArriving && this.truck.idle) this.truck.arrive(() => deliverStock(state));
     this.truck.update(dt);
 
-    // Delivery-status LED panel: mm:ss to arrival while an order is pending,
-    // the restock box's stock the rest of the time (including while the truck
-    // itself is in flight — the order clock is done by then).
     if (!unlocked) this.truckDisplay.hide();
     else if (S.truckOrdered) this.truckDisplay.setText(formatMmSs(truckDeliveryTime(state) - S.truckTimer));
     else this.truckDisplay.setText(`${S.restockBox.units}/${S.restockBox.maxUnits}`);
@@ -222,7 +190,6 @@ export class SupermarketView {
     this.#updateHighlights(dt, state);
   }
 
-  /** Floats the carried-restock-box model just ahead of the player, mirroring CarriedBox.js. */
   #updateCarriedBox(player) {
     if (!player.carryingRestockBox) {
       this.carriedBox.visible = false;
@@ -256,7 +223,6 @@ export class SupermarketView {
     }
   }
 
-  /** Tap-affordance rings: pulse only where a manual action is actually available right now. */
   #updateHighlights(dt, state) {
     const S = state.supermarket;
     const M = settings.supermarket;
@@ -289,7 +255,6 @@ export class SupermarketView {
     this.restockRing.material.opacity += ((canGrabBox ? pulse : 0) - this.restockRing.material.opacity) * k;
   }
 
-  /** Pops "+$" over the checkout the instant a customer pays, mirroring CarYard/PitMoney's popup. */
   #popup(amount, pos) {
     const v = new THREE.Vector3(pos.x, 1.6, pos.z).project(this.sm.camera);
     const rect = this.sm.renderer.domElement.getBoundingClientRect();
@@ -299,9 +264,6 @@ export class SupermarketView {
   }
 }
 
-// A camera-facing text label rendered to a small canvas texture (mirrors PitView's
-// storage label). scaleMult sizes the whole sprite up around the same anchor point —
-// the shelf signs pass 1.75 for their product photos; the restock counter stays at 1.
 function makeLabelSprite(scaleMult = 1) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -315,10 +277,6 @@ function makeLabelSprite(scaleMult = 1) {
   return sprite;
 }
 
-/**
- * Shelf sign: the product's photo (its letter until the photo loads) followed
- * by the live "stock/capacity" count, centered together on the canvas.
- */
 function drawShelfLabelSprite(sprite, productType, stockText) {
   const canvas = sprite.userData.canvas;
   const ctx = canvas.getContext('2d');

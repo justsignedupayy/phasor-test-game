@@ -1,24 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import settings from '../config/settings.js';
+import { assetUrl } from '../platform/assetUrl.js';
 import { groundModel } from './characterAnim.js';
 import { SmokeEffect } from './SmokeEffect.js';
 
-/**
- * CarView — wraps a clone of the glb model for its car's reputation tier (one
- * model per tier; see settings.carTiers + preloadCarModels() below). The models
- * have no skeleton, so a plain scene.clone() per car is correct (no
- * SkeletonUtils needed). They have no separate damage-part meshes either, so a
- * car just drives in broken and out fixed, with the tap shake/scale pop still
- * working; per-part heal visuals are gone since there's nothing on the model to
- * heal independently.
- *
- * Tiers above the base one get a brief spawn pulse so the better-paying cars
- * stand out in queue (a scale animation, independent of which model is used).
- *
- * Render-only: driven by setProgress() / shake() / driveTo(), advanced by
- * update(dt). It holds a reference to its core car for `damageParts` + `payout`.
- */
 const FIX_LERP = 6;
 const SHAKE_TIME = 0.22;
 const PULSE_TIME = 0.5;
@@ -26,17 +12,12 @@ const PULSE_TIME = 0.5;
 let carModelsPromise = null;
 const carModels = new Map(); // tier name -> THREE.Object3D base scene to clone
 
-/**
- * Loads every tier's glb exactly once, in parallel, keying each resolved scene
- * by its tier name (settings.carTiers is the source of truth for the mapping).
- * Call (and await) before creating any CarView.
- */
 export function preloadCarModels() {
   if (!carModelsPromise) {
     const loader = new GLTFLoader();
     carModelsPromise = Promise.all(
       settings.carTiers.map((tier) =>
-        loader.loadAsync(`/models/${tier.model}`).then((gltf) => {
+        loader.loadAsync(assetUrl(`models/${tier.model}`)).then((gltf) => {
           carModels.set(tier.name, gltf.scene);
         })
       )
@@ -66,9 +47,6 @@ export class CarView {
 
     this.#build();
 
-    // Smoke plumes for damaged cars: engine bay + hood. Added to root (not
-    // bodyGroup) so the tap shake/pulse scaling never distorts them; each
-    // positioned by its own tunable offset.
     this.engineSmoke = new SmokeEffect();
     const e = settings.car.engineSmokeOffset;
     this.engineSmoke.group.position.set(e.x, e.y, e.z);
@@ -93,9 +71,6 @@ export class CarView {
     const modelScale = tier?.modelScale ?? cfg.modelScale; // per-tier size fixup, falls back to the shared one
     const model = base.clone();
 
-    // The source scenes also export a large ground-plane mesh alongside the
-    // car itself ("Floor_..."); strip it so it doesn't blow out the model's
-    // bounding box (used below for grounding) or get raycast as part of the car.
     const floorNodes = [];
     model.traverse((o) => {
       if (o.name.startsWith('Floor')) floorNodes.push(o);
@@ -110,13 +85,6 @@ export class CarView {
       o.receiveShadow = true;
       if (!o.material) return;
 
-      // Clone materials per instance: THREE's clone() shares material objects by
-      // reference, and dispose() frees them — so without this, sending one fixed
-      // car off would dispose the materials every other car still uses. We also
-      // force the clones opaque: these glbs export every material with
-      // baseColorFactor alpha 0 + alphaMode MASK, which three.js maps to
-      // opacity 0 / alphaTest 0.5, discarding all colour fragments (the cars go
-      // invisible while their depth-based shadows still render). No tint.
       const wasArray = Array.isArray(o.material);
       const fixed = (wasArray ? o.material : [o.material]).map((m) => {
         const c = m.clone();
@@ -131,15 +99,12 @@ export class CarView {
     this.bodyGroup.add(model);
     groundModel(model); // the model's mesh origin isn't at floor level — sit it on y=0
 
-    // No damage-part meshes on this model — register a no-op target per part
-    // so setProgress()/fixAll() (driven by core repair progress) stay valid.
     for (const name of this.car.damageParts) {
       this.fix[name] = 0;
       this.fixTarget[name] = 0;
     }
   }
 
-  /** Fix parts whose threshold has been passed: part i of n clears at (i+1)/n. */
   setProgress(progress) {
     const parts = this.car.damageParts;
     parts.forEach((name, i) => {
@@ -172,14 +137,11 @@ export class CarView {
     this.engineSmoke.update(dt, smoking);
     this.hoodSmoke.update(dt, smoking);
 
-    // Heal lerps (no visual effect now, but kept so progress tracking stays correct).
     const k = Math.min(1, FIX_LERP * dt);
     for (const name in this.fix) {
       this.fix[name] += (this.fixTarget[name] - this.fix[name]) * k;
     }
 
-    // Tap shake + scale pop, decaying over SHAKE_TIME; else a one-shot spawn
-    // pulse for above-base-tier cars (no rotation, just a brief scale-up).
     if (this.shakeT > 0) {
       this.shakeT = Math.max(0, this.shakeT - dt);
       const f = this.shakeT / SHAKE_TIME;
@@ -195,7 +157,6 @@ export class CarView {
       this.bodyGroup.scale.setScalar(1);
     }
 
-    // Drive tween.
     if (this.drive) {
       this.drive.t += dt / this.drive.dur;
       const t = Math.min(1, this.drive.t);
@@ -214,13 +175,6 @@ export class CarView {
     this.engineSmoke.dispose();
     this.hoodSmoke.dispose();
     sceneManager.remove(this.root);
-    // Dispose ONLY what this instance owns: its cloned materials (see #build).
-    // The GEOMETRY is NOT ours to free — clone() shares it with the preloaded
-    // base scene and every other live car of this tier, so disposing it here
-    // yanks the GPU buffers out from under all of them: the same shared-resource
-    // hazard the material cloning in #build guards against (cars keep casting
-    // shadows and taking taps but render nothing). The base models live for the
-    // whole session, so their geometry is never disposed per car.
     this.root.traverse((o) => {
       if (o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];

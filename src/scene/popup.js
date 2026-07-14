@@ -1,12 +1,6 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 
-/**
- * popup.js — floating DOM cash text at a screen point. One-shot: animates
- * then removes itself.
- */
-
-/** Project a world point to fixed-position screen coords (for popup placement). */
 export function worldToScreen(pos3d, camera, rendererDom) {
   const v = new THREE.Vector3(pos3d.x, pos3d.y, pos3d.z).project(camera);
   const rect = rendererDom.getBoundingClientRect();
@@ -34,7 +28,6 @@ export function showCashPopup(text, x, y) {
   });
   document.body.appendChild(el);
 
-  // Next frame: animate up + fade (so the transition actually runs).
   requestAnimationFrame(() => {
     el.style.transform = 'translate(-50%, -180%)';
     el.style.opacity = '0';

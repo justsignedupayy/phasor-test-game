@@ -1,19 +1,6 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 
-/**
- * ZzzEffect — the classic cartoon sleep effect above a worker's head while
- * it's asleep on break: small "Z" sprites continuously spawn near the head,
- * drift upward and slightly sideways, scale up and fade out, then respawn.
- * Purely render-side eye-candy (Mechanic.js / MarketWorker.js own no game
- * state); toggled by update(dt, active).
- *
- * The "Z" texture is a module-level singleton: one CanvasTexture drawn once
- * and shared by every instance. Each sprite clones the SpriteMaterial so its
- * own opacity is independent, but the texture itself is never re-created and
- * never disposed per instance.
- */
-
 const PARTICLES = 3;          // concurrent Zs — staggered thirds of one cycle
 const LIFE = 2.1;             // seconds each Z lives before respawning
 const RISE = 0.85;            // world units climbed over a lifetime
@@ -22,13 +9,11 @@ const SWAY_AMP = 0.07;        // amplitude of the wobble around the drift path
 const SWAY_CYCLES = 1.5;      // wobble cycles per lifetime
 const FADE_IN = 0.15;         // fraction of life spent fading in
 const FADE_OUT = 0.35;        // fraction of life spent fading out
-// Per-slot variety: base size (small → larger Z) and drift side.
 const BASE_SCALES = [0.26, 0.33, 0.4];
 const DRIFT_DIRS = [1, -0.6, 0.8];
 
 let sharedTexture = null;
 
-/** Build (once) a bold "Z" glyph, light grey with a dark outline for contrast. */
 function getZTexture() {
   if (sharedTexture) return sharedTexture;
   const size = 64;
@@ -78,8 +63,6 @@ export class ZzzEffect {
 
     for (let i = 0; i < PARTICLES; i++) {
       const sprite = this.sprites[i];
-      // Stagger the slots by thirds of a lifetime so a new Z spawns as an old
-      // one fades — a continuous ascending small→large stream.
       const local = this.t - (i * LIFE) / PARTICLES;
       if (local < 0) {
         sprite.visible = false;

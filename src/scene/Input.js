@@ -1,17 +1,5 @@
 import settings from '../config/settings.js';
 
-/**
- * Input — on-screen virtual joystick with a DYNAMIC, touch-anywhere anchor.
- *
- * Self-contained DOM (inline styles, no external CSS). Works with touch and
- * mouse via Pointer Events. The stick is hidden until the player presses inside
- * the input zone (the game canvas), then springs up centred on that press point
- * and stays anchored there while dragging; it hides again on release, so the
- * next press re-anchors it wherever the player touches. Exposes `.value` as a
- * screen-space vector:
- *   x: right positive, y: UP positive, magnitude 0..1 (0 inside the deadzone).
- * The control layer maps this to world space; Input stays render-only.
- */
 export class Input {
   constructor() {
     this.value = { x: 0, y: 0 };
@@ -31,9 +19,6 @@ export class Input {
     const base = document.createElement('div');
     Object.assign(base.style, {
       position: 'fixed',
-      // Placed dynamically (left/top) on each press so its centre lands on the
-      // touch point; hidden until then. It's purely visual — the press itself is
-      // captured on the canvas zone, so the ring never intercepts pointer events.
       left: '0px',
       top: '0px',
       display: 'none',
@@ -68,9 +53,6 @@ export class Input {
   }
 
   #bind() {
-    // Listen on the window (not the ring) so a press ANYWHERE in the input zone
-    // can spawn the stick, and a drag can range past it. Move/release are global
-    // so the drag keeps tracking even if the finger leaves the zone.
     window.addEventListener('pointerdown', (e) => this.#start(e));
     window.addEventListener('pointermove', (e) => this.#move(e));
     window.addEventListener('pointerup', (e) => this.#end(e));
@@ -85,7 +67,6 @@ export class Input {
     });
   }
 
-  /** Maps a KeyboardEvent.code to a direction in this._keys; returns true if it matched one. */
   #setKey(code, down) {
     switch (code) {
       case 'KeyW':
@@ -109,7 +90,6 @@ export class Input {
     }
   }
 
-  /** Combines the held movement keys into this.value, normalized to magnitude <= 1 (diagonals). */
   #recomputeFromKeys() {
     const { up, down, left, right } = this._keys;
     if (!up && !down && !left && !right) {
@@ -131,12 +111,6 @@ export class Input {
     this.value.y = y;
   }
 
-  /**
-   * The joystick's usable input zone: a press on the game world (the canvas), not
-   * on a DOM overlay (HUD, upgrade/break/truck menus, popups). Those sit above the
-   * canvas as their own elements, so a press on them never targets the canvas and
-   * never spawns the stick — leaving their taps to their own handlers.
-   */
   #inZone(e) {
     return e.target instanceof HTMLCanvasElement;
   }
@@ -145,7 +119,6 @@ export class Input {
     if (this._active || !this.#inZone(e)) return;
     this._active = true;
     this._pointerId = e.pointerId;
-    // Anchor the ring centred on the press point and reveal it.
     this._center.x = e.clientX;
     this._center.y = e.clientY;
     this.base.style.left = `${e.clientX - this.radius}px`;

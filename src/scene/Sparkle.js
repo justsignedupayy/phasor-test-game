@@ -1,21 +1,8 @@
 import * as THREE from 'three';
-
-/**
- * Sparkle.js — a bright "shiny / done!" glitter burst: a handful of small
- * four-point star sprites that shoot outward, arc under gravity, twinkle and
- * fade over ~0.5-0.8s, then remove themselves. Fully procedural (a glint canvas
- * texture drawn once, tinted gold/white/cyan per particle) — no external assets,
- * same approach as scene/Poof.js.
- *
- * Reusable effect: spawn(pos, size) anywhere, update(dt) once per frame from the
- * main loop. In this game it fires alongside a poof when a car finishes being
- * repaired at a pit (see scene/CarYard.js) — never at the gas station.
- */
+import { SpriteBatch } from './SpriteBatch.js';
 
 let sparkleTexture = null;
 
-/** The shared glint sprite texture: a soft bright core plus four diffraction
- * spikes on a canvas, so each sprite reads as a twinkling star, not a disc. */
 function getSparkleTexture() {
   if (sparkleTexture) return sparkleTexture;
   const size = 64;
@@ -24,7 +11,6 @@ function getSparkleTexture() {
   const ctx = canvas.getContext('2d');
   const c = size / 2;
 
-  // Soft round core.
   const core = ctx.createRadialGradient(c, c, 0, c, c, size * 0.32);
   core.addColorStop(0, 'rgba(255,255,255,1)');
   core.addColorStop(0.5, 'rgba(255,255,255,0.6)');
@@ -34,7 +20,6 @@ function getSparkleTexture() {
   ctx.arc(c, c, size * 0.32, 0, Math.PI * 2);
   ctx.fill();
 
-  // Four tapered diffraction spikes (a thin bright cross that fades to the tips).
   const spike = (w, h) => {
     const g = ctx.createLinearGradient(0, -h, 0, h);
     g.addColorStop(0, 'rgba(255,255,255,0)');
@@ -60,83 +45,74 @@ function getSparkleTexture() {
   return sparkleTexture;
 }
 
-// A few celebratory tints the particles pick from: warm gold, white, icy cyan.
 const SPARKLE_TINTS = [
   new THREE.Color(1.0, 0.9, 0.45),
   new THREE.Color(1.0, 1.0, 1.0),
   new THREE.Color(0.6, 0.95, 1.0),
 ];
 
+const MAX_BITS = 60;
+
 export class SparkleEffects {
   constructor(sceneManager) {
-    this.group = new THREE.Group();
-    sceneManager.add(this.group);
-    this.bits = [];
+    this.batch = new SpriteBatch(sceneManager, {
+      texture: getSparkleTexture(),
+      capacity: MAX_BITS,
+      blending: THREE.AdditiveBlending, // bright, glinty accumulation
+      renderOrder: 11,
+    });
+    this.bits = []; // live particle records, compacted in place each update
+    this.free = []; // dead records, reused verbatim — spawn allocates nothing after warm-up
   }
 
-  /**
-   * Burst a sparkle shower at pos {x, y?, z} (y defaults to car mid-height);
-   * `size` scales the whole burst (1 ≈ a small prop-sized celebration).
-   */
-  spawn(pos, size = 1) {
-    const tex = getSparkleTexture();
-    const count = 14;
+  spawn(pos, size = 1, count = 10) {
     const y = pos.y ?? 0.9;
     for (let i = 0; i < count; i++) {
+      if (this.bits.length >= MAX_BITS) return; // budget spent — drop the overflow
       const tint = SPARKLE_TINTS[(Math.random() * SPARKLE_TINTS.length) | 0];
-      const mat = new THREE.SpriteMaterial({
-        map: tex,
-        color: tint,
-        transparent: true,
-        opacity: 1,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending, // bright, glinty accumulation
-      });
-      const sprite = new THREE.Sprite(mat);
-      // Fire out in all directions, biased slightly upward so they arc and rain.
+      const b = this.free.pop() ?? {};
+      b.r = tint.r;
+      b.g = tint.g;
+      b.b = tint.b;
       const a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
       const r = (0.1 + Math.random() * 0.35) * size;
-      sprite.position.set(pos.x + Math.cos(a) * r, y + (Math.random() - 0.1) * 0.4 * size, pos.z + Math.sin(a) * r);
-      const s0 = (0.28 + Math.random() * 0.28) * size;
-      sprite.scale.setScalar(s0);
-      this.group.add(sprite);
+      b.x = pos.x + Math.cos(a) * r;
+      b.y = y + (Math.random() - 0.1) * 0.4 * size;
+      b.z = pos.z + Math.sin(a) * r;
+      b.age = 0;
+      b.life = 0.5 + Math.random() * 0.35;
+      b.s0 = (0.32 + Math.random() * 0.3) * size;
       const speed = (2.2 + Math.random() * 2.6) * size;
-      this.bits.push({
-        sprite,
-        age: 0,
-        life: 0.5 + Math.random() * 0.35,
-        s0,
-        vx: Math.cos(a) * speed,
-        vy: (2.0 + Math.random() * 2.4) * size,
-        vz: Math.sin(a) * speed,
-        twinkle: 12 + Math.random() * 16, // per-particle flicker rate
-        phase: Math.random() * Math.PI * 2,
-      });
+      b.vx = Math.cos(a) * speed;
+      b.vy = (2.0 + Math.random() * 2.4) * size;
+      b.vz = Math.sin(a) * speed;
+      b.twinkle = 12 + Math.random() * 16; // per-particle flicker rate
+      b.phase = Math.random() * Math.PI * 2;
+      this.bits.push(b);
     }
   }
 
   update(dt) {
     const gravity = 9.5;
-    for (let i = this.bits.length - 1; i >= 0; i--) {
-      const b = this.bits[i];
+    const bits = this.bits;
+    let w = 0; // survivors compact to the front; batch slot == survivor index
+    for (let i = 0; i < bits.length; i++) {
+      const b = bits[i];
       b.age += dt;
-      const t = b.age / b.life;
-      if (t >= 1) {
-        this.group.remove(b.sprite);
-        b.sprite.material.dispose();
-        this.bits.splice(i, 1);
+      if (b.age >= b.life) {
+        this.free.push(b);
         continue;
       }
-      // Ballistic arc: gravity pulls the upward toss back down.
+      const t = b.age / b.life;
       b.vy -= gravity * dt;
-      b.sprite.position.x += b.vx * dt;
-      b.sprite.position.y += b.vy * dt;
-      b.sprite.position.z += b.vz * dt;
-      // Twinkle: a fast flicker riding a smooth fade-out, so each bit glints.
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.z += b.vz * dt;
       const flicker = 0.55 + 0.45 * Math.sin(b.phase + b.age * b.twinkle);
-      b.sprite.material.opacity = (1 - t * t) * flicker;
-      // Shrink slightly as they die.
-      b.sprite.scale.setScalar(b.s0 * (1 - 0.35 * t));
+      this.batch.set(w, b.x, b.y, b.z, b.s0 * (1 - 0.35 * t), b.r, b.g, b.b, (1 - t * t) * flicker);
+      bits[w++] = b;
     }
+    bits.length = w;
+    this.batch.commit(w);
   }
 }

@@ -1,119 +1,41 @@
-/**
- * supermarket.js — the supermarket's customer + worker simulation. No Three.js.
- *
- *   tickSupermarket(state, dt)   advance everything: customer spawning/movement,
- *                                 checkout, and (once hired) the market worker's FSM.
- *   spawnCustomer(state)         create one customer with a random 1-5 item order.
- *   buyProduct(state, shelfIndex) gather that shelf's product toward the current
- *                                 order (player tap at level 0, or the worker).
- *   placeAtCheckout(state)       place the finished order at the counter.
- *   restockShelf(state, i)       refill a shelf to capacity.
- *   checkoutCustomer(state)      the served customer pays and starts walking out.
- *   hurryMarketWorker(state)     remote boost: temporarily speeds the market worker,
- *                                 mirroring simulation.js's per-pit hurry(state, i).
- *
- * Customer states: walkingIn -> waiting -> walkingToCheckout -> walkingOut (then
- * removed). Only the front-of-line customer (the first one fully 'waiting') is
- * ever served — checkoutBag/assemblingBag both key off its id, mirroring the
- * single-active-car-per-pit shape in simulation.js. Customers walk in from
- * settings.supermarket.customerEntryOutside and back out through
- * customerExitOutside — a separate door just to the entry's left, on the SAME
- * (back) wall, not a straight drive-through like the cars — see Garage.js's
- * marketEntryDoor/marketExitDoor.
- *
- * Worker FSM (workerLevel >= 1): idle -> packaging (walk shelf-to-shelf
- * gathering the front order, then to the checkout) -> idle. workerLevel >= 2
- * adds restocking (walk to the restock box, then to the emptiest shelf) when
- * no customer needs packaging and the box still has a unit to carry.
- */
 import settings from '../config/settings.js';
 import { grid, findPath } from './pathfinding.js';
 import { resolveGarageCollisions } from './collision.js';
 import { createBreakState, tickBreak, incrementJobCount } from './breaks.js';
 
-// Every market NPC (worker + customers) shares the player's body radius — they all
-// clone the same character model. Obstacle inflation in the pathfinding grid uses
-// this same radius, and it's the separation distance for agent-agent overlap.
 const NPC_RADIUS = settings.player.radius;
 
-// The market worker only bothers restocking a shelf once it's GENUINELY low —
-// at or below this fraction of its capacity — instead of shuttling to the box
-// pile the instant a single unit sells (which left it restocking near-full
-// shelves in a near-constant loop).
 const RESTOCK_THRESHOLD_FRACTION = 0.1;
 
-// --- shared movement (A* waypoint following) -------------------------------
-
-// Distance at which a waypoint counts as reached. Kept to half a cell so the mover
-// hugs the A* cell centres closely — a larger value lets it cut corners and graze the
-// inflated obstacle margin it was routed clear of (a few cm into the checkout box).
 const WP_REACH = settings.pathfinding.cellSize * 0.5;
 
-/** Two points (essentially) the same spot — used to detect a target change. */
 function samePoint(a, b) {
   return Math.abs(a.x - b.x) < 1e-3 && Math.abs(a.z - b.z) < 1e-3;
 }
 
-/** Drop a mover's cached route (on arrival, so the next target replans). */
 function clearPath(mover) {
   mover._path = undefined;
   mover._pathTarget = undefined;
   mover._pathIndex = 0;
 }
 
-/**
- * Plan a mover's route to target — normally plain A* (findPath), with one special
- * case that threads a mandatory gap waypoint first:
- *
- *  • Customer EXIT (target = the outside exit point): A* to the BACK-wall exit
- *    corridor mouth { marketExitX, halfZ } — which routes the customer AROUND the
- *    inflated checkout box instead of straight through it — then a direct leg out
- *    along the exit corridor, through its far-end door.
- *
- *  • Customer ENTRY (mover still outside the back wall, walking to a queue slot):
- *    the mirror image — a straight leg down the entry corridor to its mouth
- *    { marketX, halfZ }, then A* from the mouth to the slot, so the outside leg
- *    never cuts across the corridor's side walls.
- *
- *  • Crossing the FRONT wall (the restock box sits on the exterior dock just
- *    outside it): thread the delivery corridor — its mouth { deliveryDoorX,
- *    -halfZ } AND the outside turn-point past its far-end door
- *    (deliveryDoorOutside) — between the in-room A* leg and the straight
- *    off-grid leg to the box, in either direction, so the outside leg walks the
- *    corridor axis instead of cutting through its side walls.
- *
- * Every special route still uses findPath for the in-room leg, so the A* grid is
- * the single source of static obstacle avoidance; only the gap waypoint is
- * threaded in.
- */
 function planRoute(mover, target) {
   const W = settings.world;
   const M = settings.supermarket;
   const pos = mover.position;
 
-  // Customer leaving: A* to the exit corridor's mouth (routes around the checkout
-  // box), then straight out along the corridor through its far-end door.
   if (samePoint(target, M.customerExitOutside)) {
     const exitDoor = { x: M.marketExitX, z: W.halfZ };
     const toDoor = findPath(grid, pos, exitDoor);
     return toDoor ? [...toDoor, exitDoor] : [exitDoor];
   }
 
-  // Customer arriving (still outside the back wall, i.e. in the entry corridor):
-  // straight down the corridor to its mouth, then A* from the mouth to the queue
-  // slot — the exit case's mirror, pointed the other way.
   if (pos.z > W.halfZ && target.z < W.halfZ) {
     const entryMouth = { x: M.marketX, z: W.halfZ };
     const fromMouth = findPath(grid, entryMouth, target);
     return fromMouth ? [entryMouth, ...fromMouth] : [entryMouth];
   }
 
-  // Crossing the FRONT wall (the restock box sits just outside it): thread the
-  // delivery corridor — the gate at the wall, then straight down the corridor to
-  // the turn-point past its far-end door (deliveryDoorOutside) — so the route
-  // honours the corridor's side walls instead of cutting through them. The
-  // remaining off-wall leg to/from the box is a straight shot (no A* grid out
-  // there), same shape as the customer cases above, in both directions.
   const frontGate = { x: M.deliveryDoorX, z: -W.halfZ };
   const targetOutsideFront = target.z < -W.halfZ;
   const posOutsideFront = pos.z < -W.halfZ;
@@ -123,8 +45,6 @@ function planRoute(mover, target) {
   }
   if (posOutsideFront && !targetOutsideFront) {
     const fromGate = findPath(grid, frontGate, target);
-    // Swing out past the door only when actually beyond its plane — a mover
-    // already inside the corridor heads straight for the mouth instead.
     const head = pos.z < M.deliveryDoorZ ? [M.deliveryDoorOutside, frontGate] : [frontGate];
     return fromGate ? [...head, ...fromGate] : head;
   }
@@ -132,21 +52,6 @@ function planRoute(mover, target) {
   return findPath(grid, pos, target);
 }
 
-/**
- * Move one market NPC toward `target`, routing around static obstacles via A*. The
- * single routing point for every customer/worker move. Returns true once arrived
- * (so callers drive `.moving` and their FSM transitions exactly as before).
- *
- *  • On a target change, request a fresh path (findPath) and cache it on the mover.
- *    A null path (target/start off the grid, e.g. a customer's outside door) falls
- *    back to moving straight at the target.
- *  • Each frame, move toward the next waypoint; advance the cursor once within
- *    WP_REACH of it. With all waypoints consumed (or on a direct path) it heads to
- *    the real target — A* stops at the edge of an inflated obstacle, so this last
- *    short leg walks the NPC onto its actual interaction spot.
- *  • Arrival is judged BEFORE movement (against the real target) so the FSM advances
- *    the instant the NPC lands on it. A per-frame cap keeps any step ≤ speed*dt.
- */
 function waypointNpc(state, mover, target, speed, dt) {
   const eps = settings.supermarket.arriveEpsilon;
   const step = speed * dt;
@@ -160,7 +65,6 @@ function waypointNpc(state, mover, target, speed, dt) {
   const fromX = mover.position.x;
   const fromZ = mover.position.z;
 
-  // Advance the cursor past every waypoint already reached this frame.
   const path = mover._path;
   if (path && path.length) {
     while (mover._pathIndex < path.length) {
@@ -171,7 +75,6 @@ function waypointNpc(state, mover, target, speed, dt) {
   }
   const onFinalLeg = !path || !path.length || mover._pathIndex >= path.length;
 
-  // Arrival (before movement): snap onto the real target, clear the route.
   const dxT = target.x - mover.position.x;
   const dzT = target.z - mover.position.z;
   const distT = Math.hypot(dxT, dzT);
@@ -183,7 +86,6 @@ function waypointNpc(state, mover, target, speed, dt) {
     return true;
   }
 
-  // Step toward the immediate sub-goal: next waypoint, or the real target.
   const goal = onFinalLeg ? target : path[mover._pathIndex];
   const gx = goal.x - mover.position.x;
   const gz = goal.z - mover.position.z;
@@ -195,14 +97,8 @@ function waypointNpc(state, mover, target, speed, dt) {
     mover.position.z += (gz / gd) * m;
   }
 
-  // A null path means a direct moveToward with no A* wall routing (an off-grid
-  // target: a customer's outside door). Enforce the world bounds here so the mover
-  // can't walk through a solid wall. Applied before the cap below, so any clamp
-  // correction is smoothed to ≤ speed*dt.
   if (!path) clampFallbackToWalls(mover.position, NPC_RADIUS, target);
 
-  // Per-frame displacement cap (the step above is already ≤ speed*dt; this guards
-  // against any future addition shoving the NPC further than its speed allows).
   const ddx = mover.position.x - fromX;
   const ddz = mover.position.z - fromZ;
   const moved = Math.hypot(ddx, ddz);
@@ -213,22 +109,6 @@ function waypointNpc(state, mover, target, speed, dt) {
   return false;
 }
 
-/**
- * Wall clamp for the null-path direct fallback. Enforces ALL FOUR walls, mirroring
- * simulation.clampToBounds (left/right via the x bound, front/back via the z bound).
- *
- * Crossing is gated STRICTLY by door x: a mover may only pass through a wall while it
- * is within gateHalf of that wall's door — the front (-z) wall's delivery gate
- * (deliveryDoorX), or the back (+z) wall's customer entry/exit doors (marketX /
- * marketExitX). Everywhere else those walls are completely solid, BOTH WAYS: like
- * simulation.clampToBounds, each wall is a two-sided slab (inner face at ±halfZ, outer
- * face a wallThickness beyond) and an off-gate mover is held off whichever face it is
- * on — the side read against the slab's mid-plane, unambiguous because a per-frame
- * step is far smaller than slab + radius. The earlier "pos already past the wall
- * plane" relaxation read the POST-move position, so an outside mover that crossed the
- * plane in one step registered as inside and was pulled through — walls only blocked
- * inside→outside. Left/right walls are always solid.
- */
 function clampFallbackToWalls(pos, r, target) {
   const W = settings.world;
   const M = settings.supermarket;
@@ -237,11 +117,8 @@ function clampFallbackToWalls(pos, r, target) {
   const limX = W.halfX - r;
   const limZ = W.halfZ - r;
 
-  // Left + right walls: always solid (mirrors clampToBounds' x clamp). Market NPCs
-  // never reach the bay's right fence, so the full-width halfX bound is the wall here.
   pos.x = Math.max(-limX, Math.min(limX, pos.x));
 
-  // Front (-z) + back (+z) walls: solid except within gateHalf of that wall's door x.
   const atFrontGate = Math.abs(pos.x - M.deliveryDoorX) <= g;
   const atBackGate = Math.abs(pos.x - M.marketX) <= g || Math.abs(pos.x - M.marketExitX) <= g;
   if (!atBackGate) {
@@ -254,19 +131,6 @@ function clampFallbackToWalls(pos, r, target) {
   }
 }
 
-/**
- * Light dynamic agent-agent separation: push apart any two NPCs (worker +
- * customers) whose bodies overlap, but ONLY while BOTH are in transit (`.moving`).
- * A settled agent standing on its interaction spot (a waiting customer, the worker
- * at the checkout) is never disturbed and never blocks another agent's arrival, so
- * this can't stall the FSM. Static obstacles are handled by A*, not here.
- *
- * As a final net it also pushes every in-transit agent out of any garage prop
- * (shelves/tires) it overlaps — a safety backstop to the A* grid, which
- * already routes them clear. Market NPCs stay in the left lobby, well clear of the
- * pit row, so in practice this never fires; it just guarantees no clipping if a
- * future NPC navigates the garage proper.
- */
 function separateMovingAgents(state) {
   const S = state.supermarket;
   const agents = S.worker ? [...S.customerQueue, S.worker] : S.customerQueue;
@@ -301,13 +165,11 @@ function separateMovingAgents(state) {
   }
 }
 
-/** Waiting-line slot i's world position (slot 0 = nearest the checkout). */
 function queueSlotPosition(i) {
   const M = settings.supermarket;
   return { x: M.queueAnchor.x + i * M.queueStep.x, z: M.queueAnchor.z + i * M.queueStep.z };
 }
 
-/** How many customers still in line (walkingIn/waiting) precede this one. */
 function lineIndexOf(state, customer) {
   let i = 0;
   for (const c of state.supermarket.customerQueue) {
@@ -317,7 +179,6 @@ function lineIndexOf(state, customer) {
   return i;
 }
 
-/** The customer currently eligible to be served (first one fully walked in). */
 export function frontCustomer(state) {
   return state.supermarket.customerQueue.find((c) => c.state === 'waiting') ?? null;
 }
@@ -326,7 +187,6 @@ function bagComplete(items, request) {
   return Object.keys(request).every((type) => (items[type] || 0) >= request[type]);
 }
 
-/** Sum of price x quantity for a request/items map. */
 export function computeTotal(items) {
   const P = settings.supermarket.products;
   let total = 0;
@@ -334,13 +194,11 @@ export function computeTotal(items) {
   return total;
 }
 
-/** The assembling bag for this customer, or null if none is in progress for them. */
 function customerBag(state, customer) {
   const bag = state.supermarket.assemblingBag;
   return bag && bag.customerId === customer.id ? bag : null;
 }
 
-/** Does the worker currently hold ≥1 gathered item toward this customer's order? */
 function bagHasItems(state, customer) {
   if (!customer) return false;
   const bag = customerBag(state, customer);
@@ -349,12 +207,6 @@ function bagHasItems(state, customer) {
   return false;
 }
 
-/**
- * Nearest shelf (by Euclidean distance from `from`) that the customer still
- * needs more of AND that has stock to gather, or null. Drives packaging routing
- * so the worker walks to whichever in-stock needed shelf is closest, not the
- * lowest product index.
- */
 function nearestNeededShelfIndex(state, customer, from) {
   const S = state.supermarket;
   const positions = settings.supermarket.shelves;
@@ -376,7 +228,6 @@ function nearestNeededShelfIndex(state, customer, from) {
   return best;
 }
 
-/** A shelf the customer still needs but that is empty (blocks the order until restocked), or null. */
 function neededEmptyShelfIndex(state, customer) {
   const S = state.supermarket;
   const bag = customerBag(state, customer);
@@ -389,7 +240,6 @@ function neededEmptyShelfIndex(state, customer) {
   return null;
 }
 
-/** Lowest-stocked shelf below capacity, or null if every shelf is full. */
 function emptiestShelfIndex(state) {
   const cap = settings.supermarket.shelfCapacity;
   let best = null;
@@ -403,14 +253,6 @@ function emptiestShelfIndex(state) {
   return best;
 }
 
-// --- customers --------------------------------------------------------------
-
-/**
- * A tint for a freshly spawned customer, never the one the immediately preceding
- * customer got — without this, a customer walking out through the exit and the
- * next one walking in through the entry (same model, same tint) read as the same
- * person doing a loop. See settings.character.customerTints.
- */
 function pickCustomerTint(state) {
   const palette = settings.character.customerTints;
   const last = state.supermarket.lastCustomerTint;
@@ -420,7 +262,6 @@ function pickCustomerTint(state) {
   return tint;
 }
 
-/** Create one customer with a random 1-5 unit order (any mix of A/B/C/D). */
 export function spawnCustomer(state) {
   const M = settings.supermarket;
   const types = Object.keys(M.products);
@@ -476,24 +317,18 @@ function updateCustomers(state, dt) {
     }
 
     if (c.state === 'walkingToCheckout') {
-      // Stand in FRONT of the checkout (customerCheckoutSpot), not on its centre, so
-      // the customer never clips through the counter mesh on the final approach.
       const arrived = waypointNpc(state, c, M.customerCheckoutSpot, M.customerMoveSpeed, dt);
       c.moving = !arrived;
       if (arrived) checkoutCustomer(state);
       continue;
     }
 
-    // walkingOut
     const arrived = waypointNpc(state, c, M.customerExitOutside, M.customerMoveSpeed, dt);
     c.moving = !arrived;
     if (arrived) q.splice(i, 1);
   }
 }
 
-// --- player/worker actions ---------------------------------------------------
-
-/** Gather as much of this shelf's product as the front order still needs. */
 export function buyProduct(state, shelfIndex) {
   const S = state.supermarket;
   const shelf = S.shelves[shelfIndex];
@@ -520,7 +355,6 @@ export function buyProduct(state, shelfIndex) {
   return true;
 }
 
-/** Place the fully-gathered order at the checkout counter. */
 export function placeAtCheckout(state) {
   const S = state.supermarket;
   if (S.checkoutBag) return false; // counter occupied
@@ -534,7 +368,6 @@ export function placeAtCheckout(state) {
   return true;
 }
 
-/** Refill a shelf to full capacity (called once a restock box has been delivered). */
 export function restockShelf(state, shelfIndex) {
   const shelf = state.supermarket.shelves[shelfIndex];
   if (!shelf) return false;
@@ -543,7 +376,6 @@ export function restockShelf(state, shelfIndex) {
   return true;
 }
 
-/** The served customer pays (cash goes straight to the player) and heads out. */
 export function checkoutCustomer(state) {
   const S = state.supermarket;
   const bag = S.checkoutBag;
@@ -554,17 +386,12 @@ export function checkoutCustomer(state) {
 
   state.cash += bag.total;
   S.paidThisTick = bag.total;
-  // One delivered customer = one job toward the market worker's break (the
-  // worker exists only at workerLevel >= 1; at level 0 the player serves).
-  if (S.worker) incrementJobCount(S.worker.break);
+  if (S.worker) incrementJobCount(S.worker.break, state);
   customer.state = 'walkingOut';
   customer.moving = true;
   return true;
 }
 
-// --- market worker (workerLevel >= 1) ---------------------------------------
-
-/** A freshly hired worker: idle, standing at its spot near the shelves. */
 export function createMarketWorker() {
   return {
     position: { ...settings.supermarket.workerIdleSpot },
@@ -580,7 +407,6 @@ export function createMarketWorker() {
   };
 }
 
-/** Remote hurry: tapping the worker from anywhere refreshes its boost window. */
 export function hurryMarketWorker(state) {
   const w = state.supermarket.worker;
   if (!w || w.break.onBreak) return;
@@ -611,8 +437,6 @@ function updateWorker(state, dt) {
   }
 
   if (w.phase === 'toCheckout') {
-    // Deliver from a spot offset off the checkout centre so the worker doesn't
-    // path onto the customer standing there. The customer still targets checkoutPosition.
     const deliverSpot = {
       x: M.checkoutPosition.x + M.workerCheckoutOffset.x,
       z: M.checkoutPosition.z + M.workerCheckoutOffset.z,
@@ -634,9 +458,6 @@ function updateWorker(state, dt) {
     const arrived = waypointNpc(state, w, S.restockBoxPosition, speed, dt);
     w.moving = !arrived;
     if (arrived) {
-      // Take one unit out of the box to carry to the shelf. If it emptied between
-      // deciding to restock and arriving (e.g. the player grabbed the last unit),
-      // abort and drop back to idle — the worker waits for the next delivery.
       if (takeRestockUnit(state)) {
         w.carrying = true;
         w.phase = 'toRestockShelf';
@@ -663,12 +484,6 @@ function updateWorker(state, dt) {
     return;
   }
 
-  // On break: the worker has finished its last task (it only reaches this idle
-  // decision with no phase in progress), so it now walks to its break spot and
-  // leans against the wall. Customers/queue keep building meanwhile — exactly
-  // like an idle worker with no job, just resting. tickBreak (above) ends the
-  // break automatically; an ad can end it early (endBreak). It then drops
-  // straight back into normal work.
   if (w.break.onBreak) {
     const B = settings.breaks;
     const arrived = waypointNpc(state, w, B.marketBreakSpot, speed, dt);
@@ -680,11 +495,8 @@ function updateWorker(state, dt) {
     return;
   }
 
-  // Idle: decide the next job. Serving a waiting customer wins over routine
-  // restocking; restocking only ever runs for a fully trained (level 2) worker.
   const customer = frontCustomer(state);
   if (customer && !S.checkoutBag) {
-    // Walk to the nearest in-stock shelf the order still needs.
     const idx = nearestNeededShelfIndex(state, customer, w.position);
     if (idx !== null) {
       w.state = 'packaging';
@@ -693,9 +505,6 @@ function updateWorker(state, dt) {
       w._gatheredItem = bagHasItems(state, customer);
       return;
     }
-    // Nothing left to gather in stock: either the order is complete (deliver it)
-    // or it's blocked on an empty shelf. A blocked shelf must be restocked first
-    // (level 2) — otherwise the worker would loop forever at the empty shelf.
     const bag = customerBag(state, customer);
     if (bag && bagComplete(bag.items, customer.request)) {
       w.state = 'packaging';
@@ -714,8 +523,6 @@ function updateWorker(state, dt) {
         return;
       }
     }
-    // A level-1 worker can't restock; with the order blocked there's nothing it
-    // can do but wait for the player to refill, so it idles in place.
     w.state = 'idle';
     w.moving = false;
     w._gatheredItem = false;
@@ -732,31 +539,19 @@ function updateWorker(state, dt) {
       return;
     }
   }
-  // Idle in place: no job to do, so the worker stays exactly where its last task
-  // left it (no walk back to a fixed idle spot) and drops straight into idle.
   w.state = 'idle';
   w.moving = false;
   w._gatheredItem = false;
 }
 
-// --- restock box + delivery truck -------------------------------------------
-
-/** Highest "Faster Deliveries" level (last entry of truck.deliveryTimes). */
 const MAX_TRUCK_LEVEL = settings.supermarket.truck.deliveryTimes.length - 1;
 
-/** Seconds from placing an order to the truck's arrival at the current
- * "Faster Deliveries" level. */
 export function truckDeliveryTime(state) {
   const times = settings.supermarket.truck.deliveryTimes;
   const lvl = Math.min(state.supermarket.truckUpgradeLevel, MAX_TRUCK_LEVEL);
   return times[lvl];
 }
 
-/**
- * Take one unit out of the restock box (one unit = one full shelf refill).
- * Returns false (taking nothing) when the box is empty — the caller then can't
- * restock until the next truck arrives.
- */
 export function takeRestockUnit(state) {
   const box = state.supermarket.restockBox;
   if (box.units <= 0) return false;
@@ -764,14 +559,6 @@ export function takeRestockUnit(state) {
   return true;
 }
 
-/**
- * Place a delivery order: the truck is idle until ordered, then arrives
- * truckDeliveryTime() seconds later (tickTruck counts it down). Called from the
- * phone menu's Order Truck row / the empty-box panel, and automatically by
- * tickTruck at the max "Faster Deliveries" level. Refused while an order is
- * already pending or a truck is in flight, and when the box is already full
- * (nothing to deliver).
- */
 export function orderTruck(state) {
   const S = state.supermarket;
   if (!S.unlocked || S.truckOrdered || S.truckArriving) return false;
@@ -781,19 +568,8 @@ export function orderTruck(state) {
   return true;
 }
 
-/**
- * Advance the delivery-truck order clock. The truck only moves against a placed
- * order (orderTruck): truckTimer counts up while one is pending, and on reaching
- * truckDeliveryTime() the truck is dispatched (truckArriving = true, order
- * consumed); the scene plays the drive-in and calls deliverStock() when it
- * lands. At the MAX "Faster Deliveries" level the order itself is placed
- * automatically the instant the restock box runs dry — below it, an empty box
- * simply blocks restocking until the player orders (the same waits-for-the-
- * player pattern as manual restocking before the worker is trained).
- */
 export function tickTruck(state, dt) {
   const S = state.supermarket;
-  // Final tier: auto-order the moment the box empties.
   if (S.truckUpgradeLevel >= MAX_TRUCK_LEVEL && S.restockBox.units <= 0) {
     orderTruck(state); // no-op if already ordered / in flight
   }
@@ -806,34 +582,19 @@ export function tickTruck(state, dt) {
   }
 }
 
-/**
- * The truck finished its drive-in: top the box back up to maxUnits (never past
- * it) and clear truckArriving so the delivery clock resumes. Called by the scene
- * (TruckView) at the drive-in → wait transition.
- */
 export function deliverStock(state) {
   const box = state.supermarket.restockBox;
   box.units = Math.min(box.units + box.maxUnits, box.maxUnits);
   state.supermarket.truckArriving = false;
 }
 
-/**
- * Skip a placed order's wait (the rewarded-ad "Call Truck Early" path): fast-
- * forward the order clock so the very next tickTruck dispatches the delivery.
- * Requires an order to be pending (manual, or auto at the max level) — with no
- * order there is nothing to hurry — and is a no-op while a truck is in flight.
- */
 export function callTruckEarly(state) {
   const S = state.supermarket;
   if (!S.truckOrdered || S.truckArriving) return;
   S.truckTimer = truckDeliveryTime(state);
 }
 
-// --- top-level tick -----------------------------------------------------------
-
 export function tickSupermarket(state, dt) {
-  // paidThisTick is a one-tick render signal (the scene pops "+$" at the
-  // checkout when it's > 0); clear it before checkoutCustomer can set it.
   state.supermarket.paidThisTick = 0;
   if (!state.supermarket.unlocked) return;
   updateCustomerSpawning(state, dt);

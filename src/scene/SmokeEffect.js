@@ -1,17 +1,5 @@
 import * as THREE from 'three';
 
-/**
- * SmokeEffect — a small sprite-based smoke plume for damaged cars. Purely
- * render-side eye-candy driven by CarView; owns no game state (it's told when
- * to emit via update(dt, active), where `active` is CarView's damaged-and-
- * unfixed flag).
- *
- * The soft smoke texture is a module-level singleton: one CanvasTexture drawn
- * once (a grey radial gradient) and shared by every sprite of every car. Each
- * sprite clones the SpriteMaterial so its opacity can animate independently,
- * but the texture underneath is never re-created and never disposed per car.
- */
-
 const POOL_SIZE = 42;
 const SPAWN_MIN = 0.03; // seconds between emitted particles
 const SPAWN_MAX = 0.06;
@@ -24,7 +12,6 @@ const BASE_SCALE_MAX = 0.5;
 
 let sharedTexture = null;
 
-/** Build (once) a soft grey radial-gradient puff on a small offscreen canvas. */
 function getSmokeTexture() {
   if (sharedTexture) return sharedTexture;
   const size = 64;
@@ -51,8 +38,6 @@ export class SmokeEffect {
     this.sprites = [];
     this.particles = []; // parallel to sprites: per-particle state
     for (let i = 0; i < POOL_SIZE; i++) {
-      // Clone the material per sprite so each can fade on its own; the texture
-      // itself is the shared singleton (never cloned, never disposed here).
       const material = new THREE.SpriteMaterial({
         map: texture,
         color: 0x444444,
@@ -78,7 +63,6 @@ export class SmokeEffect {
     this.wasActive = false;
   }
 
-  /** Immediately hide and deactivate every particle, skipping the fade-out. */
   #clear() {
     for (let i = 0; i < this.particles.length; i++) {
       this.particles[i].active = false;
@@ -88,7 +72,6 @@ export class SmokeEffect {
   }
 
   #spawn() {
-    // Recycle the first inactive sprite in the pool (the oldest to have expired).
     const i = this.particles.findIndex((p) => !p.active);
     if (i === -1) return; // all in use — skip this emission
     const p = this.particles[i];
@@ -111,8 +94,6 @@ export class SmokeEffect {
   }
 
   update(dt, active) {
-    // Once the car is fixed, clear every particle instantly instead of letting
-    // the last batch drift and fade out over their remaining life.
     if (!active && this.wasActive) this.#clear();
     this.wasActive = active;
 
@@ -146,8 +127,6 @@ export class SmokeEffect {
 
   dispose() {
     this.group.parent?.remove(this.group);
-    // Dispose ONLY the per-sprite cloned materials. The texture is the shared
-    // module-level singleton reused by every car — never dispose it here.
     for (const sprite of this.sprites) sprite.material.dispose();
   }
 }

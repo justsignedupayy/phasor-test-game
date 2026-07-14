@@ -6,26 +6,9 @@ import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
 import { AlertBounce } from './AlertBounce.js';
 
-/**
- * Mechanic — a worker NPC: the same rigged glTF model as the player (see
- * CharacterModel.js), duplicated per-pit via SkeletonUtils.clone() so each
- * worker gets its own skeleton + AnimationMixer while sharing the original
- * geometry/clips. Tinted (workerTint) so it reads as distinct from the player.
- *
- * Render-only: core/simulation.js owns the mechanic's position + FSM (repair-idle,
- * break-walk to its wall-lean spot, and the auto-restock box trip), exactly like the
- * market worker (state.supermarket.worker). This class just mirrors that core state each
- * frame — same split as MarketWorker.js. When carrying a restock box it plays the
- * carry clip and shows a Bag/box prop in its hand bone, like the market worker.
- */
 const HURRY_TIME_SCALE = 2; // repair clip plays at double speed while hurrying
 
 export class Mechanic {
-  /**
-   * `workClip` is the animation state played while working on a present car —
-   * 'repair' for pit mechanics (the default, unchanged), 'gaspump' for pump
-   * attendants (see scene/GasStationView.js).
-   */
   constructor(gltf, tint = settings.character.workerTint, workClip = 'repair') {
     const cfg = settings.character;
     this.workClip = workClip;
@@ -44,19 +27,14 @@ export class Mechanic {
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
 
-    // Resting-worker tap raycasting hits this instead of the (thin, animated) model.
     this.hitBox = buildTapHitBox(cfg.tapHitRadius, cfg.tapHitHeight);
     this.root.add(this.hitBox);
 
-    // The cardboard box carried on an auto-restock haul (shelf → pit), attached to
-    // the hand bone so it tracks the carry animation — exactly like the market worker.
     this.box = cloneStorageModel('box');
     this.box.scale.setScalar(settings.storage.boxScale);
     this.box.visible = false;
     attachToHand(this.model, this.box, settings.storage.boxHandOffset, settings.storage.boxHandRotation);
 
-    // The wrench held while repairing (pit mechanics only — pump attendants use
-    // the 'gaspump' clip and never reach the 'repair' state, see update() below).
     this.wrench = cloneStorageModel('wrench');
     this.wrench.scale.setScalar(cfg.wrenchOffset.scale);
     this.wrench.visible = false;
@@ -71,23 +49,11 @@ export class Mechanic {
     this.zzz.root.position.set(0, cfg.headHeight, 0);
     this.root.add(this.zzz.root);
 
-    // Red exclamation-mark bounce shown on a remote hurry tap (see main.js).
     this.alertBounce = new AlertBounce(settings.emote.spriteScale);
     this.alertBounce.root.position.set(0, cfg.headHeight + settings.emote.heightAboveHead, 0);
     this.root.add(this.alertBounce.root);
-    // Break progress is shown on the wall-mounted LED display at the break spot
-    // (see scene/BreakDisplay.js) — no head-label counter here.
   }
 
-  /**
-   * @param {object} flags
-   * @param {object} flags.mechanic   core's pit.mechanic (position/rotation/moving/carrying)
-   * @param {boolean} flags.carPresent a car is in the pit to work on
-   * @param {boolean} flags.hurrying   a remote-hurry boost is active
-   * @param {boolean} flags.onBreak    core break flag for this pit's worker
-   * @param {number} flags.restFacing  the Y-facing the resting worker holds
-   * @param {object} flags.leanOffset  the break-spot lean offset
-   */
   update(dt, { mechanic, carPresent, hurrying, onBreak, restFacing, leanOffset }) {
     if (!mechanic) {
       this.alertBounce.update(dt);
@@ -99,9 +65,6 @@ export class Mechanic {
     this.root.position.z = mechanic.position.z;
     this.root.position.y = 0;
 
-    // Once on break, nudge the body onto its break spot (the same lean offset the
-    // market worker uses) so it leans upright against the wall. Pure render
-    // offset — core's mechanic.position is unchanged.
     if (onBreak && !mechanic.moving) {
       const d = leanOffsetDelta(restFacing, leanOffset);
       this.root.position.x += d.x;
@@ -114,8 +77,6 @@ export class Mechanic {
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, mechanic.rotation, t);
 
-    // Animation: resting on break; carrying a box on the restock haul (carry clip);
-    // walking en route; otherwise repair/idle at the work spot.
     let next;
     if (onBreak) next = mechanic.moving ? 'walk' : 'resting';
     else if (mechanic.carrying) next = mechanic.moving ? 'carry' : 'carryIdle';

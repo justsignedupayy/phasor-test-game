@@ -3,17 +3,6 @@ import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 import settings from '../config/settings.js';
 
-/**
- * TruckMenu — a small DOM panel (styled to match BreakMenu / the Advertising
- * panel) opened by tapping the restock box while it's EMPTY. The truck is idle
- * until a delivery is ORDERED (core/supermarket.orderTruck): with no order
- * pending the panel offers the free "Order Truck" button; once one is placed
- * (here, in the phone menu, or automatically at the max Faster Deliveries
- * level) it shows a live countdown to arrival plus the rewarded-ad "Call Truck
- * Early" button that skips the remaining wait (callTruckEarly). Auto-closes
- * once the box has stock again (a truck delivered) so a stale panel never
- * lingers.
- */
 export class TruckMenu {
   constructor(state) {
     this.state = state;
@@ -92,9 +81,7 @@ export class TruckMenu {
       return b;
     };
 
-    // Free order button (shown while no delivery is ordered or en route).
     this.orderBtn = button('Order Truck', '#ffd23f', '#1a1400', () => this.#order());
-    // Rewarded-ad skip (shown while an order's countdown is running).
     this.adBtn = button('Call Truck Early (Watch Ad)', '#3ad06a', '#06310f', () => this.#callEarly());
 
     document.body.appendChild(panel);
@@ -130,8 +117,6 @@ export class TruckMenu {
     );
   }
 
-  /** Called every frame from main.js; cheap no-op while closed. Auto-closes the
-   * instant the box has stock again (a truck delivered). */
   update() {
     if (!this.isOpen) return;
     if (this.state.supermarket.restockBox.units > 0) {
@@ -157,8 +142,6 @@ export class TruckMenu {
       this.adBtn.style.display = 'block';
       return;
     }
-    // Idle: nothing ordered yet — restocking stays blocked until the player
-    // orders (the max Faster Deliveries level auto-orders before this is seen).
     this.statusLine.textContent = 'No delivery ordered.';
     this.timerLine.textContent = '—';
     this.orderBtn.style.display = 'block';

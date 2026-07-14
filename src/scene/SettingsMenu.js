@@ -1,15 +1,6 @@
 import settings from '../config/settings.js';
 import { getMusicVolume, setMusicVolume, isMuted, setMuted } from '../platform/audio.js';
 
-/**
- * SettingsMenu — a second hanging tab at the top-left, sitting just right of
- * the Upgrades tab and dressed identically (design direction 1c "Tablet
- * handle / tab"), opening a small centered panel styled to match TruckMenu /
- * BreakMenu. It holds the music volume slider plus a global mute toggle
- * beside it (silences ALL audio — music, ambience and one-shots — restoring
- * the remembered levels on unmute), both applied live through
- * platform/audio.js (which also persists them across sessions).
- */
 export class SettingsMenu {
   constructor() {
     this.isOpen = false;
@@ -61,8 +52,6 @@ export class SettingsMenu {
       boxShadow: '0 0 10px rgba(143,211,255,0.45)',
     });
 
-    // Gear glyph: hub circle + eight spokes, same stroke treatment as the
-    // Upgrades arrow but in the HUD's info blue instead of cash green.
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('width', '14');
@@ -140,7 +129,6 @@ export class SettingsMenu {
       position: 'absolute',
       right: '6px',
       top: '6px',
-      // 44px touch-target floor
       width: '44px',
       height: '44px',
       borderRadius: '10px',
@@ -173,7 +161,6 @@ export class SettingsMenu {
     labelRow.append(labelText, valueText);
     panel.appendChild(labelRow);
 
-    // The volume row: the slider with the global mute toggle beside it.
     const sliderRow = document.createElement('div');
     Object.assign(sliderRow.style, {
       display: 'flex',
@@ -199,13 +186,9 @@ export class SettingsMenu {
       valueText.textContent = `${slider.value}%`;
     });
 
-    // Global mute: one tap silences ALL audio (music, ambience, one-shot
-    // effects — see platform/audio.setMuted); tapping again restores the
-    // remembered levels. Persisted like the volume.
     const muteBtn = document.createElement('button');
     Object.assign(muteBtn.style, {
       flexShrink: '0',
-      // 44px touch-target floor
       width: '44px',
       height: '44px',
       borderRadius: '8px',
@@ -232,7 +215,6 @@ export class SettingsMenu {
     this.#refreshMuteButton();
   }
 
-  // Sync the mute button's icon/tint (and dim the slider) to the live state.
   #refreshMuteButton() {
     const muted = isMuted();
     this.muteBtn.textContent = muted ? '🔇' : '🔊';
@@ -247,7 +229,6 @@ export class SettingsMenu {
 
   open() {
     this.isOpen = true;
-    // Re-read on every open — the persisted values are the source of truth.
     const pct = Math.round(getMusicVolume() * 100);
     this.slider.value = String(pct);
     this.valueText.textContent = `${pct}%`;

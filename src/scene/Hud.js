@@ -1,22 +1,14 @@
 import { formatMoney } from '../core/format.js';
 import settings from '../config/settings.js';
 import { wipeSave } from '../platform/storage.js';
+import { assetUrl } from '../platform/assetUrl.js';
 
-/**
- * Hud.js — minimal DOM overlay. For this slice: a large live cash counter.
- */
 export class Hud {
   constructor(state) {
     this.state = state;
-    // Top-center column holding the cash counter. A flex column (rather than a
-    // fixed element with a hardcoded `top`) keeps it centred as the cash font
-    // scales with viewport width.
     const wrap = document.createElement('div');
     Object.assign(wrap.style, {
       position: 'fixed',
-      // `top` is owned by #placeCash below: on narrow screens the centered
-      // cash would overlap the fixed-width Upgrades/Settings tab row, so below
-      // settings.ui.narrowBreakpoint it drops one row down instead.
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'flex',
@@ -26,17 +18,11 @@ export class Hud {
       maxWidth: '100vw',
       pointerEvents: 'none',
       userSelect: 'none',
-      // Above every piece of fixed top chrome (tab row / pause / debug row,
-      // all 17) so the cash counter is never hidden underneath a button at
-      // narrow widths — pointerEvents:none keeps those buttons clickable
-      // through it. Still under popups (20) and the pause overlay (30).
       zIndex: '18',
     });
 
     const el = document.createElement('div');
     Object.assign(el.style, {
-      // Scales with viewport width so it never overruns the corner buttons on a
-      // narrow portrait screen, capped at the original landscape size.
       font: `800 clamp(28px, 8vw, 56px) ${settings.ui.fontStack}`,
       color: '#3ad06a',
       textShadow: '0 3px 0 #06310f, 0 0 14px rgba(0,0,0,0.5)',
@@ -46,10 +32,6 @@ export class Hud {
     this.el = el;
     this._cash = null;
 
-    // Offline-earnings drain (scene/main.js startOfflineDrain): the granted
-    // amount trickles into state.cash over settings.offline.drainDuration
-    // seconds; the amount itself is announced by a fixed 3-second popup panel
-    // (see #showOfflinePopup) rather than a live counter line.
     this._offlineRemaining = 0;
     this._offlineTotal = 0;
 
@@ -57,8 +39,6 @@ export class Hud {
     this.wrap = wrap;
 
     this.#placeCash();
-    // Re-place live on resize/rotation — a phone rotating landscape↔portrait
-    // must move the cash row without a reload.
     window.addEventListener('resize', () => this.#placeCash());
 
     this.#buildDebugButtons();
@@ -66,30 +46,20 @@ export class Hud {
     this.update(0);
   }
 
-  /** Cash row position: top-center, except below settings.ui.narrowBreakpoint
-   * where it drops narrowCashDrop px so it clears the top-left tab row. */
   #placeCash() {
     const drop = window.innerWidth < settings.ui.narrowBreakpoint ? settings.ui.narrowCashDrop : 0;
     this.wrap.style.top = `calc(env(safe-area-inset-top, 0px) + ${14 + drop}px)`;
-    // The dev-only debug row drops by the same amount, staying one row below
-    // the cash wherever the cash goes.
     if (this.debugRow) {
       this.debugRow.style.top = `calc(env(safe-area-inset-top, 0px) + ${68 + drop}px)`;
     }
   }
 
-  /** Start draining `amount` into the main cash number over settings.offline.drainDuration seconds. */
   startOfflineDrain(amount) {
     this._offlineRemaining = amount;
     this._offlineTotal = amount;
     this.#showOfflinePopup(amount);
   }
 
-  // The offline-earnings announcement: a centered panel (dressed like the
-  // TruckMenu/SettingsMenu panels) stating the full amount earned while away.
-  // It holds for exactly settings.offline.popupSeconds, then fades out and
-  // removes itself — purely presentational, the cash itself lands via the
-  // drain in update().
   #showOfflinePopup(amount) {
     const panel = document.createElement('div');
     Object.assign(panel.style, {
@@ -138,18 +108,12 @@ export class Hud {
     }, settings.offline.popupSeconds * 1000);
   }
 
-  // Top-right debug row: Quick Cash (grant test money) next to Reset (wipe
-  // save). DEV BUILDS ONLY — a shipped cheat button is a moderation red flag
-  // (and wrecks the economy), so production builds never create the row.
-  // Sits below the pause button, which owns the production top-right corner.
   #buildDebugButtons() {
     if (!import.meta.env?.DEV) return;
     const row = document.createElement('div');
     Object.assign(row.style, {
       position: 'fixed',
       right: '14px',
-      // `top` is owned by #placeCash: 68px clears the 44px pause button, plus
-      // the same narrow-width drop as the cash row so the two never overlap.
       display: 'flex',
       gap: '8px',
       zIndex: '17',
@@ -163,9 +127,6 @@ export class Hud {
 
     const resetBtn = this.#debugButton('RESET', '#c0392b');
     resetBtn.addEventListener('click', () => {
-      // wipeSave (not a bare localStorage.clear) — it also blocks saveGame,
-      // because reload() fires visibilitychange (hidden) during unload and
-      // main.js's save-on-hide would otherwise re-write the state we just wiped.
       wipeSave();
       location.reload();
     });
@@ -211,11 +172,6 @@ export class Hud {
   }
 }
 
-/**
- * Inline money-icon <img>, standing in for a literal '$' before a cash number.
- * Sized in em so it tracks the containing line's own font-size (and so its
- * line-height), vertical-align middle to sit centered against the digits.
- */
 function moneyIconHtml(margin) {
-  return `<img src="/assets/images/money.png" alt="$" style="height:1em;vertical-align:middle;margin:${margin};">`;
+  return `<img src="${assetUrl('assets/images/money.png')}" alt="$" style="height:1em;vertical-align:middle;margin:${margin};">`;
 }

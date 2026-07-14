@@ -3,14 +3,6 @@ import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 import settings from '../config/settings.js';
 
-/**
- * BreakMenu — a small DOM panel (not a full-screen overlay) opened by tapping a
- * resting worker (see main.js + CarYard.raycastRestingWorker /
- * SupermarketView.raycastRestingWorker). Shows which worker is on break, a live
- * countdown, and a "Watch Ad to Wake Up" button. The ad is the ONLY way to end
- * a break early: on its success callback the worker stands up immediately
- * (endBreak resets the counter). Styled to match the Advertising panel.
- */
 export class BreakMenu {
   constructor(state) {
     this.state = state;
@@ -90,7 +82,6 @@ export class BreakMenu {
     this.panel = panel;
   }
 
-  /** Open for a specific worker's break state (a pit.break / worker.break) + label. */
   open(breakState, label) {
     if (!breakState || !breakState.onBreak) return;
     this.break = breakState;
@@ -120,8 +111,6 @@ export class BreakMenu {
     );
   }
 
-  /** Called every frame from main.js; cheap no-op while closed. Auto-closes when
-   * the break ends on its own (timer expiry) so a stale panel never lingers. */
   update() {
     if (!this.isOpen) return;
     if (!this.break || !this.break.onBreak) {

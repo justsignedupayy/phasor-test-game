@@ -1,17 +1,5 @@
 import settings from '../config/settings.js';
 
-/**
- * PauseControl — the pause button (top-right corner) + the full-screen
- * "Paused" overlay. Visuals only: main.js owns the actual paused flag (its
- * frame loop early-outs and platform/audio.js is silenced there) and hands us
- * setPaused; sync(paused) is called back so the overlay always mirrors the
- * real state no matter who flipped it (button now, the Bridge ad flow later).
- *
- * While paused, the overlay backdrop covers the whole viewport ABOVE every
- * other layer (canvas, tabs, menus — their z-indexes top out at 20), so the
- * joystick, canvas taps and DOM buttons are all unreachable: the RESUME
- * button (or tapping anywhere on the backdrop) is the only way out.
- */
 export class PauseControl {
   constructor(setPaused) {
     this.setPaused = setPaused;
@@ -37,7 +25,6 @@ export class PauseControl {
       WebkitTapHighlightColor: 'transparent',
     });
 
-    // Two-bar pause glyph, same stroke treatment as the Settings gear.
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('width', '16');
@@ -111,7 +98,6 @@ export class PauseControl {
     panel.append(heading, resume);
     overlay.appendChild(panel);
 
-    // Backdrop tap resumes too; stop panel clicks from double-firing through it.
     panel.addEventListener('click', (e) => e.stopPropagation());
     resume.addEventListener('click', () => this.setPaused(false));
     overlay.addEventListener('click', () => this.setPaused(false));
@@ -120,7 +106,6 @@ export class PauseControl {
     this.overlay = overlay;
   }
 
-  /** Mirror the real paused state (main.js calls this from setPaused). */
   sync(paused) {
     this.overlay.style.display = paused ? 'flex' : 'none';
   }

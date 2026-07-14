@@ -1,24 +1,9 @@
-/**
- * Car.js — pure car model + factory. No Three.js.
- *
- * spawnCar(state) picks a random non-empty subset of the damage parts (kept in
- * canonical order so the render and the per-part thresholds line up). Repair is
- * counted in ticks: baseTicks = ticksPerPart × numParts. The pit's fixing-time
- * upgrade later scales how many of those ticks are actually required. Payout
- * scales with the number of parts so value-per-tick stays ~constant.
- *
- * Reputation (state.permanentReputation) biases the roll
- * across the five ascending tiers in settings.carTiers: each tier scales
- * baseTicks and payout by its own ticksMult / payoutMult. Higher reputation
- * attracts higher-index (better-paying) cars.
- */
 import settings from '../config/settings.js';
 import { getEffectiveReputation } from './reputation.js';
 
 const ALL_PARTS = ['tire', 'smoke', 'dent'];
 let nextId = 1;
 
-/** After loading a save, keep new ids past whatever the restored cars already used. */
 export function seedIdCounter(state) {
   let max = 0;
   const slots = [...state.pits, ...state.gasStation.pumps]; // pumps share the id space
@@ -29,20 +14,6 @@ export function seedIdCounter(state) {
   if (max + 1 > nextId) nextId = max + 1;
 }
 
-/**
- * Reputation-weighted tier weights, always summing to 1. Reputation linearly
- * unlocks tiers: rep 0 activates only tier 0, and each 1/(N-1) of reputation
- * unlocks one more tier. Between two thresholds the newly unlocking tier's weight
- * ramps from 0 up to an equal share while the already-active tiers shed weight in
- * proportion, so at every threshold all active tiers are equally likely:
- *
- *   rep 0.000 → [1]
- *   rep 0.125 → [.75, .25]
- *   rep 0.250 → [.5, .5]
- *   rep 0.500 → [⅓, ⅓, ⅓]
- *   rep 0.750 → [.25, .25, .25, .25]
- *   rep 1.000 → [.2, .2, .2, .2, .2]
- */
 export function tierWeights(rep) {
   const tiers = settings.carTiers;
   const scaled = rep * (tiers.length - 1);
@@ -57,7 +28,6 @@ export function tierWeights(rep) {
   return weights;
 }
 
-/** Pick a tier index 0..N-1 from the reputation-weighted distribution. */
 function rollTierIndex(state) {
   const weights = tierWeights(getEffectiveReputation(state));
   const total = weights.reduce((a, w) => a + w, 0);
@@ -87,21 +57,10 @@ export function spawnCar(state) {
     damageParts: parts, // subset of ALL_PARTS, canonical order
     payout: settings.spawn.basePayoutPerPart * n * tier.payoutMult,
     fixed: false,
-    // Drive-in settle timer: seconds left of the car's drive into its pit spot,
-    // during which it can't be repaired yet. 0 while queued; set to the drive-in
-    // duration the moment it's pulled into a pit, then counted down (simulation.js).
     settleRemaining: 0,
   };
 }
 
-/**
- * A gas-station customer car — spawnCar's mirror for the pump flow. Same
- * reputation-weighted tier roll and the same id space, but no damage parts: it
- * needs fillTicks of service (baseTicks × tier.ticksMult) and pays out on
- * completion (basePayout × tier.payoutMult) — an independent economy from
- * repairs. The tier only drives the car's model/ticks/payout; pump routing
- * ignores it (any tier at any pump — see gasStation.spawnToShortestQueue).
- */
 export function spawnGasCar(state) {
   const tier = settings.carTiers[rollTierIndex(state)];
   const G = settings.gasStation.fill;

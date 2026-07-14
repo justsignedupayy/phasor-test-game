@@ -2,12 +2,6 @@ import settings from '../config/settings.js';
 import { laneBridgeElevationAt } from '../core/roads.js';
 import { cloneStorageModel } from './StorageModels.js';
 
-/**
- * CarriedBox — the single box clone shown floating just ahead of the player
- * while state.player.carryingBox is true (the player hauls it from a shelf to a
- * worker). Render-only: it mirrors core state and writes nothing back. Hidden
- * whenever the player isn't carrying.
- */
 export class CarriedBox {
   constructor(sceneManager) {
     this.sm = sceneManager;
@@ -23,14 +17,11 @@ export class CarriedBox {
       return;
     }
     this.root.visible = true;
-    // Offset along the player's facing (rotation 0 faces +z) so the box sits
-    // out in front of the character rather than inside it.
     const o = settings.storage.carriedBoxOffset;
     const fwdX = Math.sin(player.rotation);
     const fwdZ = Math.cos(player.rotation);
     this.root.position.set(
       player.position.x + fwdX * o.forward,
-      // Ride the player's lane-bridge elevation so the box doesn't sink under a deck.
       o.y + laneBridgeElevationAt(state, player.position.x, player.position.z),
       player.position.z + fwdZ * o.forward
     );

@@ -21,7 +21,14 @@ import { GroundField } from './scene/GroundField.js';
 import { CarYard } from './scene/CarYard.js';
 import { Hud } from './scene/Hud.js';
 import { UpgradeMenu } from './scene/UpgradeMenu.js';
-import { loadGame, saveGame, getSavedAt, setStorageBackend, PERSISTED_KEYS } from './platform/storage.js';
+import {
+  loadGame,
+  saveGame,
+  getSavedAt,
+  setStorageBackend,
+  PERSISTED_KEYS,
+  reconcilePlatformReset,
+} from './platform/storage.js';
 import {
   initMusic,
   initAmbience,
@@ -69,10 +76,6 @@ import { TutorialView } from './scene/TutorialView.js';
 
 const container = document.getElementById('app');
 
-// WebGL2 gate: Three.js r163+ is WebGL2-only, and on a device without it the
-// WebGLRenderer constructor throws — leaving a silent black page. Probe BEFORE
-// booting anything and show a friendly message instead; the throw halts the
-// rest of this module so no renderer/game construction is ever attempted.
 if (!document.createElement('canvas').getContext('webgl2')) {
   const msg = document.createElement('div');
   Object.assign(msg.style, {
@@ -101,31 +104,17 @@ if (!document.createElement('canvas').getContext('webgl2')) {
   throw new Error('WebGL2 unavailable — game not started');
 }
 
-// Warm the UI font (settings.ui.fontStack / @font-face in style.css) so canvas
-// text sprites — customer requests, pit labels, cash popups — draw in it from
-// the first frame instead of the system fallback. Fire-and-forget: canvas draws
-// don't trigger a font load on their own the way DOM text does.
 if (document.fonts?.load) {
   document.fonts.load("900 34px 'Montserrat'").catch(() => {});
 }
 
-// Pause switch — setPaused is the single sink every pause source feeds. While
-// paused, the frame loop early-outs before input/sims/view updates (the scene
-// keeps rendering, frozen), every looping track is silenced, and the state is
-// saved — a pause is a natural save point and the pre-ad point. Three
-// independent sources OR into it via applyPauseState, so no source can
-// accidentally cancel another's pause (e.g. a platform resume never undoes
-// the player's own pause, and vice versa):
-//   userPaused     — the pause button / overlay (PauseControl)
-//   platformPaused — Playgama Bridge's platform pause command
-//   adPaused       — a rewarded ad in flight (see platform/ads.js)
+// The three pause sources OR into setPaused, so no source can cancel another's pause.
 let paused = false;
 let pauseControl = null; // constructed in main() once the game is playable
 let userPaused = false;
 let platformPaused = false;
 let adPaused = false;
-let gameStateReady = false; // `state` is created below, after the Bridge boot —
-// a platform pause arriving in that gap must not touch it yet
+let gameStateReady = false; // `state` is created after the Bridge boot — early pauses must not save it
 
 function applyPauseState() {
   setPaused(userPaused || platformPaused || adPaused);
@@ -138,21 +127,11 @@ function setPaused(v) {
     suspendAll();
     if (gameStateReady) saveGame(state);
   } else if (!document.hidden && !isPlatformMuted()) {
-    // Only restart audio when actually visible — resuming while hidden would
-    // undo the minimize-silence below — and never over a platform mute.
     resumeAll();
   }
   pauseControl?.sync(paused);
 }
 
-// Minimizing the tab throttles requestAnimationFrame (freezing the game) but
-// HTMLAudioElements would keep sounding — silence every looping track while
-// hidden and resume them on return (also save right away, since the throttled
-// autosave interval may never fire again if the tab is killed). A game that is
-// PAUSED stays silent on return — pause outranks visibility — and so does a
-// platform mute: resumeAll never runs while the platform has audio disabled
-// (Bridge's audio event flips the real mute via setMuted, and this guard
-// keeps a local visibility-resume from racing it).
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     suspendAll();
@@ -162,39 +141,28 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// --- Playgama Bridge boot -----------------------------------------------
-// Must finish BEFORE loadGame() below: on a Bridge platform the persisted
-// save lives in Bridge storage, which is hydrated here and swapped in as
-// storage.js's backend. If anything fails (offline dev, YouTube build's
-// bridge.off.js, unsupported host) bridgeReady is false and the game runs on
-// its local implementations exactly as before.
+// Bridge boot must finish BEFORE loadGame — on Bridge platforms the save lives in Bridge storage.
+console.log('[boot] initializing platform bridge…');
 const bridgeReady = await initBridge({
   onPauseChange: (isPaused) => {
     platformPaused = isPaused;
     applyPauseState();
   },
   onMuteChange: (m) => {
-    // Runtime-only: the platform's mute layers over the user's persisted one.
     setPlatformMuted(m);
-    // Platforms can deliver the audio re-enable AFTER the tab is already
-    // visible again — the visibilitychange resume then ran while
-    // isPlatformMuted() was still true and skipped resumeAll, and a mute flip
-    // only touches volumes. Restart playback here, same guards.
     if (!m && !document.hidden && !paused) resumeAll();
   },
 });
+console.log(`[boot] bridge ${bridgeReady ? 'ready' : 'unavailable — running on local fallbacks'}`);
 if (bridgeReady) {
   const bridgeBackend = await createBridgeStorageBackend(PERSISTED_KEYS);
   if (bridgeBackend) {
     setStorageBackend(bridgeBackend);
-    // audio.js read its prefs at import time, from localStorage — re-read
-    // them from the real store before any track starts.
     reloadAudioSettings();
   }
-  // Initial platform audio state (events only fire on later changes).
+  console.log(`[boot] storage backend: ${bridgeBackend ? 'bridge' : 'localStorage'}`);
   if (isPlatformMuted()) setPlatformMuted(true);
 }
-// The rewarded-ad flow pauses the game underneath the ad and restores after.
 configureAdPause({
   pause: () => {
     adPaused = true;
@@ -206,19 +174,16 @@ configureAdPause({
   },
 });
 
-// Core state (Three-free) and render layer. Resume a save if one exists; if it
-// is one (not a fresh state) and carries a savedAt, estimate what was earned
-// while away — handed to the Hud below once it exists (Hud owns draining it in).
+if (reconcilePlatformReset()) {
+  console.warn('[boot] platform-side progress reset detected — starting fresh');
+}
+
 const loadedState = loadGame();
 const state = loadedState ?? createInitialState();
 gameStateReady = true; // setPaused / visibility saves may touch `state` from here on
 const savedAt = loadedState ? getSavedAt() : null;
 const offlineEarnings = savedAt ? estimateOfflineEarnings(state, Date.now() - savedAt) : 0;
 seedIdCounter(state); // keep newly spawned ids past whatever the save already used
-// The A* grid is built at module load WITHOUT the room's moving fence wall (it's
-// state-dependent); fold it in for the starting/loaded ownedRightX, exactly as
-// buyExpandRoom does after every later purchase — otherwise the grid only learns
-// about the fence on the next Expand Room buy.
 rebuildGrid([roomWallBox(ownedRightX(state))]);
 const sceneManager = new SceneManager(container);
 const input = new Input();
@@ -226,48 +191,40 @@ const hud = new Hud(state);
 if (offlineEarnings > 0) hud.startOfflineDrain(offlineEarnings);
 const menu = new UpgradeMenu(state);
 new SettingsMenu(); // top-left Settings tab (music volume slider)
-// Looping background music at the persisted volume; if autoplay is blocked it
-// starts on the first user gesture instead (see platform/audio.js).
 initMusic();
-// The three area-ambience layers, silent until the per-frame zone check below
-// fades one in.
 initAmbience();
 new GroundField(sceneManager);
 const garage = new Garage(sceneManager);
-// Wall-mounted LED panels over every worker's break-lean spot (jobs-to-break /
-// break countdown), driven purely from core break state each frame.
 const breakDisplays = new BreakDisplays(sceneManager);
 const bridges = new Bridges(sceneManager);
-// Static tunnel-mouth props at the market's customer entry + exit (customers
-// emerge from / vanish into them rather than popping in/out); shown with the market.
 const tunnels = new Tunnels(sceneManager);
-// Cartoon poof-cloud bursts wherever something new reveals (see scene/Poof.js);
-// RevealPoofs watches the state flags the views already gate visibility on.
 const poofs = new PoofEffects(sceneManager);
 const revealPoofs = new RevealPoofs(poofs);
-// Bright glitter burst; fired alongside a poof when a car finishes repair at a
-// pit (garage-only — see scene/CarYard.js).
 const sparkles = new SparkleEffects(sceneManager);
 
 setInterval(() => saveGame(state), settings.persistence.autoSaveInterval * 1000);
 
-main();
+main().catch((err) => console.error('[boot] fatal:', err));
 
 async function main() {
-  // The garage itself doesn't need the character model, so render it once
-  // right away — the loading overlay then sits over a non-blank scene while
-  // the rigged glTF (shared by the player + every worker) loads exactly once.
   sceneManager.render();
   const loadingEl = showLoading();
-  const gltf = await loadCharacterModel();
-  await preloadCarModels();
-  await preloadMoneyModel();
-  await preloadStorageModels();
-  await preloadIcons();
+  let gltf;
+  try {
+    gltf = await bootStep('character model', loadCharacterModel());
+    await bootStep('car models', preloadCarModels());
+    await bootStep('money model', preloadMoneyModel());
+    await bootStep('storage models', preloadStorageModels());
+    await bootStep('icons', preloadIcons());
+  } catch (err) {
+    loadingEl.textContent = 'Loading failed — please check your connection and reload';
+    sendGameReady();
+    console.error('[boot] asset preload failed — game not started:', err);
+    return;
+  }
   loadingEl.remove();
-  // Mandatory Playgama signal, sent the moment the player can actually
-  // interact (overlay gone, first playable frame imminent) — never earlier.
   sendGameReady();
+  console.log('[boot] game ready');
 
   const character = new Character(gltf);
   sceneManager.add(character.root);
@@ -277,32 +234,18 @@ async function main() {
   const carriedBox = new CarriedBox(sceneManager);
   const supermarketView = new SupermarketView(sceneManager, gltf);
   const gasStationView = new GasStationView(sceneManager, gltf);
-  // Pump pay uses the same waiting-bills view as pit pay, pointed at the pumps.
   const pumpMoney = new PitMoney(sceneManager, settings.gasStation.positions, (s) => s.gasStation.pumps);
   const breakMenu = new BreakMenu(state); // opened by tapping a resting (on-break) worker
   const truckMenu = new TruckMenu(state); // opened by tapping an empty restock box
-  // World-space create/hire purchases: ground circles that auto-buy on
-  // proximity (step-1 physical unlocks; see core/upgrades.getUnlockMarkers).
   const unlockMarkers = new UnlockMarkers(sceneManager);
-  // Automatic sliding glass doors on the walk-in entrances (gas gate, customer
-  // entry/exit, delivery gate); the delivery door also tracks the truck's tween.
   const slidingDoors = new SlidingDoors(sceneManager, () => supermarketView.truck.model);
-  // The first-game tutorial overlay: glow ring / UI glow + instruction bubble,
-  // driven by core/tutorial.js's view model (resolves tablet targets via `menu`).
   const tutorialView = new TutorialView(sceneManager, state, menu, unlockMarkers);
-  // Pause button + full-screen "Paused" overlay; created only now, so the
-  // loading sequence can never be paused into a stuck state. It drives ONLY
-  // the user flag — a resume tap can't cancel a platform or ad pause.
   pauseControl = new PauseControl((v) => {
     userPaused = v;
     applyPauseState();
   });
   let cashier = null; // spawned once state.hasCashier flips true (or already on load)
 
-  // Canvas taps only (the joystick and DOM menu are separate overlays, so their
-  // taps never reach here). A tap raycasts the pit cars and applies to the touched
-  // car's pit: a manned pit's car = remote hurry (from anywhere); an unmanned
-  // equipped pit's car = manual repair, but only while the player stands there.
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   sceneManager.renderer.domElement.addEventListener('pointerdown', (e) => {
@@ -312,9 +255,6 @@ async function main() {
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, sceneManager.camera);
 
-    // A resting (on-break) worker opens the break panel (works from anywhere,
-    // like a remote hurry tap). Checked before the worker/car raycasts so the
-    // resting worker wins.
     const restingPit = carYard.raycastRestingWorker(raycaster, state);
     if (restingPit >= 0) {
       e.stopPropagation(); // don't let Input's window listener also spawn a joystick here
@@ -349,7 +289,7 @@ async function main() {
         character.yell();
         character.showAngerBubble();
         carYard.pitViews[i].mechanic.alertBounce.trigger();
-      } else if (pit.playerPresent && pit.car && !pit.car.fixed) {
+      } else if (pit.playerPresent && pit.car && !pit.car.fixed && (!pit.hasMechanic || pit.break.onBreak)) {
         tapRepair(state, i);
         character.repair();
         carYard.onTap(i);
@@ -357,9 +297,6 @@ async function main() {
       return;
     }
 
-    // Tapping a working mechanic's own body (not its car) is the same "yell"
-    // gesture — the mechanic can stand away from or block the car, and yelling
-    // AT the worker is the intuitive tap target either way.
     const mi = carYard.raycastMechanic(raycaster);
     if (mi >= 0) {
       e.stopPropagation();
@@ -371,8 +308,6 @@ async function main() {
       return;
     }
 
-    // Pump cars mirror pit cars: a manned pump's car = remote hurry (from
-    // anywhere); an unmanned equipped pump's car = manual fill while standing there.
     const gi = gasStationView.raycast(raycaster);
     if (gi >= 0) {
       e.stopPropagation(); // tapping a pump car/attendant is an action, not a movement press
@@ -390,8 +325,6 @@ async function main() {
       return;
     }
 
-    // Tapping a working attendant's own body (not its car) — mirrors the
-    // pit-mechanic tap above.
     const ai = gasStationView.raycastAttendant(raycaster);
     if (ai >= 0) {
       e.stopPropagation();
@@ -403,14 +336,6 @@ async function main() {
     }
   });
 
-  /**
-   * Manual market taps — only meaningful at workerLevel 0 (packaging/checkout)
-   * or workerLevel < 2 (restocking; the player still restocks at level 1).
-   * Proximity is checked here at tap-time, the same role state.pits[i].playerPresent
-   * plays for tapRepair, just computed inline instead of written every frame.
-   * Tapping the worker itself is the one exception: a remote hurry, same as
-   * tapping a manned pit's car, so it works from anywhere with no proximity check.
-   */
   function handleMarketTap(hit) {
     const market = state.supermarket;
     const M = settings.supermarket;
@@ -436,8 +361,6 @@ async function main() {
     } else if (hit.kind === 'checkout') {
       if (market.workerLevel === 0 && near(M.checkoutPosition)) placeAtCheckout(state);
     } else if (hit.kind === 'restockBox') {
-      // Empty box: a tap (from anywhere) opens the "waiting for truck" panel with
-      // the Call-Truck-Early ad button, instead of any pickup.
       if (market.restockBox.units <= 0) {
         truckMenu.open();
       } else if (
@@ -446,7 +369,6 @@ async function main() {
         !state.player.carryingBox && // hands full with a pit tire box — mirrors updateStorage's pickup gate
         near(market.restockBoxPosition)
       ) {
-        // Pick up one unit (decrements the box) to carry to a shelf.
         if (takeRestockUnit(state)) state.player.carryingRestockBox = true;
       }
     }
@@ -459,14 +381,11 @@ async function main() {
     const dt = Math.min(clock.getDelta(), 0.05); // clamp tab-switch jumps (getDelta each frame keeps the clock fresh across a pause)
 
     if (paused) {
-      // Frozen: no input, no sims, no view updates — keep presenting the last
-      // state so the overlay sits over the (static) scene and resizes render.
       sceneManager.render();
       requestAnimationFrame(frame);
       return;
     }
 
-    // Screen-space joystick -> camera-relative world direction -> core.
     const ix = input.value.x;
     const iy = input.value.y;
     state.input.x = basis.right.x * ix + basis.forward.x * iy;
@@ -475,36 +394,22 @@ async function main() {
     tick(state, dt); // movement + spawning + queue→pits + workers' auto-repair
     tickSupermarket(state, dt); // supermarket customers + (once hired) the market worker
     tickGasStation(state, dt); // gas pumps: spawning + queue→pumps + attendants' auto-fill
-    // Tutorial: the "opened the Garage tab" step completes by simply seeing the
-    // tab (checked per-frame while open); then advance the state-watched steps.
-    // Runs after the sims so one-tick signals (paidThisTick) are still readable.
     if (menu.isOpen && menu.activeTab === 'garage') notifyGarageTabViewed(state);
     tickTutorial(state, dt);
 
-    // Area ambience: purely a function of this frame's player position.
     updateAmbience(ambienceZoneForX(state.player.position.x), dt);
 
-    // Money one-shot: fires only on the discrete tick a pit/pump actually banks
-    // its waiting pay (collectedThisTick is a one-tick render signal, zeroed at
-    // the top of tick()/tickGasStation() — never on the marker drain's per-frame
-    // trickle, which has its own moneysound call at UnlockMarkers' #finalize).
     if (
       state.pits.some((pit) => pit.collectedThisTick > 0) ||
       state.gasStation.pumps.some((pump) => pump.collectedThisTick > 0)
     ) {
       playMoneySound();
     }
-    // Plastic-bag + money one-shots together: fires on the tick a customer's
-    // checkout completes (state.supermarket.paidThisTick is the same kind of
-    // one-tick signal as pit/pump collectedThisTick above).
     if (state.supermarket.paidThisTick > 0) {
       playBagSound();
       playMoneySound();
     }
 
-    // Scene sets per-pit proximity each frame; core only reads these flags.
-    // playerPresent = near the worker/pit (repair + box delivery); playerNearShelf
-    // = near this pit's shelf (box pickup).
     for (const pit of state.pits) {
       if (!pit.equipped) {
         pit.playerPresent = false;
@@ -519,7 +424,6 @@ async function main() {
       pit.playerNearShelf = Math.hypot(px - (p.x + so.x), pz - (p.z + so.z)) <= settings.storage.pickupRadius;
     }
 
-    // Same per-frame proximity flags for the gas pumps (fill taps + pay collection).
     for (const pump of state.gasStation.pumps) {
       if (!pump.equipped) {
         pump.playerPresent = false;
@@ -530,7 +434,6 @@ async function main() {
         Math.hypot(state.player.position.x - p.x, state.player.position.z - p.z) <= settings.gasStation.radius;
     }
 
-    // Cashier NPC: appears at the desk the moment one is hired, then idles forever.
     if (state.hasCashier && !cashier) {
       cashier = new Cashier(gltf, sceneManager);
       sceneManager.add(cashier.root);
@@ -544,8 +447,6 @@ async function main() {
     tunnels.update(state);
     slidingDoors.update(dt, state);
     carYard.update(dt, state);
-    // Hammer loop: on while the player or any pit mechanic is in its 'repair'
-    // clip — the same condition already driving the wrench prop's visibility.
     setHammerActive(character.wrench.visible || carYard.pitViews.some((pv) => pv.mechanic?.wrench.visible));
     supermarketView.update(dt, state);
     gasStationView.update(dt, state);
@@ -570,18 +471,23 @@ async function main() {
   requestAnimationFrame(frame);
 }
 
-/**
- * Which area-ambience zone a player x falls in — mirrors the world's actual
- * layout: the gas station is entirely OUTSIDE the building (x < -halfX, see
- * settings.gasStation), the market/lobby is the building's left slice up to
- * the lobby/bay seam (settings.supermarket.lobbyRightX, shared with the lobby
- * floor patch in scene/Garage.js), and everything right of that is the pit bay.
- */
 function ambienceZoneForX(x) {
   const W = settings.world;
   if (x < -W.halfX) return 'gasStation';
   if (x < settings.supermarket.lobbyRightX) return 'market';
   return 'garage';
+}
+
+async function bootStep(name, promise) {
+  console.log(`[boot] loading ${name}…`);
+  try {
+    const result = await promise;
+    console.log(`[boot] ${name} loaded`);
+    return result;
+  } catch (err) {
+    console.error(`[boot] ${name} failed:`, err);
+    throw err;
+  }
 }
 
 function showLoading() {

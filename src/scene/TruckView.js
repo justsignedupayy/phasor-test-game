@@ -2,17 +2,6 @@ import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { cloneStorageModel } from './StorageModels.js';
 
-/**
- * TruckView — the supermarket restock-delivery truck. Truck.glb is loaded once
- * (via preloadStorageModels, keyed 'truck') and this view holds a SINGLE reused
- * clone: it drives in through the restock door to a drop-off spot beside the box,
- * pauses, then drives back out the way it came. No game logic — core decides WHEN
- * a truck is due (state.supermarket.truckArriving); this just animates it and
- * fires onDelivered() at the drive-in → wait transition (where core tops up the
- * box). Drive tween mirrors CarView's easeInOut drive.
- *
- * FSM: 'idle' (parked off-screen, hidden) -> 'in' -> 'wait' -> 'out' -> 'idle'.
- */
 function easeInOut(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
@@ -32,18 +21,15 @@ export class TruckView {
     this.waitT = 0;
     this.onDelivered = null;
 
-    // Drop-off + off-screen points, derived from the box position + settings offsets.
     const box = settings.supermarket.restockBoxPosition;
     this.deliverPos = { x: box.x + T.deliverOffset.x, z: box.z + T.deliverOffset.z };
     this.startPos = { x: box.x + T.startOffset.x, z: box.z + T.startOffset.z };
   }
 
-  /** True only while parked off-screen, ready to be dispatched. */
   get idle() {
     return this.phase === 'idle';
   }
 
-  /** Begin a delivery run (no-op unless idle). onDelivered fires when it lands. */
   arrive(onDelivered) {
     if (this.phase !== 'idle') return;
     this.onDelivered = onDelivered;
@@ -73,7 +59,6 @@ export class TruckView {
       if (t >= 1) {
         this.drive = null;
         if (this.phase === 'in') {
-          // Landed: hand off to core to top up the box, then pause before leaving.
           this.onDelivered?.();
           this.onDelivered = null;
           this.phase = 'wait';

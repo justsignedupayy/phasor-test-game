@@ -1,30 +1,8 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 
-/**
- * groundTextures — procedural, seamlessly tileable CanvasTextures for the big
- * flat surfaces (the grass field, every road slab, the garage floor patches),
- * plus matching greyscale bump maps, so they read as textured ground instead
- * of solid-colour planes. Same draw-once-into-a-canvas approach as the poof /
- * smoke sprites, but written per-pixel from PERIODIC value noise: the noise
- * lattice wraps at the tile edge, so THREE.RepeatWrapping tiles with no seam.
- *
- * The canvases are drawn once (module-level cache, deterministic PRNG so the
- * world looks identical every run); the exported material factories clone the
- * cached textures per mesh so each slab sets its own repeat count from its
- * world size (texture.repeat is per-texture state — clones share the pixels).
- *
- * Colour strategy: the grass and floor maps are NEUTRAL variation maps centred
- * near white, multiplied by the existing settings colour (vertex colours for
- * the grass field, material.color for the floors) — so the settings.colors
- * tunables keep controlling the palette. The asphalt map bakes colors.road in
- * directly (its worn/tint variation wants to brighten past the base grey).
- * Knobs live in settings.world.surfaceTexture.
- */
-
 const SIZE = 256;
 
-/** mulberry32 — tiny deterministic PRNG so the ground looks identical every run. */
 function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
@@ -37,10 +15,6 @@ function mulberry32(seed) {
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
-/** Hex int → {r,g,b} in 0-1, RAW sRGB channels. Deliberately not THREE.Color:
- * that converts to linear working space, and these values are written into
- * SRGB-tagged canvases — the shader does the linear conversion, so converting
- * here too would double-darken everything. */
 const hexToRgb = (hex) => ({
   r: ((hex >> 16) & 255) / 255,
   g: ((hex >> 8) & 255) / 255,
@@ -51,11 +25,6 @@ const smoothstep = (a, b, v) => {
   return t * t * (3 - 2 * t);
 };
 
-/**
- * Periodic value noise: a `period`×`period` random lattice sampled with
- * smoothed bilinear interpolation, indices wrapped — so noise(0,v) == noise(1,v)
- * and the drawn tile repeats seamlessly. u/v in [0,1).
- */
 function makeNoise(rand, period) {
   const lattice = new Float32Array(period * period);
   for (let i = 0; i < lattice.length; i++) lattice[i] = rand();
@@ -79,8 +48,6 @@ function makeNoise(rand, period) {
   };
 }
 
-/** A few octaves of periodic noise summed to equal-weight fBm, output in [0,1].
- * Co-prime periods keep the octave lattices from lining up into a visible grid. */
 function makeFbm(rand, periods) {
   const octaves = periods.map((p) => makeNoise(rand, p));
   return (u, v) => {
@@ -90,7 +57,6 @@ function makeFbm(rand, periods) {
   };
 }
 
-/** Fill a SIZE×SIZE canvas per-pixel; `shade(u, v)` returns [r, g, b] in 0-255. */
 function drawCanvas(shade) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = SIZE;
@@ -111,19 +77,6 @@ function drawCanvas(shade) {
   return canvas;
 }
 
-/**
- * Grass colour + bump canvases, drawn together so the bump relief lines up
- * with the painted blades. Two passes:
- *   1. a per-pixel SOIL bed — darker than the blades (reads as the shadowed
- *      base of the turf), always slightly earthy, and pulled fully toward the
- *      dirtTint (and a touch brighter) inside the low-frequency bare patches;
- *   2. thousands of short, tilted BLADE strokes on top — each stroke's tone
- *      comes from the shared palette (the natural-tone fix: warm patches lean
- *      dry straw-yellow, cool ones deeper green) plus per-blade jitter. Bare
- *      dirt patches keep only stray blades, so the soil shows through there.
- * Still a multiplier map over the field's green vertex colours. Strokes near
- * a tile edge are re-drawn one tile over, so RepeatWrapping stays seamless.
- */
 function drawGrassCanvases() {
   const rand = mulberry32(0x517cc1b7);
   const mottle = makeFbm(rand, [5, 11, 23]);
@@ -132,8 +85,6 @@ function drawGrassCanvases() {
   const tint = hexToRgb(settings.world.surfaceTexture.dirtTint);
 
   const dirtMask = (u, v) => smoothstep(0.6, 0.85, dirt(u, v));
-  // Shared palette (the earlier tone fix, kept): a multiplier around the
-  // field's green, hue-drifted warm/cool, blended toward dirtTint by dirtAmt.
   const tone = (u, v, val, dirtAmt) => {
     const t = (warm(u, v) - 0.5) * 0.13; // +t = dry/yellow, -t = deep green
     let r = val * (1 + t);
@@ -145,7 +96,6 @@ function drawGrassCanvases() {
     return [255 * clamp01(r), 255 * clamp01(g), 255 * clamp01(b)];
   };
 
-  // Pass 1: the soil bed.
   const colorCanvas = drawCanvas((u, v) => {
     const d = dirtMask(u, v);
     let val = 0.66 + (mottle(u, v) - 0.5) * 0.12 + (rand() - 0.5) * 0.1;
@@ -157,7 +107,6 @@ function drawGrassCanvases() {
     return [c, c, c]; // low soil bed, grainy so bare patches keep tooth
   });
 
-  // Pass 2: the blades.
   const cctx = colorCanvas.getContext('2d');
   const bctx = bumpCanvas.getContext('2d');
   cctx.lineCap = 'round';
@@ -199,11 +148,6 @@ function drawGrassCanvases() {
   return { color: colorCanvas, bump: bumpCanvas };
 }
 
-/**
- * Asphalt map (bakes colors.road): broad mottling, lighter worn/faded patches,
- * strong per-pixel aggregate grain, sparse bright glints and dark pits, and a
- * faint warm/cool drift on the r/b channels so big slabs aren't uniformly grey.
- */
 function drawAsphaltCanvas() {
   const rand = mulberry32(0x2545f491);
   const mottle = makeFbm(rand, [5, 13, 29]);
@@ -226,12 +170,6 @@ function drawAsphaltCanvas() {
   });
 }
 
-/**
- * Concrete variation map (neutral, multiplies the floor patches' colours):
- * subtle mottling, fine grain, and faint darker stains — enough that the big
- * garage floor doesn't read as one flat sheet, without fighting the paint
- * markings drawn on top of it.
- */
 function drawConcreteCanvas() {
   const rand = mulberry32(0x85ebca6b);
   const mottle = makeFbm(rand, [4, 9, 19]);
@@ -248,8 +186,6 @@ function drawConcreteCanvas() {
 const BRICK_COLS = 4; // bricks per course in one texture tile
 const BRICK_ROWS = 8; // courses per tile — EVEN, so the half-offset bond wraps vertically
 
-/** Per-pixel ±amp noise over a whole canvas (Uint8ClampedArray clamps for us).
- * Uncorrelated grain needs no wrap handling, so it can't break the tile seam. */
 function addGrain(ctx, rand, amp) {
   const img = ctx.getImageData(0, 0, SIZE, SIZE);
   const data = img.data;
@@ -262,15 +198,6 @@ function addGrain(ctx, rand, amp) {
   ctx.putImageData(img, 0, 0);
 }
 
-/**
- * Brick colour + bump canvases, drawn together so each brick's shade jitter
- * and bump height come from the same rolls. Running bond: odd courses shift
- * half a brick, and any brick crossing the tile's right edge is drawn again
- * one tile-width left — with the even course count, the pattern wraps
- * seamlessly both ways. Colour map bakes brickColor/mortarColor (like the
- * asphalt map bakes colors.road); bump map recesses the mortar joints and
- * gives each brick face its own height so the wall catches raking light.
- */
 function drawBrickCanvases() {
   const S = settings.world.surfaceTexture;
   const rand = mulberry32(0x27220a95);
@@ -317,13 +244,11 @@ function drawBrickCanvases() {
   return { color: colorCanvas, bump: bumpCanvas };
 }
 
-/** World size of one brick-texture tile (BRICK_COLS bricks × BRICK_ROWS courses). */
 function brickTile() {
   const S = settings.world.surfaceTexture;
   return { w: S.brickWidth * BRICK_COLS, h: S.brickHeight * BRICK_ROWS };
 }
 
-/** Greyscale bump canvas: fBm relief + per-pixel grain around mid-grey. */
 function drawBumpCanvas(seed, periods, reliefAmp, grainAmp) {
   const rand = mulberry32(seed);
   const relief = makeFbm(rand, periods);
@@ -359,7 +284,6 @@ function getTextures() {
   return cache;
 }
 
-/** Clone a cached texture (shares pixels) and set its repeat count per axis. */
 function repeated(texture, repeatX, repeatY) {
   const t = texture.clone();
   t.needsUpdate = true;
@@ -367,7 +291,6 @@ function repeated(texture, repeatX, repeatY) {
   return t;
 }
 
-/** Grass-field material: vertex colours carry the green, the map adds detail. */
 export function makeGrassMaterial(worldW, worldD) {
   const S = settings.world.surfaceTexture;
   const t = getTextures();
@@ -379,7 +302,6 @@ export function makeGrassMaterial(worldW, worldD) {
   });
 }
 
-/** Road-slab material: asphalt colour is baked into the map (colors.road). */
 export function makeAsphaltMaterial(worldW, worldD) {
   const S = settings.world.surfaceTexture;
   const t = getTextures();
@@ -390,8 +312,6 @@ export function makeAsphaltMaterial(worldW, worldD) {
   });
 }
 
-/** Floor-patch material: `color` (a settings.colors int) times the neutral
- * concrete grain map, so the existing floor palette stays the tunable. */
 export function makeFloorMaterial(color, worldW, worldD) {
   const S = settings.world.surfaceTexture;
   const t = getTextures();
@@ -403,8 +323,6 @@ export function makeFloorMaterial(color, worldW, worldD) {
   });
 }
 
-/** One brick MeshStandardMaterial with the given repeat counts (texture
- * clones share the cached canvases). flatShading keeps the low-poly look. */
 function brickFaceMaterial(repeatX, repeatY) {
   const S = settings.world.surfaceTexture;
   const t = getTextures();
@@ -416,24 +334,6 @@ function brickFaceMaterial(repeatX, repeatY) {
   });
 }
 
-/**
- * Wall materials: a 6-slot array for a BoxGeometry wall with the brick tiling
- * fit per face — the long side faces along the run, the end caps across the
- * depth, and the top face over run × depth — so no face shows stretched
- * bricks (one material can't do this: the three face shapes need three
- * different repeats). BoxGeometry face order is [+x, -x, +y, -y, +z, -z];
- * runAxis is the world axis the wall runs along ('x' for the front/back
- * walls, 'z' for the left/right walls and corridors). The bottom face reuses
- * the top material — it sits on the floor and is never seen.
- *
- * A box's top-face UVs always run u = x, v = z, so the top's courses lie
- * along z on x-run walls (stretcher bond seen from above) and along x on
- * z-run walls (header courses across the thickness) — different orientations,
- * but every brick keeps its true world size.
- *
- * The returned array carries .side/.top/.runAxis so fitBrickSpan can refit
- * the run-dependent faces when a pooled wall segment is rescaled.
- */
 export function makeBrickWallMaterials(runW, worldH, depth, runAxis) {
   const tile = brickTile();
   const side = brickFaceMaterial(runW / tile.w, worldH / tile.h);
@@ -450,14 +350,6 @@ export function makeBrickWallMaterials(runW, worldH, depth, runAxis) {
   return mats;
 }
 
-/**
- * Refit a brick wall's run-dependent faces (side + top — the end caps never
- * rescale) to a segment that was rescaled this frame: [x0, x1] is the world
- * span along the wall's own run axis. The repeat keeps bricks at their true
- * world size while the mesh stretches; the world-anchored offset pins the
- * bond pattern in place, so segments align across door gaps and the bricks
- * don't swim as the right wall slides.
- */
 export function fitBrickSpan(mats, x0, x1) {
   const tile = brickTile();
   const w = Math.max(0.001, x1 - x0);
@@ -471,7 +363,6 @@ export function fitBrickSpan(mats, x0, x1) {
   if (mats.runAxis === 'x') {
     fitU(mats.top, w / tile.w, x0 / tile.w);
   } else {
-    // A z-run wall's top face has its run along v (u is the thickness).
     for (const m of [mats.top.map, mats.top.bumpMap]) {
       m.repeat.y = w / tile.h;
       m.offset.y = x0 / tile.h;

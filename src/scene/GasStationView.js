@@ -9,25 +9,6 @@ import { showCashPopup } from './popup.js';
 import { requiredFillTicks } from '../core/gasStation.js';
 import { formatMoney } from '../core/format.js';
 
-/**
- * GasStationView — the whole render layer of the gas station in the world's
- * left quadrant, mirroring the garage's split responsibilities in one place:
- *
- *   environment  per-pump striped road (the same road + lane-dash system the
- *                garage roads use: settings.world.road tunables, road/laneStripe
- *                colors) — shown once that pump's lot is opened (roomUnlocked),
- *                like Garage.js's per-pit sections.
- *   furniture    the gas_pump.glb prop (appear-animated like a pit's station),
- *                the tap-affordance highlight ring and the pump number label —
- *                PitView's job, minus the pit-only storage props.
- *   car flow     each pump's waiting queue, the car at the pump, and fixed cars
- *                driving off — CarYard's reconcile-into-tweens logic 1:1
- *                (spawn-in, queue advance, enter pump, drive-off + "+$").
- *   attendant    each pump's worker NPC — the Mechanic clone with its own tint,
- *                driven from core's pump.attendant exactly like a pit mechanic.
- *
- * Render-only: reads core state (state.gasStation), never mutates it.
- */
 export class GasStationView {
   constructor(sceneManager, gltf) {
     this.sm = sceneManager;
@@ -47,12 +28,6 @@ export class GasStationView {
     this._ndc = new THREE.Vector3(); // scratch for off-screen projection
   }
 
-  /**
-   * One pump's static pieces. The road is a single continuous slab (there is no
-   * building out here to interrupt it) running the same total span as a pit's
-   * entry+exit roads, with the dashed centre line skipped over the pump spot —
-   * exactly how Garage.js keeps dashes off the pit spots.
-   */
   #buildPump(index) {
     const c = settings.colors;
     const W = settings.world;
@@ -62,7 +37,6 @@ export class GasStationView {
 
     const env = new THREE.Group();
 
-    // Road slab: one lane wide (pump spacing), spanning the full travelled z.
     const positions = G.positions;
     const laneWidth = positions.length > 1 ? Math.abs(positions[1].x - positions[0].x) : 4.5;
     const z0 = -(W.halfZ + R.extent);
@@ -76,8 +50,6 @@ export class GasStationView {
     road.receiveShadow = true;
     env.add(road);
 
-    // Dashed centre line: same dashLength/dashGap tunables as the garage roads,
-    // never painted over the pump spot (mirrors Garage.js's overPit guard).
     const stripeMat = new THREE.MeshBasicMaterial({ color: c.laneStripe });
     const dashLen = R.dashLength;
     const step = dashLen + R.dashGap;
@@ -93,13 +65,7 @@ export class GasStationView {
     env.visible = false;
     this.sm.add(env);
 
-    // The pump prop itself (equipped only, appear-animated like a pit station).
-    // pumpModelScale / pumpModelYOffset / pumpYRotation are the tune-by-eye
-    // fixups in settings.gasStation.
     const prop = cloneStorageModel('gasPump');
-    // Red tint (settings.gasStation.pumpTintColor): multiply every material's
-    // base colour so the glb's shading detail survives. Safe to mutate in place
-    // — cloneStorageModel already gave this clone its own materials.
     const tint = new THREE.Color(G.pumpTintColor);
     prop.traverse((o) => {
       if (!o.isMesh || !o.material) return;
@@ -113,7 +79,6 @@ export class GasStationView {
     prop.visible = false;
     this.sm.add(prop);
 
-    // Highlight ring (player-can-tap affordance), same shape as a pit's.
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(G.radius * 0.78, G.radius, 40),
       new THREE.MeshBasicMaterial({
@@ -128,7 +93,6 @@ export class GasStationView {
     ring.position.set(pos.x, 0.05, pos.z);
     this.sm.add(ring);
 
-    // Pump number label ("1", "2", …) — numbered, not lettered like pits.
     const label = makeLabelSprite(String(index + 1));
     label.position.set(pos.x, 3.0, pos.z);
     label.visible = false;
@@ -147,16 +111,10 @@ export class GasStationView {
     };
   }
 
-  /** Tap feedback for a specific pump's car. */
   onTap(pumpIndex) {
     this.pumpCars[pumpIndex]?.shake();
   }
 
-  /**
-   * Raycast the resting attendants; returns the pump index whose attendant was
-   * hit while on break (so main.js can open the break panel), or -1 —
-   * CarYard's raycastRestingWorker, mirrored. An attendant not on break isn't tappable.
-   */
   raycastRestingWorker(raycaster, state) {
     for (let i = 0; i < this.pumpViews.length; i++) {
       const view = this.pumpViews[i];
@@ -166,11 +124,6 @@ export class GasStationView {
     return -1;
   }
 
-  /**
-   * Raycast a WORKING attendant's own body (not its car) — CarYard.raycastMechanic,
-   * mirrored. Doesn't gate on break state; raycastRestingWorker is checked first
-   * by main.js, so an on-break attendant is already handled by the time this runs.
-   */
   raycastAttendant(raycaster) {
     for (let i = 0; i < this.pumpViews.length; i++) {
       const attendant = this.pumpViews[i].attendant;
@@ -179,7 +132,6 @@ export class GasStationView {
     return -1;
   }
 
-  /** Raycast the pump cars; returns the pump index of the car under the ray, or -1. */
   raycast(raycaster) {
     const roots = this.pumpCars.filter(Boolean).map((v) => v.root);
     const hits = raycaster.intersectObjects(roots, true);
@@ -200,7 +152,6 @@ export class GasStationView {
     for (const v of this.pumpCars) if (v) v.update(dt);
     for (const v of this.queueViews.values()) v.update(dt);
 
-    // Outgoing (filled) cars keep driving out; dispose each once off-screen.
     for (let j = this.outgoing.length - 1; j >= 0; j--) {
       const v = this.outgoing[j];
       v.update(dt);
@@ -218,7 +169,6 @@ export class GasStationView {
     view.label.visible = pump.roomUnlocked;
     view.prop.visible = pump.equipped;
 
-    // Appear pop for the pump prop, mirroring PitView's station animation.
     const target = pump.equipped ? 1 : 0;
     const k = Math.min(1, 9 * dt);
     view.propScale += (target - view.propScale) * k;
@@ -227,10 +177,7 @@ export class GasStationView {
       view.prop.scale.setScalar(Math.max(0.001, view.propScale * overshoot) * settings.gasStation.pumpModelScale);
     }
 
-    // Spawn this pump's attendant the moment one is hired; mirror core each
-    // frame — PitView's worker handling 1:1.
     if (pump.hasAttendant && !view.attendant) {
-      // 'gaspump' = the attendant's fill clip (gasput.glb), instead of 'repair'.
       view.attendant = new Mechanic(this.gltf, settings.character.attendantTint, 'gaspump');
       this.sm.add(view.attendant.root);
     }
@@ -247,14 +194,12 @@ export class GasStationView {
       });
     }
 
-    // Highlight only when the player can usefully tap here — same rule as pits.
     view.highlightT += dt;
     const canTap = pump.equipped && !!pump.car && pump.playerPresent && !pump.hasAttendant;
     const opTarget = canTap ? 0.45 + 0.22 * Math.sin(view.highlightT * 5) : 0;
     view.ring.material.opacity += (opTarget - view.ring.material.opacity) * Math.min(1, 8 * dt);
   }
 
-  /** True once a car's position projects outside the camera frame (with margin). */
   #offScreen(view) {
     const p = view.root.position;
     this._ndc.set(p.x, 0.5, p.z).project(this.sm.camera);
@@ -274,21 +219,16 @@ export class GasStationView {
     const pos = G.positions[i];
     const door = { x: pos.x, z: G.doorZ };
 
-    // The pump car changed. Send off the previous one (it was filled): it keeps
-    // driving forward (−z) past the exit and away, disposed once off-screen.
     if (this.pumpCars[i]) {
       const out = this.pumpCars[i];
       out.fixAll();
       const exit = { x: pos.x, z: G.exitDoorZ - 45 };
       out.driveTo({ x: pos.x, z: pos.z }, exit, G.driveDuration * 3);
       this.outgoing.push(out);
-      // Pop "+$" here only when the cashier banks the pay instantly; otherwise
-      // the money waits at the pump and PitMoney pops it on collection.
       if (state.hasCashier) this.#popup(out.car.payout, pos);
       this.pumpCars[i] = null;
     }
 
-    // Bring in the new car: reuse its queued view or create one at the door.
     if (pumpCar) {
       let view = this.queueViews.get(pumpCar.id);
       let from;
@@ -319,21 +259,18 @@ export class GasStationView {
         let view = this.queueViews.get(car.id);
 
         if (!view) {
-          // Spawn-in: appear out beyond the last slot, drive up to this slot.
           view = new CarView(car);
           view.targetSlot = k;
           this.sm.add(view.root);
           this.queueViews.set(car.id, view);
           view.driveTo(this.#approachPos(i), target, G.driveDuration);
         } else if (view.targetSlot !== k) {
-          // Queue advance: a car ahead left, step nearer the pump.
           view.targetSlot = k;
           view.driveTo(view.position, target, G.driveDuration);
         }
       });
     });
 
-    // Safety: dispose any orphaned queue view (shouldn't normally happen).
     for (const [id, view] of this.queueViews) {
       if (!liveIds.has(id) && !this.pumpIds.includes(id)) {
         view.dispose(this.sm);
@@ -342,13 +279,11 @@ export class GasStationView {
     }
   }
 
-  /** Waiting-slot position for pump i, queue index k: a line out toward +z. */
   #slotPos(i, k) {
     const G = settings.gasStation;
     return { x: G.positions[i].x, z: G.doorZ + k * G.queueSlotDepth };
   }
 
-  /** Off-screen approach point a new car drives in from (beyond the last slot). */
   #approachPos(i) {
     const G = settings.gasStation;
     return { x: G.positions[i].x, z: G.doorZ + (G.spawn.maxQueuePerPump + 1) * G.queueSlotDepth };

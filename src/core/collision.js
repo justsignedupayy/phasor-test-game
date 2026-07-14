@@ -1,24 +1,6 @@
-/**
- * collision.js — axis-aligned box push-out for the supermarket props. No Three.js.
- *
- * Since NPCs now navigate static obstacles with A* (core/pathfinding.js), this is
- * no longer their navigator. It survives as a LIGHT safety net only:
- *   • the PLAYER's static collision (simulation.js calls it after clampToBounds —
- *     the player isn't grid-routed, so it still needs push-out off shelves/checkout);
- *   • NPC agent-agent overlap is handled separately in supermarket.js.
- * pushOutOfRect pushes a circle to the nearest point where it just clears an obstacle
- * box. buildObstacleList
- * is the single source of obstacle geometry, shared with the pathfinding grid so the two
- * never drift; the boxes are the same shelves/freezers/checkout/garage props it inflates.
- */
 import settings from '../config/settings.js';
 import { pitLaneBoxes, pumpLaneBoxes } from './roads.js';
 
-/**
- * Resolve a circle (centre `pos` {x,z}, radius `r`) against one axis-aligned
- * rectangle `b` = { x, z, halfX, halfZ }, pushing the centre out to where they just
- * touch (outward normal when outside, shallowest side when the centre is inside).
- */
 export function pushOutOfRect(pos, r, b) {
   const dx = pos.x - b.x;
   const dz = pos.z - b.z;
@@ -46,34 +28,6 @@ export function pushOutOfRect(pos, r, b) {
   }
 }
 
-/**
- * The single source of static-obstacle AABB geometry, shared by the player/mechanic
- * push-out (this file) and the NPC A* grid (pathfinding.js) so every box's position +
- * half-extent is defined in exactly ONE place. Returns boxes as { x, z, halfX, halfZ }.
- *
- * opts selects which obstacles to include so each caller gets exactly the set it built
- * before:
- *   market   (default true)  supermarket shelves/freezers (collision halves by model
- *                            type, nudged by its per-type offset) + the checkout
- *   garage   (default true)  pit shelves + tire stacks + each equipped pit's
- *                            invisible car-lane walls (see core/roads.pitLaneBoxes)
- *   allPits  (default false) garage props for EVERY pit, state-free (the A* grid bakes
- *                            them all in once — harmless, market NPCs never reach the
- *                            bay row). When false, only the props that actually exist
- *                            in-world right now: an equipped pit's shelf, and a tire
- *                            stack with stock (it stops blocking when the pit runs
- *                            dry, matching the scene).
- *   excludePitIndex          skip one pit's garage props — the mechanic ignores its OWN
- *                            pit so the per-frame push never shoves it off its work spot
- *                            (right beside its tire stack).
- *   walls    (default [])    extra wall boxes ({ x, z, halfX, halfZ }) to PREPEND — the
- *                            room's right (fence) wall (= roomWallBox(ownedRightX)) for
- *                            the player, the moving fence wall for the grid.
- *
- * Walls are emitted first, then market, then garage — the exact order the old
- * buildGarageBoxes / marketBoxes produced, so the order-dependent sequential push-out
- * is byte-for-byte unchanged.
- */
 export function buildObstacleList(state, settings, opts = {}) {
   const {
     market = true,
@@ -104,13 +58,6 @@ export function buildObstacleList(state, settings, opts = {}) {
       halfZ: M.checkoutCollisionHalf.z,
     });
 
-    // The delivery corridor's two side walls (front-wall mouth → the relocated
-    // door at deliveryDoorZ), matching Garage's corridor meshes — solid so the
-    // player walking out to the restock dock stays inside the corridor. They lie
-    // outside the A* grid's z range bar a sliver at the mouth (which only trims
-    // the gap's edge cells); NPCs thread the corridor via waypoints anyway. The
-    // player can never reach the back-wall customer corridors (that wall is
-    // solid for the player), so those stay scene-only.
     const W = settings.world;
     const corridorWallX = W.gateHalf + W.wallThickness / 2;
     const corridorZ = (-W.halfZ + M.deliveryDoorZ) / 2;
@@ -145,18 +92,11 @@ export function buildObstacleList(state, settings, opts = {}) {
             halfZ: S.tireCollisionHalf.z,
           });
         }
-        // The car lane's invisible edge walls, split around its bridge
-        // corridor — the raised bridge is the only way across the lane.
         for (const b of pitLaneBoxes(i)) boxes.push(b);
       }
     }
   }
 
-  // Gas pumps: one solid box per equipped pump's prop + its car-lane walls
-  // (core/roads.pumpLaneBoxes), mirroring the garage props. allPits (the
-  // state-free A* bake) includes every pump; excludePumpIndex lets an
-  // attendant ignore its OWN pump's props (pump + lane walls), like a
-  // mechanic ignores its own pit's.
   if (gas) {
     const G = settings.gasStation;
     for (let i = 0; i < G.positions.length; i++) {
@@ -170,12 +110,6 @@ export function buildObstacleList(state, settings, opts = {}) {
           halfX: G.pumpCollisionHalf.x,
           halfZ: G.pumpCollisionHalf.z,
         });
-        // The pump lane's invisible edge walls (split around the spine
-        // corridor — the elevated spine is the only way across, like a pit's
-        // bridge) + this spine piece's solid railings, spur railings and end
-        // caps. The neighbour flags gate the piece's temporary frontier caps:
-        // a grow-end stays sealed until the adjacent piece exists (the
-        // state-free A* bake treats the spine as fully built, no frontiers).
         const pumps = state ? state.gasStation.pumps : null;
         for (const b of pumpLaneBoxes(i, {
           prevEquipped: allPits || (i > 0 && pumps[i - 1].equipped),
@@ -189,20 +123,12 @@ export function buildObstacleList(state, settings, opts = {}) {
   return boxes;
 }
 
-/**
- * The room's right (fence) wall box at world x `roomWallX` (= ownedRightX(state)),
- * matching the wall mesh in Garage.js (centred a half-thickness outside roomWallX,
- * full room depth). Used both for player push-out and to re-block the A* grid when
- * a room unlock moves it (see core/pathfinding.rebuildGrid, called from upgrades.js).
- */
 export function roomWallBox(roomWallX) {
   const W = settings.world;
   const wall = settings.pit.pitWallCollisionHalf;
   return { x: roomWallX + W.wallThickness / 2, z: 0, halfX: wall.x, halfZ: wall.z };
 }
 
-/** Push a mover (circle radius `r` at `pos`) out of every garage prop + gas pump
- * (see buildObstacleList). */
 export function resolveGarageCollisions(state, pos, r, opts = {}) {
   const walls = opts.roomWallX != null ? [roomWallBox(opts.roomWallX)] : [];
   const boxes = buildObstacleList(state, settings, {
@@ -214,7 +140,6 @@ export function resolveGarageCollisions(state, pos, r, opts = {}) {
   for (const b of boxes) pushOutOfRect(pos, r, b);
 }
 
-/** The cash-register's solid box, as { x, z, halfX, halfZ }, at its own world spot. */
 function cashRegisterBox() {
   const M = settings.supermarket;
   return {
@@ -225,12 +150,6 @@ function cashRegisterBox() {
   };
 }
 
-/**
- * Push a mover (circle of radius `r` at `pos` {x,z}) out of every supermarket
- * obstacle it overlaps. The cash register blocks once the cashier is hired
- * (state.hasCashier); the shelves/checkout block once the shop is unlocked.
- * Used by the player after its clampToBounds; NPCs use A* instead.
- */
 export function resolveSupermarketCollisions(state, pos, r) {
   if (state.hasCashier) pushOutOfRect(pos, r, cashRegisterBox());
   if (!state.supermarket || !state.supermarket.unlocked) return;

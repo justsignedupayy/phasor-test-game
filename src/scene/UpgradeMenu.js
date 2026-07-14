@@ -7,6 +7,7 @@ import {
   buyTruckFrequency,
   buyAttendantSpeed,
   buyBreakDuration,
+  buyBreakThreshold,
   buyPlayerSpeed,
 } from '../core/upgrades.js';
 import settings from '../config/settings.js';
@@ -15,28 +16,6 @@ import { getReputationMenuModel, buyAdvertising, watchAdForReputation } from '..
 import { showRewardedAd } from '../platform/ads.js';
 import { saveGame } from '../platform/storage.js';
 
-/**
- * UpgradeMenu — the TUNING purchases in one DOM overlay, opened by its own
- * corner button (top-left). Create/hire purchases (expand lots, equip, hire
- * workers, open the market/station) live at physical world markers instead —
- * see core/upgrades.getUnlockMarkers + scene/UnlockMarkers.js.
- *
- * The panel is dressed as a TABLET, its upgrades split across five category
- * tabs (left to right): Garage (auto-restock + breaks + per-pit worker tuning),
- * Market (train/breaks/truck), Gas Station (breaks + per-pump attendant
- * tuning), Player (the one-time speed purchase) and Advertising (permanent rep
- * via Buy Advertising or a cooldown-gated free rewarded ad). Only the active
- * tab's rows exist in the DOM at a time.
- *
- * Visuals follow design direction 2A "Soft Neon — Tablet" (see the design
- * handoff): aluminium rim → dark bezel with front-camera dot → glass screen
- * with status bar, app bar, tab strip, card grid, home-indicator pill.
- *
- * Hidden until open(); the structure can change while open (pits get
- * equipped/hired at their markers, tabs switch) so update() rebuilds the DOM
- * when the row signature — which includes the active tab — changes, and only
- * refreshes text/disabled state otherwise.
- */
 export class UpgradeMenu {
   constructor(state) {
     this.state = state;
@@ -49,9 +28,6 @@ export class UpgradeMenu {
     this.#buildPanel();
   }
 
-  // Design direction 1c "Tablet handle / tab" — a small tab hanging from the
-  // top edge, physically read as the handle of the panel it opens. Pixel
-  // values below are load-bearing (see the design handoff), not eyeballed.
   #buildButton() {
     const btn = document.createElement('button');
     Object.assign(btn.style, {
@@ -138,13 +114,9 @@ export class UpgradeMenu {
     this.button = btn;
   }
 
-  // The tablet chrome, outside in: aluminium rim → bezel (front-camera dot) →
-  // screen (glass sheen, status bar, app bar, tabs, scrolling content, home
-  // indicator). Pure CSS/DOM — no 3D. The rim is the fixed-position root.
   #buildPanel() {
     injectMenuStylesheet();
 
-    // Outer aluminium rim — brushed-metal border frame around the whole device.
     const rim = document.createElement('div');
     Object.assign(rim.style, {
       position: 'fixed',
@@ -153,12 +125,8 @@ export class UpgradeMenu {
       transform: 'translateY(-50%)',
       display: 'none',
       flexDirection: 'column',
-      // A proper tablet-sized surface, clamped so it still fits small screens.
       width: '1050px',
       maxWidth: 'calc(100vw - 20px)',
-      // FIXED height: the frame never grows/shrinks with the active tab's
-      // content — a sparse category shows empty screen below its rows, a dense
-      // one scrolls inside the content area (which flexes to fill the rest).
       height: 'min(840px, 88vh)',
       padding: '3px',
       borderRadius: '52px',
@@ -170,7 +138,6 @@ export class UpgradeMenu {
       userSelect: 'none',
     });
 
-    // Bezel — dark inner frame with an inset highlight; hosts the camera dot.
     const bezel = document.createElement('div');
     Object.assign(bezel.style, {
       flex: '1',
@@ -185,7 +152,6 @@ export class UpgradeMenu {
     });
     rim.appendChild(bezel);
 
-    // Front camera: a small centred lens dot in the top bezel band.
     const camera = document.createElement('div');
     Object.assign(camera.style, {
       position: 'absolute',
@@ -200,7 +166,6 @@ export class UpgradeMenu {
     });
     bezel.appendChild(camera);
 
-    // Screen — dark rounded glass hosting everything visible.
     const screen = document.createElement('div');
     Object.assign(screen.style, {
       flex: '1',
@@ -215,8 +180,6 @@ export class UpgradeMenu {
     });
     bezel.appendChild(screen);
 
-    // Diagonal glass sheen — tints the screen background only; the UI sections
-    // below sit at z-index 6, above it (matching the design reference).
     const sheen = document.createElement('div');
     Object.assign(sheen.style, {
       position: 'absolute',
@@ -229,7 +192,6 @@ export class UpgradeMenu {
 
     screen.appendChild(buildStatusBar());
 
-    // App bar: icon chip + title, and the circular close button.
     const header = document.createElement('div');
     Object.assign(header.style, {
       display: 'flex',
@@ -265,7 +227,6 @@ export class UpgradeMenu {
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, {
-      // 44px touch-target floor
       width: '44px',
       height: '44px',
       borderRadius: '50%',
@@ -288,8 +249,6 @@ export class UpgradeMenu {
     const content = document.createElement('div');
     content.className = 'um-content';
     Object.assign(content.style, {
-      // Fill whatever the fixed-height frame leaves after the header/tabs/home
-      // bar, and scroll internally past that — the frame itself never resizes.
       flex: '1 1 auto',
       minHeight: '0',
       overflowY: 'auto',
@@ -300,7 +259,6 @@ export class UpgradeMenu {
     screen.appendChild(content);
     this.content = content;
 
-    // Home-indicator pill under the screen, closing the tablet silhouette.
     const homeWrap = document.createElement('div');
     Object.assign(homeWrap.style, {
       display: 'flex',
@@ -324,11 +282,7 @@ export class UpgradeMenu {
     this.panel = rim;
   }
 
-  // The five category tabs, left to right; exactly one is active and only its
-  // rows are built (see #rebuild + structureSignature).
   #buildTabs(parent) {
-    // key, full label, short label (used only by the tightest compact steps
-    // below, when font/padding reduction alone can't fit all five pills).
     const TABS = [
       ['garage', 'Garage', 'Garage'],
       ['market', 'Market', 'Market'],
@@ -336,9 +290,6 @@ export class UpgradeMenu {
       ['player', 'Player', 'Player'],
       ['ads', 'Advertising', 'Ads'],
     ];
-    // The bar scrolls horizontally if the 5 pills ever don't fit. Wrapper
-    // hosts the right-edge fade that signals "more tabs →"; the fade sits
-    // OUTSIDE the scroller so it doesn't scroll away.
     const barWrap = document.createElement('div');
     Object.assign(barWrap.style, {
       position: 'relative',
@@ -381,8 +332,6 @@ export class UpgradeMenu {
       const b = document.createElement('button');
       b.textContent = label;
       Object.assign(b.style, {
-        // grow to share spare width on wide screens, but NEVER shrink — a
-        // shrinking pill clips its own label; overflow scrolls instead.
         flex: '1 0 auto',
         minHeight: '44px', // touch-target floor
         borderRadius: '16px',
@@ -398,13 +347,6 @@ export class UpgradeMenu {
     barWrap.append(bar, fade);
     parent.appendChild(barWrap);
 
-    // Pill density: below settings.ui.menuTabBreakpoint the pills tighten in
-    // measured steps until all five fit without horizontal scrolling. Font and
-    // padding shrink first; the two long labels abbreviate ("Gas Station"→
-    // "Gas", "Advertising"→"Ads") only in the last steps, when shrinking alone
-    // can't fit five. Measured against the bar's real overflow, so it lands on
-    // the loosest step that fits each device. If even the tightest step
-    // overflows, the scroll + fade affordance still applies.
     const COMPACT_STEPS = [
       { font: 13, padX: 10, gap: 9, barPadX: 24, short: false },
       { font: 12, padX: 8, gap: 7, barPadX: 16, short: false },
@@ -421,9 +363,6 @@ export class UpgradeMenu {
         b.textContent = (s.short ? shortLabels : fullLabels).get(key);
       }
     };
-    // Re-applied on resize/rotation AND on open(): while the panel is
-    // display:none the bar measures 0/0, so a resize that happens closed
-    // settles on the first compact step — open() re-measures for real.
     const applySizing = () => {
       if (window.innerWidth >= settings.ui.menuTabBreakpoint) {
         applyStep(WIDE);
@@ -437,8 +376,6 @@ export class UpgradeMenu {
     };
     applySizing();
     window.addEventListener('resize', applySizing);
-    // Also re-run from open(): fit and fade depend on layout that only
-    // settles after the panel's display flips to flex.
     this._applyTabSizing = applySizing;
 
     this.#styleTabs();
@@ -451,7 +388,6 @@ export class UpgradeMenu {
     if (this.isOpen) this.update(this.state); // the signature includes the tab → rebuilds now
   }
 
-  /** Active tab gets the pressed dirty-white key look; the rest recede dark. */
   #styleTabs() {
     for (const [key, b] of this.tabButtons) {
       Object.assign(b.style, key === this.activeTab ? TAB_ACTIVE : TAB_INACTIVE);
@@ -475,7 +411,6 @@ export class UpgradeMenu {
     else this.open();
   }
 
-  /** Called every frame from main.js; cheap no-op while closed. */
   update(state) {
     if (!this.isOpen) return;
     const model = getMenuModel(state);
@@ -488,17 +423,11 @@ export class UpgradeMenu {
     }
   }
 
-  // --- DOM building --------------------------------------------------------
-
   #rebuild(model) {
     this.content.replaceChildren();
     this.rowEls.clear();
     this.adRepLine = null; // recreated below only while the Advertising tab is up
 
-    // Create/hire purchases live at their world markers (scene/UnlockMarkers.js),
-    // so the tablet carries tuning upgrades only, split across the category
-    // tabs — only the active tab's rows are built. A category whose content
-    // hasn't been unlocked yet shows a hint instead of an empty screen.
     if (this.activeTab === 'garage') {
       this.content.appendChild(this.#sectionHeader('Automation'));
       this.content.appendChild(this.#card(null, model.automation));
@@ -543,14 +472,12 @@ export class UpgradeMenu {
     this.#refresh(model);
   }
 
-  /** Two-column card grid for the per-worker blocks — uses the tablet's width. */
   #cardGrid() {
     const grid = document.createElement('div');
     Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' });
     return grid;
   }
 
-  /** Shown on a tab whose category isn't unlocked yet — a hint, not an empty screen. */
   #placeholder(text) {
     const p = document.createElement('div');
     p.textContent = text;
@@ -568,10 +495,6 @@ export class UpgradeMenu {
     return p;
   }
 
-  // The Advertising card — reputation readout + the two reputation actions
-  // (permanent Buy Advertising, temporary rewarded-ad boost). Doesn't use the
-  // generic getMenuModel rows: it has its own view model (getReputationMenuModel)
-  // and two buttons, so it's built/refreshed separately.
   #buildAdvertising() {
     const card = document.createElement('div');
     Object.assign(card.style, CARD_CHROME);
@@ -583,6 +506,22 @@ export class UpgradeMenu {
       color: '#eef2f6',
       marginBottom: '4px',
     });
+
+    const gates = settings.pit.unlockReputation
+      .filter((r) => r > 0)
+      .map((r) => `${Math.round(r * 100)}`)
+      .join('/');
+    const blurb = document.createElement('div');
+    blurb.textContent =
+      `A better reputation attracts fancier cars that pay far more — and buying new pit lots requires it (${gates}%).`;
+    Object.assign(blurb.style, {
+      fontSize: '12px',
+      fontWeight: '600',
+      color: '#9fb0c0',
+      lineHeight: '1.45',
+      marginBottom: '10px',
+    });
+    this.adBlurb = blurb;
 
     this.adBoostLine = document.createElement('div');
     Object.assign(this.adBoostLine.style, {
@@ -614,7 +553,7 @@ export class UpgradeMenu {
       );
     });
 
-    card.append(this.adRepLine, this.adBoostLine, this.adBuyBtn, this.adWatchBtn);
+    card.append(this.adRepLine, this.adBlurb, this.adBoostLine, this.adBuyBtn, this.adWatchBtn);
     return card;
   }
 
@@ -683,9 +622,6 @@ export class UpgradeMenu {
     return card;
   }
 
-  // One upgrade row: label + effect on the left, cost button / state badge on
-  // the right. The right element is one <button> restyled per state in
-  // #refreshRow (buyable → green cost button, OWNED/MAX/LOCKED → soft badge).
   #row(row) {
     const wrap = document.createElement('div');
     Object.assign(wrap.style, {
@@ -722,8 +658,6 @@ export class UpgradeMenu {
     this.rowEls.set(rowKey(row), { wrap, label, effect, button });
     return wrap;
   }
-
-  // --- live refresh --------------------------------------------------------
 
   #refresh(model) {
     for (const row of model.automation) this.#refreshRow(row);
@@ -762,10 +696,6 @@ export class UpgradeMenu {
     }
   }
 
-  // Map the row's state onto the 2A visual variants: enabled → green cost
-  // button; OWNED / MAX → soft green / amber badge; LOCKED → grey badge with
-  // the whole row dimmed; a '$' cost you can't afford → the green button,
-  // dimmed; any other status string (ORDERED, EN ROUTE, FULL) → grey badge.
   #refreshRow(row) {
     const el = this.rowEls.get(rowKey(row));
     if (!el) return;
@@ -784,8 +714,6 @@ export class UpgradeMenu {
     else if (row.cost.startsWith('$')) styleCostButton(el.button, true);
     else styleBadge(el.button, '#8b96a3', '#3a434f');
   }
-
-  // --- purchases -----------------------------------------------------------
 
   #buy(kind, pitIndex) {
     let ok = false;
@@ -820,6 +748,15 @@ export class UpgradeMenu {
       case 'attendantBreak':
         ok = buyBreakDuration(this.state, 'gasAttendant');
         break;
+      case 'mechanicShift':
+        ok = buyBreakThreshold(this.state, 'carMechanic');
+        break;
+      case 'marketShift':
+        ok = buyBreakThreshold(this.state, 'marketWorker');
+        break;
+      case 'attendantShift':
+        ok = buyBreakThreshold(this.state, 'gasAttendant');
+        break;
       case 'playerSpeed':
         ok = buyPlayerSpeed(this.state);
         break;
@@ -830,8 +767,6 @@ export class UpgradeMenu {
     }
   }
 }
-
-// --- 2A design tokens -------------------------------------------------------
 
 const FONT = settings.ui.fontStack;
 
@@ -856,7 +791,6 @@ const CARD_CHROME = {
   boxShadow: '0 12px 28px -14px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)',
 };
 
-/** The green pressable buy button; dimmed (but still green) when unaffordable. */
 function styleCostButton(btn, dimmed) {
   Object.assign(btn.style, {
     padding: '9px 17px',
@@ -873,12 +807,9 @@ function styleCostButton(btn, dimmed) {
   });
 }
 
-/** Static state badge (OWNED green / MAX amber / LOCKED & status grey-blue). */
 function styleBadge(btn, color, background) {
   Object.assign(btn.style, {
     padding: '8px 14px',
-    // Same 44px floor as the cost button this element toggles with, so a row
-    // never changes height when LOCKED flips to a live BUY.
     minHeight: '44px',
     borderRadius: '13px',
     fontSize: '12px',
@@ -892,7 +823,6 @@ function styleBadge(btn, color, background) {
   });
 }
 
-// Style an advertising button by its disabled state (mirrors the row buttons).
 function setAdButton(btn, disabled) {
   btn.disabled = disabled;
   if (disabled) {
@@ -914,8 +844,6 @@ function setAdButton(btn, disabled) {
   }
 }
 
-// Rewrite the effect line with every '→' tinted accent green; runs each frame,
-// so it only touches the DOM when the text actually changed.
 function setEffectText(el, text) {
   if (el.dataset.effect === text) return;
   el.dataset.effect = text;
@@ -932,14 +860,11 @@ function setEffectText(el, text) {
   });
 }
 
-// "Worker A" → "A", "Attendant 2" → "2"; longer trailing words fall back to
-// the title's first letter.
 function chipLabel(title) {
   const last = title.trim().split(/\s+/).pop();
   return (last.length <= 2 ? last : title.trim()[0]).toUpperCase();
 }
 
-// Decorative status bar: clock left; signal bars, "5G" and battery right.
 function buildStatusBar() {
   const bar = document.createElement('div');
   Object.assign(bar.style, {
@@ -999,10 +924,6 @@ function buildStatusBar() {
   return bar;
 }
 
-// One shared stylesheet for what inline styles can't do: press feedback on the
-// enabled buy buttons and a dark scrollbar for the screen's content area. The UI
-// font itself is the local Montserrat face (settings.ui.fontStack / @font-face
-// in public/style.css) — no web-font CDN load, so it can never delay first paint.
 let menuStylesInjected = false;
 function injectMenuStylesheet() {
   if (menuStylesInjected) return;
@@ -1018,7 +939,6 @@ function injectMenuStylesheet() {
   document.head.appendChild(style);
 }
 
-// A stable key per row (kind + pit). Expand Room has no pit.
 function rowKey(row) {
   return row.pitIndex === undefined ? row.kind : `${row.kind}:${row.pitIndex}`;
 }
@@ -1030,8 +950,6 @@ function mmss(seconds) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-// Changes whenever the set/shape of rows changes (equip, hire, train) OR the
-// active tab switches — either way the DOM is rebuilt for the visible category.
 function structureSignature(model, activeTab) {
   const automation = model.automation.map(rowKey).join(',');
   const garageBreaks = model.garageBreaks.map(rowKey).join(',');

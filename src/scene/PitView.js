@@ -3,20 +3,6 @@ import settings from '../config/settings.js';
 import { Mechanic } from './Mechanic.js';
 import { cloneStorageModel } from './StorageModels.js';
 
-/**
- * PitView — the static, per-pit scene furniture (no car logic; cars are owned by
- * CarYard). It renders three states:
- *
- *   locked       nothing visible
- *   roomUnlocked the pit letter label (the lot floor visuals — blue spot, roads,
- *                doors — are Garage.js's, keyed off the same flag)
- *   equipped     the toolbox station (appear-animated) + storage props
- *
- * It also owns this pit's worker NPC (spawned when hired) and the floor
- * highlight ring shown when the player can manually tap an unmanned pit.
- *
- * Driven by update(dt, pit); reads the core pit's booleans, never mutates them.
- */
 export class PitView {
   constructor(sceneManager, index, gltf) {
     this.sm = sceneManager;
@@ -39,7 +25,6 @@ export class PitView {
     const c = settings.colors;
     const { x, z } = this.pos;
 
-    // Equipped station: a toolbox marker (the pit floor paint is Garage.js's).
     this.station = new THREE.Group();
     this.station.position.set(x, 0, z);
     this.station.visible = false;
@@ -52,7 +37,6 @@ export class PitView {
     this.station.add(toolbox);
     this.sm.add(this.station);
 
-    // Highlight ring (player-can-tap affordance).
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(settings.pit.radius * 0.78, settings.pit.radius, 40),
       new THREE.MeshBasicMaterial({
@@ -67,32 +51,22 @@ export class PitView {
     this.ring.position.set(x, 0.05, z);
     this.sm.add(this.ring);
 
-    // Pit/worker label ("A", "B", ...).
     this.label = makeLabelSprite(String.fromCharCode(65 + this.index));
     this.label.position.set(x, 3.0, z);
     this.label.visible = false;
     this.sm.add(this.label);
   }
 
-  /**
-   * The per-pit storage props: a shelf of boxes (the player — or, with auto-restock,
-   * the mechanic — carries one to the worker to refill tires), the tire stack beside
-   * the worker, and a live "Tires N" label. All hidden until the pit is equipped.
-   */
   #buildStorage() {
     const { x, z } = this.pos;
     const S = settings.storage;
 
-    // Shelf (exit-door side of the pit), with its boxes stacked as children so
-    // they ride along with the shelf transform.
     this.shelf = cloneStorageModel('shelf');
     this.shelf.scale.setScalar(S.shelfScale);
     this.shelf.position.set(x + S.shelfOffset.x, 0, z + S.shelfOffset.z);
     this.shelf.visible = false;
     this.sm.add(this.shelf);
 
-    // Decorative box stock: a full 3-wide grid (x axis) that stacks upward (y
-    // axis), at 1/5 the carried-box scale. Always shown when equipped.
     const g = S.boxGrid;
     for (let i = 0; i < S.shelfCapacity; i++) {
       const box = cloneStorageModel('box');
@@ -105,29 +79,24 @@ export class PitView {
       this.boxes.push(box);
     }
 
-    // Tire stack beside the worker.
     this.tires = cloneStorageModel('tires');
     this.tires.scale.setScalar(S.tireScale);
     this.tires.position.set(x + S.tireOffset.x, 0, z + S.tireOffset.z);
     this.tires.visible = false;
     this.sm.add(this.tires);
 
-    // Live "Tires N" label, just above the letter label.
     this.storageLabel = makeStorageSprite();
     this.storageLabel.position.set(x, 3.7, z);
     this.storageLabel.visible = false;
     this.sm.add(this.storageLabel);
   }
 
-  /** Reflect this pit's tire/box state into the storage props each frame. */
   #updateStorage(pit) {
     const equipped = pit.equipped;
     this.shelf.visible = equipped;
     this.tires.visible = equipped && pit.tiresRemaining > 0;
     this.storageLabel.visible = equipped;
 
-    // Shelf stock is decorative: always show the full grid when equipped, never
-    // remove boxes as shelfBoxes drops.
     for (const box of this.boxes) box.visible = equipped;
 
     if (equipped) {
@@ -142,7 +111,6 @@ export class PitView {
   update(dt, pit, state) {
     this.#updateStorage(pit);
 
-    // Reveal the station and animate its appearance.
     this.station.visible = pit.equipped;
     this.label.visible = pit.roomUnlocked;
 
@@ -151,7 +119,6 @@ export class PitView {
     this.stationScale += (stationTarget - this.stationScale) * k;
     applyAppear(this.station, this.stationScale);
 
-    // Spawn this pit's worker the moment one is hired.
     if (pit.hasMechanic && !this.mechanic) {
       this.mechanic = new Mechanic(this.gltf);
       this.sm.add(this.mechanic.root);
@@ -160,8 +127,6 @@ export class PitView {
       const B = settings.breaks;
       this.mechanic.update(dt, {
         mechanic: pit.mechanic, // core-owned position + restock/break FSM
-        // Only counts once the car has settled in the pit — core doesn't repair
-        // during the drive-in (car.settleRemaining > 0), so don't wrench thin air.
         carPresent: !!pit.car && pit.car.settleRemaining <= 0,
         hurrying: pit.hurryTimer > 0,
         onBreak: pit.break.onBreak,
@@ -171,24 +136,19 @@ export class PitView {
       });
     }
 
-    // Highlight only when the player can usefully tap here (equipped, a car
-    // present, standing here, and no worker doing it for them).
     this.highlightT += dt;
-    const canTap = pit.equipped && !!pit.car && pit.playerPresent && !pit.hasMechanic;
+    const canTap = pit.equipped && !!pit.car && pit.playerPresent && (!pit.hasMechanic || pit.break.onBreak);
     const target = canTap ? 0.45 + 0.22 * Math.sin(this.highlightT * 5) : 0;
     this.ring.material.opacity += (target - this.ring.material.opacity) * Math.min(1, 8 * dt);
   }
 }
 
-// Pop-in with a slight overshoot, applied to a group's scale (skips if ~0/hidden).
 function applyAppear(group, s) {
   if (!group.visible) return;
   const overshoot = 1 + 0.15 * Math.sin(Math.min(1, s) * Math.PI);
   group.scale.setScalar(Math.max(0.001, s * overshoot));
 }
 
-// A camera-facing text label rendered to a small canvas texture. Exported for
-// reuse by the gas station's pump labels (see scene/GasStationView.js).
 export function makeLabelSprite(text) {
   const size = 128;
   const canvas = document.createElement('canvas');
@@ -209,8 +169,6 @@ export function makeLabelSprite(text) {
   return sprite;
 }
 
-// A wide canvas-textured sprite for the live "Tires N" readout. The canvas is
-// created once; drawStorageSprite() repaints it when the text changes.
 function makeStorageSprite() {
   const canvas = document.createElement('canvas');
   canvas.width = 256;

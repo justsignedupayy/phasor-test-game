@@ -1,10 +1,5 @@
-/**
- * icons.js — the two small UI icons (money.png, lock.png) that stand in for
- * the literal '$' and '🔒' glyphs in canvas-drawn labels. Canvas ctx.drawImage
- * needs the Image already loaded (unlike a DOM <img>, which loads itself), so
- * call (and await) preloadIcons() once during boot, before any canvas label
- * that reads getMoneyIcon()/getLockIcon() is first drawn.
- */
+import { assetUrl } from '../platform/assetUrl.js';
+
 const moneyIcon = new Image();
 const lockIcon = new Image();
 
@@ -12,7 +7,10 @@ let promise = null;
 
 export function preloadIcons() {
   if (!promise) {
-    promise = Promise.all([load(moneyIcon, '/assets/images/money.png'), load(lockIcon, '/assets/images/lock.png')]);
+    promise = Promise.all([
+      load(moneyIcon, assetUrl('assets/images/money.png')),
+      load(lockIcon, assetUrl('assets/images/lock.png')),
+    ]);
   }
   return promise;
 }

@@ -6,14 +6,6 @@ import { cloneStorageModel } from './StorageModels.js';
 import { ZzzEffect } from './ZzzEffect.js';
 import { AlertBounce } from './AlertBounce.js';
 
-/**
- * MarketWorker — the supermarket's worker NPC (state.supermarket.workerLevel
- * >= 1): the same rigged glTF as the player/mechanics, cloned + tinted
- * (marketWorkerTint) like Mechanic.js. Unlike Mechanic (which never leaves its
- * pit), this one actually walks: core/supermarket.js owns its position/
- * rotation/state each tick, this class only renders it — same split as
- * Character.js mirroring state.player.
- */
 const HURRY_TIME_SCALE = 2; // matches Mechanic.js: the active clip plays at double speed while hurrying
 
 export class MarketWorker {
@@ -34,18 +26,9 @@ export class MarketWorker {
     this.root.add(this.model);
     groundModel(this.model); // the model's mesh origin isn't at floor level — sit it on y=0
 
-    // Tap raycasting (yell / resting-worker taps) hits this instead of the
-    // (thin, animated) model — see SupermarketView.raycastTap/raycastRestingWorker.
     this.hitBox = buildTapHitBox(cfg.tapHitRadius, cfg.tapHitHeight);
     this.root.add(this.hitBox);
 
-    // Two independently-toggled hand props, both parented to the hand bone so
-    // they track the carry animation:
-    //  • a cardboard box on a restock haul (pile → shelf), sized like the
-    //    player's carried box (settings.storage.boxScale);
-    //  • a Bag.glb holding the order while packaging.
-    // Only one is ever visible at a time (the worker can't restock and package
-    // at once), but each is shown/hidden by its own state below.
     this.box = cloneStorageModel('box');
     this.box.scale.setScalar(settings.storage.boxScale);
     this.box.visible = false;
@@ -65,23 +48,16 @@ export class MarketWorker {
     this.zzz.root.position.set(0, cfg.headHeight, 0);
     this.root.add(this.zzz.root);
 
-    // Red exclamation-mark bounce shown on a remote hurry tap (see main.js).
     this.alertBounce = new AlertBounce(settings.emote.spriteScale);
     this.alertBounce.root.position.set(0, cfg.headHeight + settings.emote.heightAboveHead, 0);
     this.root.add(this.alertBounce.root);
-    // Break progress is shown on the wall-mounted LED display at the break spot
-    // (see scene/BreakDisplay.js) — no head-label counter here.
   }
 
-  /** @param {object} worker core's state.supermarket.worker */
   update(dt, worker) {
     this.root.position.x = worker.position.x;
     this.root.position.z = worker.position.z;
     this.root.position.y = 0;
 
-    // Once on break, nudge the body onto its break spot (the same lean offset the
-    // mechanics use) so it leans upright against the wall. Pure render offset —
-    // core's worker.position is unchanged.
     if (worker.state === 'onBreak' && !worker.moving) {
       const B = settings.breaks;
       const d = leanOffsetDelta(B.marketBreakSpotFacing, B.leanOffset);
@@ -95,18 +71,10 @@ export class MarketWorker {
     const t = 1 - Math.exp(-settings.player.turnLerp * dt);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, worker.rotation, t);
 
-    // On a RESTOCK haul the worker carries the cardboard box from the pile to the
-    // shelf — carry clip + visible box — once it has actually picked it up
-    // (worker.carrying flips true on arrival at the pile).
     const haulingBox = worker.state === 'restocking' && worker.carrying;
 
-    // Animation: restock haul → carry. While packaging, gate on core's
-    // worker._gatheredItem — empty-handed (false) is the run-paced sprint to the
-    // first shelf ('walk'); once it holds ≥1 item (true) it switches to 'carry'
-    // for the rest of the trip. Everything else uses the walking-pace 'walkSlow'.
     let next;
     if (worker.state === 'onBreak') {
-      // Walks (empty-handed) to its break spot, then rests for the break's duration.
       next = worker.moving ? 'walkSlow' : 'resting';
     } else if (haulingBox) {
       next = worker.moving ? 'carry' : 'carryIdle';
@@ -120,9 +88,6 @@ export class MarketWorker {
     const activeAction = this.actions[this.state];
     if (activeAction) activeAction.timeScale = worker.hurryTimer > 0 ? HURRY_TIME_SCALE : 1;
 
-    // Props: the cardboard box shows on a restock haul; the order bag shows while
-    // packaging once an item is in hand — both gated on the same flags that drive
-    // the animation. worker._gatheredItem is only ever true mid-packaging-trip.
     this.box.visible = haulingBox;
     this.bag.visible = worker._gatheredItem;
 

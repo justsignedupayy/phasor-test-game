@@ -1,28 +1,10 @@
 import * as THREE from 'three';
 import settings from '../config/settings.js';
 import { laneBridgeCrossings, pumpSpineLayout } from '../core/roads.js';
-
-/**
- * Poof.js — the cartoon "poof" reveal effect: a short burst of soft, puffy
- * cloud sprites that pops at a spot, expands and fades out over ~0.3-0.55s,
- * then removes itself. Fully procedural (a lumpy radial-gradient canvas
- * texture drawn once, tinted white-to-light-grey per puff) — no model.
- *
- * PoofEffects is the reusable effect: spawn(pos, size) anywhere, update(dt)
- * once per frame from the main loop.
- *
- * RevealPoofs is the trigger layer: it watches core state per frame for the
- * rising edges the render layer already gates visibility on (roomUnlocked,
- * equipped, hires, market/cashier unlocks) and fires
- * a poof at each newly revealed object's world spot. Its first update only
- * BASELINES the flags, so resuming a save never poofs the existing world.
- * Pure observation — unlock logic, timing and costs live in core, untouched.
- */
+import { SpriteBatch } from './SpriteBatch.js';
 
 let poofTexture = null;
 
-/** The shared puff sprite texture: a handful of overlapping soft radial blobs
- * on a canvas, so each sprite reads as a lumpy little cloud, not a flat disc. */
 function getPoofTexture() {
   if (poofTexture) return poofTexture;
   const size = 128;
@@ -48,71 +30,67 @@ function getPoofTexture() {
   return poofTexture;
 }
 
+const MAX_PUFFS = 96; // batch capacity, sized to the worst storm (market unlock ≈ 11 bursts); also caps fill-rate
+
 export class PoofEffects {
   constructor(sceneManager) {
-    this.group = new THREE.Group();
-    sceneManager.add(this.group);
-    this.puffs = [];
+    this.batch = new SpriteBatch(sceneManager, {
+      texture: getPoofTexture(),
+      capacity: MAX_PUFFS,
+      renderOrder: 10,
+    });
+    this.puffs = []; // live particle records, compacted in place each update
+    this.free = []; // dead records, reused verbatim — spawn allocates nothing after warm-up
   }
 
-  /**
-   * Burst a poof cloud at pos {x, y?, z} (y defaults to prop mid-height);
-   * `size` scales the whole burst (1 ≈ a small prop-sized reveal).
-   */
-  spawn(pos, size = 1) {
-    const tex = getPoofTexture();
-    const count = 10;
+  spawn(pos, size = 1, count = 7) {
     const y = pos.y ?? 0.6;
     for (let i = 0; i < count; i++) {
+      if (this.puffs.length >= MAX_PUFFS) return; // budget spent — a burst storm reads fine without the overflow
+      const p = this.free.pop() ?? {};
       const shade = 0.8 + Math.random() * 0.2; // white → light grey
-      const mat = new THREE.SpriteMaterial({
-        map: tex,
-        color: new THREE.Color(shade, shade, Math.min(1, shade + 0.03)),
-        transparent: true,
-        opacity: 0.95,
-        depthWrite: false,
-      });
-      const sprite = new THREE.Sprite(mat);
+      p.r = shade;
+      p.g = shade;
+      p.b = Math.min(1, shade + 0.03);
       const a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
       const r = (0.25 + Math.random() * 0.65) * size;
-      sprite.position.set(pos.x + Math.cos(a) * r, y + (Math.random() - 0.2) * 0.5 * size, pos.z + Math.sin(a) * r);
-      const s0 = (1.0 + Math.random() * 0.8) * size;
-      sprite.scale.setScalar(s0);
-      this.group.add(sprite);
-      this.puffs.push({
-        sprite,
-        age: 0,
-        life: 0.35 + Math.random() * 0.25,
-        s0,
-        s1: s0 * (1.9 + Math.random() * 0.7), // grows ~2x while fading
-        vx: Math.cos(a) * (1.8 + Math.random() * 2.0) * size,
-        vy: (0.9 + Math.random() * 1.4) * size,
-        vz: Math.sin(a) * (1.8 + Math.random() * 2.0) * size,
-      });
+      p.x = pos.x + Math.cos(a) * r;
+      p.y = y + (Math.random() - 0.2) * 0.5 * size;
+      p.z = pos.z + Math.sin(a) * r;
+      p.age = 0;
+      p.life = 0.35 + Math.random() * 0.25;
+      p.s0 = (1.15 + Math.random() * 0.9) * size;
+      p.s1 = p.s0 * (1.9 + Math.random() * 0.7); // grows ~2x while fading
+      p.vx = Math.cos(a) * (1.8 + Math.random() * 2.0) * size;
+      p.vy = (0.9 + Math.random() * 1.4) * size;
+      p.vz = Math.sin(a) * (1.8 + Math.random() * 2.0) * size;
+      this.puffs.push(p);
     }
   }
 
   update(dt) {
-    for (let i = this.puffs.length - 1; i >= 0; i--) {
-      const p = this.puffs[i];
+    const puffs = this.puffs;
+    const damp = Math.max(0, 1 - 3 * dt); // outward drift bleeds off, up-drift stays
+    let w = 0; // survivors compact to the front; batch slot == survivor index
+    for (let i = 0; i < puffs.length; i++) {
+      const p = puffs[i];
       p.age += dt;
-      const t = p.age / p.life;
-      if (t >= 1) {
-        this.group.remove(p.sprite);
-        p.sprite.material.dispose();
-        this.puffs.splice(i, 1);
+      if (p.age >= p.life) {
+        this.free.push(p);
         continue;
       }
+      const t = p.age / p.life;
       const ease = 1 - (1 - t) * (1 - t); // fast pop, slow settle
-      p.sprite.scale.setScalar(p.s0 + (p.s1 - p.s0) * ease);
-      p.sprite.material.opacity = 0.95 * (1 - t * t);
-      const damp = Math.max(0, 1 - 3 * dt); // outward drift bleeds off, up-drift stays
       p.vx *= damp;
       p.vz *= damp;
-      p.sprite.position.x += p.vx * dt;
-      p.sprite.position.y += p.vy * dt;
-      p.sprite.position.z += p.vz * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      this.batch.set(w, p.x, p.y, p.z, p.s0 + (p.s1 - p.s0) * ease, p.r, p.g, p.b, 0.95 * (1 - t * t));
+      puffs[w++] = p;
     }
+    puffs.length = w;
+    this.batch.commit(w);
   }
 }
 
@@ -128,7 +106,6 @@ export class RevealPoofs {
     this.prev = cur;
   }
 
-  /** The per-frame boolean picture of everything reveal-gated in the world. */
   #snapshot(state) {
     const flags = (p) => ({
       room: p.roomUnlocked,
@@ -144,7 +121,6 @@ export class RevealPoofs {
     };
   }
 
-  /** One poof per rising edge, at the spot the views reveal the new object. */
   #fire(prev, cur) {
     const rose = (a, b) => !a && b;
     const bridge = settings.pitLane.bridge;
@@ -154,15 +130,12 @@ export class RevealPoofs {
     cur.pits.forEach((pit, i) => {
       const was = prev.pits[i];
       const p = settings.pit.positions[i];
-      // Expand Room: the lot's floor reveals and the land fence slides right.
       if (rose(was.room, pit.room)) this.poofs.spawn({ x: p.x, y: 0.6, z: p.z }, 1.6);
-      // Equipment: the pit spot, shelf, tire stack AND its lane bridge appear.
       if (rose(was.equipped, pit.equipped)) {
         this.poofs.spawn({ x: p.x, y: 0.6, z: p.z }, 1.3);
         const c = crossings[i];
         this.poofs.spawn({ x: c.x, y: bridge.height + 0.3, z: c.z }, 1.0);
       }
-      // Hire: the mechanic pops in at its work spot.
       if (rose(was.worker, pit.worker)) {
         this.poofs.spawn({ x: p.x + settings.mechanic.offsetX, y: 0.9, z: p.z + settings.mechanic.offsetZ }, 1.0);
       }
@@ -171,14 +144,10 @@ export class RevealPoofs {
     cur.pumps.forEach((pump, i) => {
       const was = prev.pumps[i];
       const p = settings.gasStation.positions[i];
-      // Lot unlock: the lot ground appears — and for lot 0 the whole station
-      // (gate, road) pops into existence, so the gate gets its own poof.
       if (rose(was.room, pump.room)) {
         this.poofs.spawn({ x: p.x, y: 0.6, z: p.z }, 1.5);
         if (i === 0) this.poofs.spawn({ x: -settings.world.halfX, y: 1.0, z: settings.gasStation.gateZ }, 1.6);
       }
-      // Equip: the pump prop appears, and the walkway spine grows a piece
-      // (deck stretch + its new spur(s)) to reach across this pump's lane.
       if (rose(was.equipped, pump.equipped)) {
         const po = settings.gasStation.pumpOffset;
         this.poofs.spawn({ x: p.x + po.x, y: 0.9, z: p.z + po.z }, 1.2);
@@ -201,11 +170,6 @@ export class RevealPoofs {
     });
 
     const M = settings.supermarket;
-    // Market unlock reveals the whole shop at once: one big poof mid-floor,
-    // one at the checkout, one per shelf/freezer, and one on each sliding
-    // door that comes into existence with the market — the customer entry +
-    // exit (back-wall corridors) and the restock truck's delivery gate (all
-    // three share the unlocked flag; see scene/SlidingDoors.js).
     if (rose(prev.market, cur.market)) {
       this.poofs.spawn({ x: M.workerIdleSpot.x, y: 0.8, z: M.workerIdleSpot.z }, 2.2);
       this.poofs.spawn({ x: M.checkoutPosition.x, y: 0.8, z: M.checkoutPosition.z }, 1.2);

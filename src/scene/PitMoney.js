@@ -6,29 +6,11 @@ import { preloadMoneyModel, moneyModel, spawnFlyingBills } from './MoneyFly.js';
 
 export { preloadMoneyModel };
 
-/**
- * PitMoney — per-pit pay made visible. While a pit holds uncollected pay
- * (pit.pendingCash > 0), a small stack of bills sits on its floor; the height
- * tracks the amount (≈ pendingCash / cashPerBill, capped). Core owns the money:
- * it banks pendingCash into cash the moment the player is near (or instantly
- * with a cashier). This view only mirrors the number and, when pendingCash
- * drops to 0, flies the bills to the player and pops the "+$" — i.e. the popup
- * appears exactly when money is actually collected, never at repair-finish.
- *
- * Render-only: reads core state, writes nothing back.
- */
 export class PitMoney {
-  /**
-   * Defaults to the repair pits; the gas station reuses this 1:1 by passing its
-   * own positions + a selector for its pump list (pumps carry the same
-   * pendingCash / collectedThisTick shape as pits).
-   */
   constructor(sceneManager, positions = settings.pit.positions, getSlots = (state) => state.pits) {
     this.sm = sceneManager;
     this.positions = positions;
     this.getSlots = getSlots;
-    // One slot per pit: its stacked bills, the last pendingCash we saw (to catch
-    // the drop-to-0 collection event), and any in-flight collection animation.
     this.slots = positions.map((pos) => ({
       base: { x: pos.x + 1.5, y: 0.1, z: pos.z + 1.3 }, // front-right of the pad, clear of the car
       bills: [],
@@ -51,9 +33,6 @@ export class PitMoney {
 
     const pending = pit.pendingCash;
 
-    // Collection event. Primary signal: core banked money this tick
-    // (collectedThisTick). Fallback: pending dropped to 0 some other way (e.g.
-    // hiring the cashier sweeps every pit's waiting pile straight to cash).
     const collected =
       pit.collectedThisTick > 0 ? pit.collectedThisTick : slot.prevPending > 0 && pending === 0 ? slot.prevPending : 0;
     if (collected > 0) {
@@ -76,7 +55,6 @@ export class PitMoney {
     }
     slot.prevPending = pending;
 
-    // Reconcile the visible stack to the waiting amount.
     const target = pending > 0 ? Math.min(settings.money.maxBills, Math.ceil(pending / settings.money.cashPerBill)) : 0;
     while (slot.bills.length < target) slot.bills.push(this.#spawnBill(slot, slot.bills.length));
     while (slot.bills.length > target) disposeBill(this.sm, slot.bills.pop());
@@ -105,12 +83,6 @@ export class PitMoney {
   }
 }
 
-// A bill is a plain clone of the shared Money.glb base: its geometry AND
-// materials belong to that session-lifetime base (nothing is cloned per bill —
-// no per-instance mutation needs it; the green tint is applied once at preload).
-// So a despawned bill only leaves the scene — disposing here would yank the
-// shared GPU resources out from under every bill still stacked at other pits
-// (the shared-resource hazard CarView.dispose documents).
 function disposeBill(sceneManager, bill) {
   sceneManager.remove(bill);
 }

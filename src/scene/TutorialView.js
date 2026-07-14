@@ -4,32 +4,6 @@ import { getTutorialView, dismissTutorialFinale } from '../core/tutorial.js';
 import { worldToScreen } from './popup.js';
 import { saveGame } from '../platform/storage.js';
 
-/**
- * TutorialView — renders core/tutorial.js's view model: a pulsing glow ring on
- * the current step's world target (or a CSS glow on a tablet UI element) plus
- * a short instruction bubble beside it, the "costs $X" info banner for
- * still-gated steps, and the one-time finale popup. Pure render layer: it
- * reads the view model each frame and only ever mutates core through
- * dismissTutorialFinale (the popup tap).
- *
- * World anchors: the ring mesh sits on the ground at the target; the bubble is
- * a fixed-position DOM card placed via worldToScreen every frame (same pattern
- * as popup.js), so it tracks the camera. When the target is OUTSIDE the
- * visible viewport, a directional arrow appears at the screen edge instead,
- * pointing toward it (tracking as the player moves) — the ring/bubble return
- * the moment the target comes back on screen.
- *
- * Tablet anchors resolve against the UpgradeMenu live: closed → its handle
- * button (with a bouncing "open me" arrow under it, so the cue can't be
- * missed), open on the wrong tab → that tab's button, right tab → the specific
- * row/button — the glow walks the player through opening the right screen
- * without any extra state.
- *
- * `unlockMarkers` (scene/UnlockMarkers.js) is read-only here too: its
- * getPaidAmount(kind, index) feeds core/tutorial.js's getTutorialView so the
- * "costs $X" banners fall live as a marker's own walk-up-to-pay drain pays it
- * down, not just showing the frozen sticker cost.
- */
 export class TutorialView {
   constructor(sceneManager, state, menu, unlockMarkers) {
     this.sm = sceneManager;
@@ -66,9 +40,6 @@ export class TutorialView {
     });
     document.body.appendChild(this.bubble);
 
-    // The directional arrow: doubles as the screen-edge pointer toward an
-    // off-screen world target AND the "open the tablet" nudge under the
-    // Upgrades handle. One element — the two uses never coexist.
     this.arrow = document.createElement('div');
     this.arrow.textContent = '➤';
     Object.assign(this.arrow.style, {
@@ -86,7 +57,6 @@ export class TutorialView {
     document.body.appendChild(this.arrow);
   }
 
-  /** Two concentric flat rings on the ground, pulsing in scale + opacity. */
   #buildRing() {
     const R = settings.tutorial.ring;
     const group = new THREE.Group();
@@ -99,7 +69,6 @@ export class TutorialView {
     );
     for (const mesh of [inner, outer]) {
       mesh.rotation.x = -Math.PI / 2;
-      // Above every painted floor decal AND the unlock-marker circles (0.02).
       mesh.position.y = 0.03;
       mesh.renderOrder = 2;
       group.add(mesh);
@@ -129,15 +98,9 @@ export class TutorialView {
       return;
     }
 
-    // While the upgrade tablet is OPEN, world/info guidance is noise layered
-    // over it. The menu is self-explanatory while up; the bubble returns the
-    // frame it closes. Tablet-anchored steps still render — they guide the
-    // player INSIDE the open menu.
     const menuBlocksBubble = this.menu.isOpen && view.anchor.kind !== 'tablet';
 
     if (view.anchor.kind === 'info') {
-      // The waiting banner ("Earn $X more to …"): no highlight anywhere, just
-      // a live line of text top-centre, under the cash counter.
       this.#hideRing();
       this.#hideArrow();
       this.#setHighlight(null);
@@ -158,8 +121,6 @@ export class TutorialView {
       return;
     }
 
-    // Tablet anchor: glow the next DOM element on the way to the target, with
-    // the bouncing nudge arrow while the tablet still has to be OPENED.
     this.#hideRing();
     const el = this.#resolveTabletElement(view.anchor);
     this.#setHighlight(el);
@@ -168,14 +129,6 @@ export class TutorialView {
     else this.#hideArrow();
   }
 
-  // --- world-anchor pieces ---------------------------------------------------
-
-  /**
-   * On-screen target → pulsing ground ring + bubble over it. Off-screen target
-   * → a directional arrow clamped to the viewport edge, pointing at it, with
-   * the bubble tucked inward beside it so the player knows what they're
-   * walking toward.
-   */
   #placeWorldAnchor(anchor, text, state) {
     const A = settings.tutorial.arrow;
     const dom = this.sm.renderer.domElement;
@@ -194,14 +147,7 @@ export class TutorialView {
         this.sm.camera,
         dom
       );
-      // Clamp horizontally so an edge-of-view anchor (common at portrait's
-      // tighter zoom) can't hang half the card off screen — same 145px
-      // half-width clamp the off-screen/tablet branches already use.
       const bx = Math.min(Math.max(bp.x, 145), window.innerWidth - 145);
-      // Keep the bubble off the player: on narrow portrait the anchor sits
-      // close enough to the spawn that the card parks on the character. If
-      // the two overlap horizontally, raise the bubble so its bottom clears
-      // the player's head by settings.tutorial.bubblePlayerClearance px.
       let by = bp.y;
       const pp = state?.player?.position;
       if (pp) {
@@ -218,9 +164,6 @@ export class TutorialView {
       return;
     }
 
-    // Clamp the projected point to the edge margins; the arrow points from its
-    // clamped spot toward the true (off-screen) position, bouncing along that
-    // direction so it reads as "go this way".
     this.ring.visible = false; // out of view anyway — keep the scene clean
     const cx = Math.min(Math.max(p.x, rect.left + m), rect.right - m);
     const cy = Math.min(Math.max(p.y, rect.top + m), rect.bottom - m);
@@ -233,8 +176,6 @@ export class TutorialView {
     this.arrow.style.top = `${ay}px`;
     this.arrow.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
 
-    // Bubble sits inward of the arrow (toward screen centre), clamped so a
-    // corner arrow never pushes it off screen.
     const bx = Math.min(Math.max(cx - Math.cos(angle) * 150, rect.left + 145), rect.right - 145);
     const by = Math.min(Math.max(cy - Math.sin(angle) * 90, rect.top + 40), rect.bottom - 60);
     this.#showBubble(text, bx, by, 'translate(-50%, -50%)');
@@ -258,13 +199,6 @@ export class TutorialView {
     this.arrow.style.display = 'none';
   }
 
-  // --- tablet-anchor pieces ----------------------------------------------------
-
-  /**
-   * The DOM element the glow should sit on for a tablet target, resolved
-   * against the menu's live state: its handle while closed, the target tab's
-   * button while on another tab, then the actual row/button.
-   */
   #resolveTabletElement(anchor) {
     const menu = this.menu;
     if (!menu.isOpen) return menu.button;
@@ -274,7 +208,6 @@ export class TutorialView {
     return row?.wrap ?? menu.tabButtons.get(anchor.tab) ?? menu.button;
   }
 
-  /** The bouncing "open me" arrow under the Upgrades handle, pointing up at it. */
   #placeButtonArrow(el) {
     const rect = el.getBoundingClientRect();
     const bounce = Math.sin(this.time * 5) * 7;
@@ -297,14 +230,10 @@ export class TutorialView {
       return;
     }
     const rect = el.getBoundingClientRect();
-    // Below the element, clamped inside the viewport horizontally.
     const x = Math.min(Math.max(rect.left + rect.width / 2, 145), window.innerWidth - 145);
-    // Leave room for the nudge arrow while the tablet is still closed.
     const gap = this.menu.isOpen ? 10 : settings.tutorial.arrow.buttonGap + 34;
     this.#showBubble(text, x, rect.bottom + gap, 'translate(-50%, 0)');
   }
-
-  // --- shared bubble -------------------------------------------------------------
 
   #showBubble(text, x, y, transform) {
     if (this.bubble.textContent !== text) this.bubble.textContent = text;
@@ -317,8 +246,6 @@ export class TutorialView {
   #hideBubble() {
     this.bubble.style.display = 'none';
   }
-
-  // --- finale popup ----------------------------------------------------------------
 
   #showPopup(text) {
     if (this.popupEl) return; // already up — core's timer (or a tap) takes it down
@@ -371,8 +298,6 @@ export class TutorialView {
   }
 }
 
-// The pulsing glow outline for tablet UI targets — CSS animation, injected once
-// (same pattern as UpgradeMenu's stylesheet).
 let tutorialStylesInjected = false;
 function injectTutorialStylesheet() {
   if (tutorialStylesInjected) return;

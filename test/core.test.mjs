@@ -46,6 +46,8 @@ import {
   hireCost,
   buyBreakDuration,
   breakDurationCost,
+  buyBreakThreshold,
+  breakThresholdCost,
   buyPlayerSpeed,
   playerSpeedCost,
   playerSpeedMultiplier,
@@ -58,6 +60,8 @@ import {
   breakDuration,
   breakDurationAtLevel,
   breakRemaining,
+  breakThreshold,
+  breakThresholdAtLevel,
 } from '../src/core/breaks.js';
 import {
   getEffectiveReputation,
@@ -66,7 +70,13 @@ import {
   adCost,
 } from '../src/core/reputation.js';
 import { formatMoney } from '../src/core/format.js';
-import { migratePayload, SAVE_VERSION } from '../src/platform/storage.js';
+import {
+  migratePayload,
+  SAVE_VERSION,
+  setStorageBackend,
+  saveGame,
+  reconcilePlatformReset,
+} from '../src/platform/storage.js';
 import {
   TUTORIAL_STEPS,
   tickTutorial,
@@ -1440,6 +1450,72 @@ check('a manual-tap completion with no mechanic never accrues a break', () => {
   assert.equal(s.pits[0].break.onBreak, false);
 });
 
+check('while its mechanic rests, the player can tap-repair the pit (present only)', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.pits[0].car = { id: 1, baseTicks: 1e6, ticksDone: 0, damageParts: ['tire'], payout: 5, fixed: false, settleRemaining: 0 };
+  s.pits[0].break.onBreak = true;
+
+  s.pits[0].playerPresent = false;
+  tapRepair(s, 0);
+  assert.equal(s.pits[0].car.ticksDone, 0, 'still needs the player standing at the pit');
+
+  s.pits[0].playerPresent = true;
+  tapRepair(s, 0);
+  assert.equal(s.pits[0].car.ticksDone, settings.repair.tapTicks, 'manual repair works during the break');
+});
+
+check('while its mechanic is WORKING, taps do not add manual repair on top', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  s.pits[0].car = { id: 1, baseTicks: 1e6, ticksDone: 0, damageParts: ['tire'], payout: 5, fixed: false, settleRemaining: 0 };
+  s.pits[0].playerPresent = true;
+  tapRepair(s, 0); // no tick yet: the mechanic is at its spot, on duty
+  assert.equal(s.pits[0].car.ticksDone, 0, 'an on-duty mechanic owns the pit');
+});
+
+check('after the break ends, the mechanic resumes auto-repair from the player-advanced progress', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  hireMechanic(s, 0);
+  for (let i = 0; i < 100; i++) tick(s, 0.05); // mechanic settles at its work spot
+  s.pits[0].car = { id: 1, baseTicks: 1e6, ticksDone: 0, damageParts: ['tire'], payout: 5, fixed: false, settleRemaining: 0 };
+  s.pits[0].break.onBreak = true;
+
+  s.pits[0].playerPresent = true;
+  tapRepair(s, 0);
+  tapRepair(s, 0);
+  const playerProgress = s.pits[0].car.ticksDone;
+  assert.equal(playerProgress, 2 * settings.repair.tapTicks);
+
+  endBreak(s.pits[0].break);
+  for (let i = 0; i < 2000 && s.pits[0].car; i++) tick(s, 0.05); // walks back, then auto-repairs
+  assert.ok(
+    !s.pits[0].car || s.pits[0].car.ticksDone > playerProgress,
+    'auto-repair continued from where the player left it'
+  );
+});
+
+check('the same manual tap works at EVERY pit whose mechanic is on break, not just pit A', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  s.permanentReputation = settings.reputation.repCap;
+  for (let i = 1; i < settings.maxPits; i++) {
+    buyExpandRoom(s);
+    buyPitEquipment(s, i);
+  }
+  for (let i = 0; i < settings.maxPits; i++) hireMechanic(s, i);
+  for (const pit of s.pits) {
+    pit.car = { id: pit.index, baseTicks: 1e6, ticksDone: 0, damageParts: ['tire'], payout: 5, fixed: false, settleRemaining: 0 };
+    pit.break.onBreak = true;
+    pit.playerPresent = true;
+    tapRepair(s, pit.index);
+    assert.equal(pit.car.ticksDone, settings.repair.tapTicks, `manual repair works at resting pit ${pit.index}`);
+  }
+});
+
 check('the market worker accrues a break per checkout and eventually rests', () => {
   const s = createInitialState();
   s.cash = 1e9;
@@ -2154,6 +2230,74 @@ check('an upgraded type\'s break actually ends at the halved duration', () => {
   assert.equal(b.onBreak, false);
 });
 
+// --- "Longer Shifts" (break threshold) upgrade ------------------------------
+console.log('\ncore longer-shifts (break threshold) upgrade');
+
+check('initial state: every worker type at threshold level 0, base threshold applies', () => {
+  const s = createInitialState();
+  assert.deepEqual(s.breakThresholdLevels, { carMechanic: 0, marketWorker: 0, gasAttendant: 0 });
+  const b = createBreakState('marketWorker');
+  assert.equal(breakThreshold(b, s), settings.breakThresholds.marketWorker);
+  assert.equal(breakThreshold(b), settings.breakThresholds.marketWorker, 'stateless call falls back to base');
+});
+
+check('each level doubles the threshold (50 → 100 → 200) for every worker type', () => {
+  for (const kind of ['carMechanic', 'marketWorker', 'gasAttendant']) {
+    const base = settings.breakThresholds[kind];
+    assert.equal(breakThresholdAtLevel(kind, 0), base);
+    assert.equal(breakThresholdAtLevel(kind, 1), base * 2);
+    assert.equal(breakThresholdAtLevel(kind, 2), base * 4);
+  }
+});
+
+check('buyBreakThreshold: per-type level, geometric cost, capped at maxLevel', () => {
+  const s = createInitialState();
+  const cfg = settings.upgrades.breakThreshold;
+  assert.equal(buyBreakThreshold(s, 'carMechanic'), false, 'no cash');
+
+  s.cash = 1e9;
+  const c0 = breakThresholdCost(s, 'carMechanic');
+  assert.equal(c0, cfg.carMechanic.baseCost);
+  assert.equal(buyBreakThreshold(s, 'carMechanic'), true);
+  assert.equal(s.breakThresholdLevels.carMechanic, 1);
+  assert.equal(s.breakThresholdLevels.marketWorker, 0, 'other types untouched');
+  assert.equal(s.breakThresholdLevels.gasAttendant, 0, 'other types untouched');
+  const c1 = breakThresholdCost(s, 'carMechanic');
+  assert.equal(c1, Math.round(c0 * cfg.carMechanic.costGrowth));
+
+  assert.equal(buyBreakThreshold(s, 'carMechanic'), true);
+  assert.equal(buyBreakThreshold(s, 'carMechanic'), false, 'capped at maxLevel');
+  assert.equal(s.breakThresholdLevels.carMechanic, cfg.maxLevel);
+  assert.equal(buyBreakThreshold(s, 'bogusKind'), false, 'unknown kinds are a safe no-op');
+});
+
+check('an upgraded type actually works its raised threshold before breaking', () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyBreakThreshold(s, 'gasAttendant'); // level 1: 100 jobs
+  const b = s.gasStation.pumps[0].break;
+  const base = settings.breakThresholds.gasAttendant;
+  for (let i = 0; i < base; i++) incrementJobCount(b, s);
+  assert.equal(b.onBreak, false, 'still working past the old 50-job threshold');
+  for (let i = 0; i < base; i++) incrementJobCount(b, s);
+  assert.equal(b.onBreak, true, 'breaks at the doubled threshold');
+});
+
+check("pit A's special early first break (5 jobs / 30s) is untouched by threshold levels", () => {
+  const s = createInitialState();
+  s.cash = 1e9;
+  buyBreakThreshold(s, 'carMechanic');
+  buyBreakThreshold(s, 'carMechanic'); // maxed: subsequent breaks at 200 jobs
+  const b = s.pits[0].break;
+  assert.equal(breakThreshold(b, s), settings.breakThresholds.pitAFirstBreak, 'first-break override wins');
+  for (let i = 0; i < settings.breakThresholds.pitAFirstBreak; i++) incrementJobCount(b, s);
+  assert.equal(b.onBreak, true, 'first break still trips after 5 jobs');
+  assert.ok(Math.abs(breakDuration(b, s) - settings.breakDurations.pitAFirstBreak) < 1e-9, 'first break still 30s');
+  endBreak(b);
+  b.firstDuration = null; // the one-time override is spent with the first break
+  assert.equal(breakThreshold(b, s), settings.breakThresholds.carMechanic * 4, 'later breaks use the upgraded threshold');
+});
+
 // --- player speed upgrade -------------------------------------------------
 console.log('\ncore player speed upgrade');
 
@@ -2837,6 +2981,13 @@ check('a finished tutorial is not re-indexed by the v19→v20 step swap', () => 
   assert.equal(out.state.tutorial.firstBreakEverStarted, false, 'the latch is still backfilled');
 });
 
+check('v20→v21 backfills breakThresholdLevels at level 0 for every worker type', () => {
+  const out = migratePayload({ saveVersion: 20, state: { cash: 7 } });
+  assert.equal(out.saveVersion, SAVE_VERSION);
+  assert.deepEqual(out.state.breakThresholdLevels, { carMechanic: 0, marketWorker: 0, gasAttendant: 0 });
+  assert.equal(out.state.cash, 7, 'the rest of the save is untouched');
+});
+
 check('saves with no migration path are discarded: too old, from the future, or malformed', () => {
   assert.equal(migratePayload({ saveVersion: 3, state: {} }), null, 'ancient version with no registered steps');
   assert.equal(migratePayload({ saveVersion: SAVE_VERSION + 1, state: {} }), null, 'newer build\'s save');
@@ -2849,6 +3000,78 @@ check('a current-version save passes through unchanged', () => {
   const out = migratePayload(payload);
   assert.equal(out, payload);
   assert.equal(out.state.cash, 42);
+});
+
+// --- platform-side reset detection (platform/storage.js, pure part only) -----
+// A platform's "Reset Progress" deletes our keys with no event, and the dying
+// session's autosaves re-write the save afterwards (a "ghost"). The boot
+// canary tells the two apart — exercised here over an in-memory fake backend.
+console.log('\nplatform-side reset detection');
+
+const SAVE_KEY = 'garageIdleSave';
+const CANARY_KEY = 'garageIdleCanary';
+
+/** Minimal in-memory backend mirroring the shape setStorageBackend expects. */
+function memoryBackend(initial = {}) {
+  const store = new Map(Object.entries(initial));
+  return {
+    store,
+    read: (key) => store.get(key) ?? null,
+    write: (raw, key) => store.set(key, raw),
+    wipe: () => store.clear(),
+  };
+}
+
+check('saveGame stamps its payloads canary:true', () => {
+  const b = memoryBackend();
+  setStorageBackend(b);
+  saveGame({ cash: 7 });
+  const payload = JSON.parse(b.store.get(SAVE_KEY));
+  assert.equal(payload.canary, true);
+  assert.equal(payload.state.cash, 7);
+});
+
+check('fresh boot: no save, no wipe detected, canary planted', () => {
+  const b = memoryBackend();
+  setStorageBackend(b);
+  assert.equal(reconcilePlatformReset(), false);
+  assert.equal(b.store.get(CANARY_KEY), '1');
+});
+
+check('normal boot: stamped save + canary present → save kept', () => {
+  const b = memoryBackend({ [CANARY_KEY]: '1' });
+  setStorageBackend(b);
+  saveGame({ cash: 9 });
+  assert.equal(reconcilePlatformReset(), false);
+  assert.equal(JSON.parse(b.store.get(SAVE_KEY)).state.cash, 9, 'the save survives');
+});
+
+check('post-reset boot: stamped GHOST save without its canary → wiped, fresh start', () => {
+  const b = memoryBackend({ [CANARY_KEY]: '1' });
+  setStorageBackend(b);
+  saveGame({ cash: 11 });
+  b.store.delete(CANARY_KEY); // the platform's Reset Progress wipes ALL keys…
+  saveGame({ cash: 11 }); // …then the doomed session's autosave re-writes only the save
+  assert.equal(reconcilePlatformReset(), true, 'the ghost is recognized');
+  assert.equal(b.store.get(SAVE_KEY), undefined, 'and discarded');
+  assert.equal(b.store.get(CANARY_KEY), '1', 'canary re-planted for the fresh run');
+});
+
+check('a legacy save without the canary stamp is exempt (no false wipe on update)', () => {
+  const b = memoryBackend({
+    [SAVE_KEY]: JSON.stringify({ saveVersion: SAVE_VERSION, savedAt: 1, state: { cash: 5 } }),
+  });
+  setStorageBackend(b);
+  assert.equal(reconcilePlatformReset(), false);
+  assert.equal(JSON.parse(b.store.get(SAVE_KEY)).state.cash, 5, 'the pre-update save survives');
+  assert.equal(b.store.get(CANARY_KEY), '1', 'and is protected from here on');
+});
+
+check('an unreadable save never trips the wipe path', () => {
+  const b = memoryBackend({ [SAVE_KEY]: 'not json{{' });
+  setStorageBackend(b);
+  assert.equal(reconcilePlatformReset(), false);
+  assert.equal(b.store.get(CANARY_KEY), '1');
 });
 
 console.log(`\n${passed} passed`);
